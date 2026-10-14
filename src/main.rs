@@ -15,8 +15,8 @@ use tracing_subscriber::EnvFilter;
 
 use crate::bot::App;
 use crate::crypto::PhoneCipher;
-use crate::location::neighborhoods::Neighborhoods;
 use crate::location::routing::Osrm;
+use crate::location::zones::Zones;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     let channel = ChatId(config.offers_channel_id.context("OFFERS_CHANNEL_ID is required to run the bot")?);
     let cipher = PhoneCipher::from_hex(config.phone_key.as_deref().context("PHONE_KEY is required to run the bot")?)?;
     let osrm = Osrm::new(&config.osrm_url)?;
-    let neighborhoods = Neighborhoods::bundled()?;
+    let zones = Zones::bundled()?;
 
     let bot = Bot::new(token);
     let me = bot.get_me().await.context("cannot reach Telegram with TELEGRAM_TOKEN")?;
@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
         config,
         cipher,
         osrm,
-        neighborhoods,
+        zones,
         channel,
         channel_link,
         bot_username: me.username().to_owned(),

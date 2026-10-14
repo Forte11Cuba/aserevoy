@@ -334,8 +334,8 @@ pub fn price_prompt(lang: Lang, km: f64, minutes: f64, suggested: Cup, minimum: 
     }
 }
 
-/// The offer as drivers see it in the channel: approximate zones (nearest
-/// neighborhoods), never the exact location or the contact.
+/// The offer as drivers see it in the channel: approximate zones (the
+/// municipality of each pin), never the exact location or the contact.
 pub fn channel_post(
     lang: Lang,
     request: &RequestId,

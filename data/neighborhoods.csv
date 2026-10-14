@@ -1,5 +1,0 @@
-# Neighborhoods (repartos) of the pilot zone, used to show an approximate
-# zone in the channel: the nearest one to each pin. One per line: name,lat,lon
-# Pending: the pilot zone and its list are an open question in docs/diseno.md.
-# While this file is empty, the channel shows no zone.
-name,lat,lon

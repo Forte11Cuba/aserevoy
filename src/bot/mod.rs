@@ -23,8 +23,8 @@ use crate::domain::driver::DriverStatus;
 use crate::domain::ids::UserId;
 use crate::domain::request::UnixTime;
 use crate::i18n::Lang;
-use crate::location::neighborhoods::Neighborhoods;
 use crate::location::routing::Osrm;
+use crate::location::zones::Zones;
 
 pub type HandlerResult = anyhow::Result<()>;
 
@@ -33,7 +33,7 @@ pub struct App {
     pub config: Config,
     pub cipher: PhoneCipher,
     pub osrm: Osrm,
-    pub neighborhoods: Neighborhoods,
+    pub zones: Zones,
     /// The offers channel.
     pub channel: ChatId,
     /// Join-request link to the channel, sent to approved drivers.
