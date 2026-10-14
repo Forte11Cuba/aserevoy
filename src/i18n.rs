@@ -99,9 +99,12 @@ pub enum Button {
     AcceptTerms,
     RatingDone,
     Back,
+    StepBack,
+    Publish,
 }
 
-const REPLY_BUTTONS: [Button; 11] = [
+const REPLY_BUTTONS: [Button; 12] = [
+    Button::StepBack,
     Button::RequestRide,
     Button::ApplyDriver,
     Button::MyProfile,
@@ -204,6 +207,10 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, RatingDone) => "✅ Done",
         (Lang::Es, Back) => "↩️ Volver",
         (Lang::En, Back) => "↩️ Back",
+        (Lang::Es, StepBack) => "↩️ Atrás",
+        (Lang::En, StepBack) => "↩️ Back",
+        (Lang::Es, Publish) => "✅ Publicar",
+        (Lang::En, Publish) => "✅ Publish",
     }
 }
 
@@ -517,6 +524,29 @@ pub fn reparto_not_found(lang: Lang, municipality: &str) -> String {
     match lang {
         Lang::Es => format!("No encontré ese reparto en {municipality}. Escríbelo de otra forma o envía tu ubicación 📍."),
         Lang::En => format!("I couldn't find that neighborhood in {municipality}. Type it another way or send your location 📍."),
+    }
+}
+
+/// The last look before publishing.
+pub fn ride_summary(
+    lang: Lang,
+    from: &str,
+    to: &str,
+    km: f64,
+    approx: bool,
+    price: Cup,
+    pay: PaymentMethod,
+) -> String {
+    let about = if approx { "≈" } else { "" };
+    let per_km = if km > 0.0 { (price as f64 / km).round() as Cup } else { price };
+    let pay = payment(lang, pay);
+    match lang {
+        Lang::Es => format!(
+            "📋 Revisa tu solicitud\n\n📍 Recogida: {from}\n🏁 Destino: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP por km) · {pay}\n\nSi está bien, publícala; si no, vuelve atrás."
+        ),
+        Lang::En => format!(
+            "📋 Check your request\n\n📍 Pickup: {from}\n🏁 Destination: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP per km) · {pay}\n\nIf it's right, publish it; if not, go back."
+        ),
     }
 }
 
@@ -1181,6 +1211,13 @@ pub fn admins_list(lang: Lang, names: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_summary_shows_everything_before_publishing() {
+        let text = ride_summary(Lang::Es, "Plaza (23 y L)", "Centro Habana", 3.5, false, 600, PaymentMethod::Cash);
+        assert!(text.contains("Recogida: Plaza (23 y L)") && text.contains("Destino: Centro Habana"), "{text}");
+        assert!(text.contains("3.5 km · 💰 600 CUP (≈171 CUP por km)"), "{text}");
+    }
 
     #[test]
     fn the_offer_shows_its_price_per_km() {

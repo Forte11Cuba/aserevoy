@@ -31,11 +31,17 @@ pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool, is_superadmin: boo
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
-/// While a conversation runs: optional extra buttons plus Cancel.
+/// While a form runs: optional extra buttons, then Back (to the previous
+/// step) on the left and Cancel (the whole form) on the right.
 pub fn step(lang: Lang, extra: &[KeyboardButton]) -> KeyboardMarkup {
     let mut rows: Vec<Vec<KeyboardButton>> = extra.iter().cloned().map(|b| vec![b]).collect();
-    rows.push(vec![reply(lang, Button::Cancel)]);
+    rows.push(vec![reply(lang, Button::StepBack), reply(lang, Button::Cancel)]);
     KeyboardMarkup::new(rows).resize_keyboard()
+}
+
+/// Under the summary: Back on the left, Publish on the right.
+pub fn summary(lang: Lang) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::StepBack, "sback"), inline(lang, Button::Publish, "pub")]])
 }
 
 pub fn skip(lang: Lang) -> KeyboardButton {

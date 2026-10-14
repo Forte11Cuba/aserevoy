@@ -143,12 +143,38 @@ fn next(step: FormStep) -> FormStep {
     }
 }
 
+fn previous(step: FormStep) -> Option<FormStep> {
+    match step {
+        FormStep::Alias => None,
+        FormStep::Phone => Some(FormStep::Alias),
+        FormStep::Plate => Some(FormStep::Phone),
+        FormStep::BikeModel => Some(FormStep::Plate),
+        FormStep::BikeColor => Some(FormStep::BikeModel),
+        FormStep::Photo => Some(FormStep::BikeColor),
+        FormStep::BikePhoto => Some(FormStep::Photo),
+        FormStep::Methods => Some(FormStep::BikePhoto),
+    }
+}
+
 /// A message while the form is open.
 pub async fn on_message(cx: &Ctx<'_>, mut form: DriverForm, msg: &Message) -> anyhow::Result<()> {
     let Some(step) = form.step else {
         return start_form(cx, form).await;
     };
     let text = msg.text().map(str::trim);
+    if text.and_then(parse_button) == Some(Button::StepBack) {
+        // Back to the previous question, keeping the answers; from the
+        // first one, out of the form.
+        return match previous(step) {
+            Some(prev) => ask(cx, form, prev).await,
+            None => {
+                db::dialogs::clear(&cx.app.pool, cx.user).await?;
+                let menu = cx.app.menu(cx.user, cx.lang).await?;
+                cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::Cancelled)).reply_markup(menu).await?;
+                Ok(())
+            }
+        };
+    }
     let skipped = text.and_then(parse_button) == Some(Button::Skip);
     let photo = msg.photo().and_then(|sizes| sizes.last()).map(|p| p.file.id.0.clone());
 

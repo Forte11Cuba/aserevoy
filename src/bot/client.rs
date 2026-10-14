@@ -94,6 +94,9 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
     let skipped = text.and_then(parse_button) == Some(Button::Skip);
     // Free text that is not one of our buttons: maybe a written address.
     let written = text.filter(|t| parse_button(t).is_none());
+    if text.and_then(parse_button) == Some(Button::StepBack) {
+        return back(cx, ride).await;
+    }
 
     match ride {
         Ride::RepartoPickup { text: description, municipality, .. } if point.is_none() && written.is_some() => {
@@ -150,7 +153,57 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
             cx.say(Text::ConfirmDropoff, keyboards::confirm_point(cx.lang, "drop")).await
         }
         Ride::Payment { .. } => cx.say(Text::AskPayment, keyboards::payment(cx.lang)).await,
+        Ride::Summary { trip, price, payment } => show_summary(cx, trip, price, payment).await,
     }
+}
+
+/// ↩️ Back: the previous step, keeping what was already chosen. From the
+/// first step it leaves the form.
+async fn back(cx: &Ctx<'_>, ride: Ride) -> anyhow::Result<()> {
+    match ride {
+        Ride::Pickup => {
+            db::dialogs::clear(&cx.app.pool, cx.user).await?;
+            let menu = cx.app.menu(cx.user, cx.lang).await?;
+            cx.say(Text::Cancelled, menu).await
+        }
+        Ride::ChoosePickup { .. }
+        | Ride::DescribePickup { .. }
+        | Ride::RepartoPickup { .. }
+        | Ride::ConfirmPickup { .. }
+        | Ride::Reference { .. } => ask_pickup(cx).await,
+        // A described pickup has no landmark step: back to the pickup itself.
+        Ride::Dropoff { pickup } if pickup.approx => ask_pickup(cx).await,
+        Ride::Dropoff { pickup } => {
+            cx.save(Ride::Reference { pickup: pickup.point }).await?;
+            cx.say(Text::AskReference, keyboards::step(cx.lang, &[keyboards::skip(cx.lang)])).await
+        }
+        Ride::ChooseDropoff { pickup, .. }
+        | Ride::DescribeDropoff { pickup, .. }
+        | Ride::RepartoDropoff { pickup, .. }
+        | Ride::ConfirmDropoff { pickup, .. } => ask_dropoff(cx, pickup).await,
+        Ride::Price { trip, .. } => ask_dropoff(cx, trip.pickup).await,
+        Ride::Payment { trip, price } => show_price(cx, trip, price).await,
+        Ride::Summary { trip, price, .. } => ask_payment(cx, trip, price).await,
+    }
+}
+
+/// The last look before publishing: both points, distance, price and payment.
+async fn show_summary(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -> anyhow::Result<()> {
+    let place = |spot: &Spot| {
+        let municipality = cx.app.zones.municipality(spot.point).unwrap_or("?");
+        match (&spot.note, spot.approx) {
+            (Some(note), true) => note.clone(),
+            _ => match cx.app.streets.nearest_corner(spot.point) {
+                Some(corner) => format!("{municipality} ({corner})"),
+                None => municipality.to_owned(),
+            },
+        }
+    };
+    let approx = trip.pickup.approx || trip.dropoff.approx;
+    let text = i18n::ride_summary(cx.lang, &place(&trip.pickup), &place(&trip.dropoff), trip.km, approx, price, payment);
+    cx.save(Ride::Summary { trip, price, payment }).await?;
+    cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::summary(cx.lang)).await?;
+    Ok(())
 }
 
 /// A written address: the rules find the candidates; with one, it is used;
@@ -310,11 +363,19 @@ pub async fn on_callback(
         }
         (Ride::Payment { trip, price }, "pay", method) => match PaymentMethod::parse(method) {
             Some(payment) => {
-                publish(cx, trip, price, payment).await?;
+                show_summary(cx, trip, price, payment).await?;
                 true
             }
             None => false,
         },
+        (Ride::Summary { trip, price, payment }, "pub", _) => {
+            publish(cx, trip, price, payment).await?;
+            true
+        }
+        (Ride::Summary { trip, price, .. }, "sback", _) => {
+            ask_payment(cx, trip, price).await?;
+            true
+        }
         // A button from an earlier step: ignore it.
         _ => false,
     };
@@ -411,10 +472,16 @@ async fn confirm_route(cx: &Ctx<'_>, pickup: Spot, dropoff: Spot) -> anyhow::Res
     let suggested = fare::suggested_price(km, &fares);
     let minimum = fare::minimum_price(suggested, &fares);
     let trip = Trip { pickup, dropoff, km, minutes, suggested, minimum };
-    let text = price_text(cx, &trip, suggested);
-    cx.save(Ride::Price { trip, offer: suggested }).await?;
-    cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::price_adjust(cx.lang, suggested)).await?;
+    show_price(cx, trip, suggested).await?;
     Ok(true)
+}
+
+/// The offer step, with `offer` as the current amount.
+async fn show_price(cx: &Ctx<'_>, trip: Trip, offer: Cup) -> anyhow::Result<()> {
+    let text = price_text(cx, &trip, offer);
+    cx.save(Ride::Price { trip, offer }).await?;
+    cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::price_adjust(cx.lang, offer)).await?;
+    Ok(())
 }
 
 fn price_text(cx: &Ctx<'_>, trip: &Trip, offer: Cup) -> String {

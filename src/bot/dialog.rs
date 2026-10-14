@@ -52,6 +52,8 @@ pub enum Ride {
     /// The client adjusts their offer, starting at the suggested price.
     Price { trip: Trip, offer: Cup },
     Payment { trip: Trip, price: Cup },
+    /// The last look: publish or go back.
+    Summary { trip: Trip, price: Cup, payment: PaymentMethod },
 }
 
 /// A place the bot found for a written address.
