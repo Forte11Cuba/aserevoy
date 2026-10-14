@@ -1,0 +1,8 @@
+/target
+.env
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+/osrm-data/
+CLAUDE.md
