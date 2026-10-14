@@ -71,8 +71,14 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         db::dialogs::clear(&app.pool, cx.user).await?;
         return resume_start(&cx, Some(payload)).await;
     }
+    if let Some(shared) = msg.shared_users().and_then(|s| s.users.first()) {
+        return driver::invite_contact(&cx, UserId(shared.user_id.0 as i64)).await;
+    }
     if let Some(code) = text.and_then(|t| t.strip_prefix("/caso")) {
         return support::lookup(&cx, code).await;
+    }
+    if text == Some("/metricas") {
+        return admin::show_metrics(&cx).await;
     }
     if text == Some("/tarifas") {
         return admin::show_fares(&cx).await;
@@ -91,6 +97,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::ApplyDriver) => driver::apply(&cx).await,
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
+        Some(Button::CreateLink) => driver::invite_link(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
         Some(Button::Admins) => admin::show_admins(&cx).await,
         Some(Button::SwitchLang) => {
@@ -113,6 +120,9 @@ async fn resume_start(cx: &Ctx<'_>, payload: Option<String>) -> HandlerResult {
     }
     if let Some(id) = payload.strip_prefix("co_") {
         return auction::start_counteroffer(cx, id).await;
+    }
+    if driver::start_if_invited(cx).await? {
+        return Ok(());
     }
     menu(cx, Text::Welcome).await
 }

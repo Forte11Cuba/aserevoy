@@ -151,6 +151,15 @@ pub fn local_time(t: UnixTime) -> String {
     }
 }
 
+/// The Cuban date of a time, "2026-10-14", for the daily metrics.
+pub fn local_date(t: UnixTime) -> String {
+    use chrono::TimeZone;
+    match chrono_tz::America::Havana.timestamp_opt(t, 0) {
+        chrono::LocalResult::Single(dt) => dt.format("%Y-%m-%d").to_string(),
+        _ => String::new(),
+    }
+}
+
 pub fn now() -> UnixTime {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as UnixTime).unwrap_or_default()
 }

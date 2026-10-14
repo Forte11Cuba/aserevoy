@@ -7,7 +7,7 @@ use teloxide::prelude::*;
 use teloxide::types::{FileId, InputFile, MessageId};
 
 use super::dialog::{Dialog, Republish, Spot};
-use super::{App, chat, keyboards, local_time, now, rating, support};
+use super::{App, chat, keyboards, local_date, local_time, now, rating, support};
 use crate::db;
 use crate::db::moderation::BlockReason;
 use crate::domain::effect::{Alert, Effect, Notice, Place};
@@ -39,6 +39,8 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                 }
             }
             Effect::MarkChannelTaken { .. } => {
+                let metric = db::metrics::assigned(&app.pool, &local_date(now()), request.price, request.suggested).await;
+                log_failure(metric, "metrics");
                 if let Some(msg) = request.channel_msg_id {
                     let text = i18n::channel_taken(CHANNEL_LANG, &request.id);
                     log_failure(bot.edit_message_text(app.channel, MessageId(msg), text).await, "mark taken");
@@ -88,7 +90,10 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                 log_failure(rating::start(bot, app, client, driver).await, "start rating");
             }
             Effect::Alert { alert } => log_failure(send_alert(bot, app, &alert).await, "alert"),
-            Effect::Forget { request: id } => db::requests::forget(&app.pool, &id).await?,
+            Effect::Forget { request: id } => {
+                db::requests::forget(&app.pool, &id).await?;
+                log_failure(db::metrics::closed(&app.pool, &local_date(now()), request.state).await, "metrics");
+            }
         }
     }
     Ok(())
@@ -146,6 +151,7 @@ async fn publish(bot: &Bot, app: &App, request: &mut Request) -> anyhow::Result<
     }
     request.channel_msg_id = Some(msg.id.0);
     tracing::info!(request = %request.id, "published");
+    log_failure(db::metrics::published(&app.pool, &local_date(now()), request.km, request.price).await, "metrics");
     Ok(())
 }
 

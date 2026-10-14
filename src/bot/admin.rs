@@ -102,6 +102,17 @@ async fn kick_from_channel(bot: &Bot, app: &App, driver: UserId, allow_back: boo
     }
 }
 
+/// `/metricas` (superadmins): the last 7 days, aggregates only.
+pub async fn show_metrics(cx: &Ctx<'_>) -> anyhow::Result<()> {
+    if !cx.app.config.is_superadmin(cx.user) {
+        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
+        return Ok(());
+    }
+    let days = db::metrics::last(&cx.app.pool, 7).await?;
+    cx.bot.send_message(chat(cx.user), i18n::metrics(cx.lang, &days)).await?;
+    Ok(())
+}
+
 /// `/tarifas` (staff): the current fares.
 pub async fn show_fares(cx: &Ctx<'_>) -> anyhow::Result<()> {
     if !cx.app.is_staff(cx.user).await? {
@@ -175,7 +186,7 @@ pub async fn invite_admin(cx: &Ctx<'_>) -> anyhow::Result<Option<String>> {
 pub async fn redeem_admin_invite(cx: &Ctx<'_>, code: &str) -> anyhow::Result<()> {
     let app = cx.app;
     let redeemed = match InviteCode::parse(code) {
-        Some(code) => match db::invitations::check(&app.pool, &code, InviteRole::Admin, now()).await? {
+        Some(code) => match db::invitations::check(&app.pool, &code, InviteRole::Admin, cx.user, now()).await? {
             Some(by) if db::invitations::redeem(&app.pool, &code, InviteRole::Admin, cx.user, now()).await? => Some(by),
             _ => None,
         },
