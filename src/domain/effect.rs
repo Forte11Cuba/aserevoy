@@ -10,9 +10,16 @@ pub enum Effect {
     MarkChannelTaken { request: RequestId },
     DeleteFromChannel { request: RequestId },
     Notify { to: UserId, notice: Notice },
-    SendLocation { to: UserId, point: Point },
+    SendLocation { to: UserId, point: Point, place: Place },
     /// The request reached a final state: delete its row.
     Forget { request: RequestId },
+}
+
+/// Which point of the trip a location is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Place {
+    Pickup,
+    Dropoff,
 }
 
 /// Messages for users. The bot renders them in the user's language (see `i18n`).

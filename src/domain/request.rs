@@ -10,7 +10,7 @@
 //! Atomicity (one winner per request, one trip per driver) is enforced by the
 //! database; these methods validate the transition and return the effects.
 
-use super::effect::{Effect, Notice};
+use super::effect::{Effect, Notice, Place};
 use super::fare::{self, Cup, Fares};
 use super::ids::{RequestId, UserId};
 
@@ -187,7 +187,8 @@ impl Request {
                 to: driver,
                 notice: Notice::TripAssigned { request: id.clone(), client: self.client },
             },
-            Effect::SendLocation { to: driver, point: self.pickup },
+            Effect::SendLocation { to: driver, point: self.pickup, place: Place::Pickup },
+            Effect::SendLocation { to: driver, point: self.dropoff, place: Place::Dropoff },
         ])
     }
 
@@ -312,12 +313,13 @@ mod tests {
     }
 
     #[test]
-    fn accepting_assigns_and_sends_the_pickup_to_the_driver() {
+    fn accepting_assigns_and_sends_pickup_and_dropoff_to_the_driver() {
         let mut r = open();
         let effects = r.accept(DRIVER, T0 + 10).unwrap();
         assert_eq!(r.state, State::Assigned);
         assert_eq!(r.driver, Some(DRIVER));
-        assert!(effects.contains(&Effect::SendLocation { to: DRIVER, point: r.pickup }));
+        assert!(effects.contains(&Effect::SendLocation { to: DRIVER, point: r.pickup, place: Place::Pickup }));
+        assert!(effects.contains(&Effect::SendLocation { to: DRIVER, point: r.dropoff, place: Place::Dropoff }));
         assert!(matches!(effects[0], Effect::MarkChannelTaken { .. }));
     }
 

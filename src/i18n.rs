@@ -2,7 +2,7 @@
 //! over `Lang`, so the compiler rejects a message missing a translation.
 
 use crate::domain::driver::{DriverStatus, PaymentMethods, Profile};
-use crate::domain::effect::Notice;
+use crate::domain::effect::{Notice, Place};
 use crate::domain::fare::Cup;
 use crate::domain::ids::RequestId;
 use crate::domain::request::{DomainError, PaymentMethod};
@@ -334,12 +334,36 @@ pub fn price_prompt(lang: Lang, km: f64, minutes: f64, suggested: Cup, minimum: 
     }
 }
 
-/// The offer as drivers see it in the channel: no exact location or contact.
-pub fn channel_post(lang: Lang, request: &RequestId, km: f64, price: Cup, pay: PaymentMethod) -> String {
+/// The offer as drivers see it in the channel: approximate zones (nearest
+/// neighborhoods), never the exact location or the contact.
+pub fn channel_post(
+    lang: Lang,
+    request: &RequestId,
+    km: f64,
+    price: Cup,
+    pay: PaymentMethod,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> String {
     let pay = payment(lang, pay);
-    match lang {
-        Lang::Es => format!("🛵 Solicitud {request}\n📏 {km:.1} km\n💰 {price} CUP · {pay}"),
-        Lang::En => format!("🛵 Request {request}\n📏 {km:.1} km\n💰 {price} CUP · {pay}"),
+    let mut post = match lang {
+        Lang::Es => format!("🛵 Solicitud {request}\n"),
+        Lang::En => format!("🛵 Request {request}\n"),
+    };
+    if from.is_some() || to.is_some() {
+        post.push_str(&format!("📍 {} → {}\n", from.unwrap_or("?"), to.unwrap_or("?")));
+    }
+    post.push_str(&format!("📏 {km:.1} km\n💰 {price} CUP · {pay}"));
+    post
+}
+
+/// Title of a pin sent to the driver.
+pub fn place(lang: Lang, place: Place) -> &'static str {
+    match (lang, place) {
+        (Lang::Es, Place::Pickup) => "📍 Recogida",
+        (Lang::En, Place::Pickup) => "📍 Pickup",
+        (Lang::Es, Place::Dropoff) => "🏁 Destino",
+        (Lang::En, Place::Dropoff) => "🏁 Destination",
     }
 }
 
@@ -403,8 +427,8 @@ pub fn trip_assigned(
     }
     lines.push(
         match lang {
-            Lang::Es => "Abajo tienes el punto de recogida.",
-            Lang::En => "The pickup point is below.",
+            Lang::Es => "Abajo tienes la recogida y el destino.",
+            Lang::En => "The pickup and destination are below.",
         }
         .into(),
     );

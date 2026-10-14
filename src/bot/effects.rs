@@ -34,8 +34,12 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
             Effect::Notify { to, notice } => {
                 log_failure(notify(bot, app, request, to, &notice).await, "notify");
             }
-            Effect::SendLocation { to, point } => {
-                log_failure(bot.send_location(chat(to), point.lat, point.lon).await, "send location");
+            Effect::SendLocation { to, point, place } => {
+                // A venue carries a title, so the driver can tell pickup from destination.
+                let title = i18n::place(app.lang_of(to).await, place);
+                let address = app.neighborhoods.nearest(point).unwrap_or(title);
+                let sent = bot.send_venue(chat(to), point.lat, point.lon, title, address).await;
+                log_failure(sent, "send location");
             }
             Effect::Forget { request: id } => db::requests::forget(&app.pool, &id).await?,
         }
@@ -44,7 +48,16 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
 }
 
 async fn publish(bot: &Bot, app: &App, request: &mut Request) -> anyhow::Result<()> {
-    let text = i18n::channel_post(CHANNEL_LANG, &request.id, request.km, request.price, request.payment);
+    let zones = &app.neighborhoods;
+    let text = i18n::channel_post(
+        CHANNEL_LANG,
+        &request.id,
+        request.km,
+        request.price,
+        request.payment,
+        zones.nearest(request.pickup),
+        zones.nearest(request.dropoff),
+    );
     // The Accept button is added only once the post id is saved, so a quick
     // acceptance can always mark the post as taken.
     let msg = bot.send_message(app.channel, text).await.context("cannot post to the offers channel")?;

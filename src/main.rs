@@ -15,6 +15,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::bot::App;
 use crate::crypto::PhoneCipher;
+use crate::location::neighborhoods::Neighborhoods;
 use crate::location::routing::Osrm;
 
 #[tokio::main]
@@ -38,12 +39,23 @@ async fn main() -> anyhow::Result<()> {
     let channel = ChatId(config.offers_channel_id.context("OFFERS_CHANNEL_ID is required to run the bot")?);
     let cipher = PhoneCipher::from_hex(config.phone_key.as_deref().context("PHONE_KEY is required to run the bot")?)?;
     let osrm = Osrm::new(&config.osrm_url)?;
+    let neighborhoods = Neighborhoods::bundled()?;
 
     let bot = Bot::new(token);
     let me = bot.get_me().await.context("cannot reach Telegram with TELEGRAM_TOKEN")?;
     let channel_link = channel_link(&bot, &pool, channel).await?;
 
-    let app = Arc::new(App::new(pool, config, cipher, osrm, channel, channel_link, me.username().to_owned()));
+    let app = Arc::new(App {
+        pool,
+        config,
+        cipher,
+        osrm,
+        neighborhoods,
+        channel,
+        channel_link,
+        bot_username: me.username().to_owned(),
+        seen_langs: Default::default(),
+    });
     tokio::spawn(tasks::sweeper::run(bot.clone(), app.clone()));
     tracing::info!("bot started");
     bot::dispatcher::run(bot, app).await;

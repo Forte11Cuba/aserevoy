@@ -23,6 +23,7 @@ use crate::domain::driver::DriverStatus;
 use crate::domain::ids::UserId;
 use crate::domain::request::UnixTime;
 use crate::i18n::Lang;
+use crate::location::neighborhoods::Neighborhoods;
 use crate::location::routing::Osrm;
 
 pub type HandlerResult = anyhow::Result<()>;
@@ -32,31 +33,21 @@ pub struct App {
     pub config: Config,
     pub cipher: PhoneCipher,
     pub osrm: Osrm,
+    pub neighborhoods: Neighborhoods,
     /// The offers channel.
     pub channel: ChatId,
     /// Join-request link to the channel, sent to approved drivers.
     pub channel_link: String,
     pub bot_username: String,
     /// Language Telegram reported for each user seen since start, to notify
-    /// them in it when someone else triggers the message. Not persisted.
-    seen_langs: Mutex<HashMap<i64, Lang>>,
+    /// them in it when someone else triggers the message. Not persisted;
+    /// starts empty.
+    pub seen_langs: Mutex<HashMap<i64, Lang>>,
 }
 
 pub type AppRef = Arc<App>;
 
 impl App {
-    pub fn new(
-        pool: SqlitePool,
-        config: Config,
-        cipher: PhoneCipher,
-        osrm: Osrm,
-        channel: ChatId,
-        channel_link: String,
-        bot_username: String,
-    ) -> App {
-        App { pool, config, cipher, osrm, channel, channel_link, bot_username, seen_langs: Mutex::default() }
-    }
-
     /// The language for the user who sent an update: their saved choice, or
     /// else what their Telegram app uses.
     pub async fn lang_for(&self, user: &User) -> anyhow::Result<Lang> {
