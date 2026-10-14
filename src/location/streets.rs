@@ -338,6 +338,7 @@ fn parse(text: &str) -> Address {
         None => acc,
     });
     let main = format!(" {} ", main.replace('/', "/ ").replace('.', ". "));
+    let main = unglue_y(&main);
 
     for marker in [" e/ ", " entre ", " e ", " e. "] {
         if let Some((street, rest)) = main.split_once(marker)
@@ -358,6 +359,18 @@ fn parse(text: &str) -> Address {
         }
     }
     Address { kind: AddressKind::Place(normalize(&main)), hints }
+}
+
+/// "3ra ay 3b": a street letter typed together with "y" ("ay" for "a y").
+/// Only single letters a to h, the ones Cuban streets use ("3ra A").
+fn unglue_y(text: &str) -> String {
+    text.split(' ')
+        .map(|w| match w.as_bytes() {
+            [l @ b'a'..=b'h', b'y'] => format!("{} y", *l as char),
+            _ => w.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 const HOUSE_NUMBER: [&str; 4] = ["#", "no. ", "número ", "numero "];
@@ -428,7 +441,10 @@ fn ordinal(word: &str) -> String {
     }
     let digits: String = word.chars().take_while(char::is_ascii_digit).collect();
     let suffix = &word[digits.len()..];
-    if !digits.is_empty() && ["ra", "da", "ta", "na", "ma", "va", "o", "a", "er"].contains(&suffix) {
+    // "3ra", "3era", "1ro", "1ero", "2do", "5ta", "9na"… (and "3a", "1o" for 3ª, 1º).
+    const SUFFIXES: [&str; 17] =
+        ["ra", "da", "ta", "na", "ma", "va", "o", "a", "er", "era", "ero", "ro", "do", "to", "no", "mo", "vo"];
+    if !digits.is_empty() && SUFFIXES.contains(&suffix) {
         return digits;
     }
     word.to_owned()
@@ -479,6 +495,9 @@ mod tests {
         assert_eq!(normalize("Paseo"), "paseo");
         assert_eq!(normalize("Calle L"), "l");
         assert_eq!(normalize("1ra"), "1");
+        assert_eq!(normalize("3era"), "3");
+        assert_eq!(normalize("1ero"), "1");
+        assert_eq!(normalize("2do"), "2");
         assert_eq!(normalize("160 C"), "160c");
         assert_eq!(normalize("160C"), "160c");
         assert_eq!(normalize("7ma C"), "7c");
@@ -496,6 +515,8 @@ mod tests {
         assert_eq!(parse("Infanta esq. San Lázaro").kind, corner);
         assert_eq!(parse("infanta y san lazaro").kind, corner);
         assert_eq!(parse("frente al Coppelia").kind, AddressKind::Place("coppelia".into()));
+        let glued = AddressKind::Between { street: "160e".into(), a: "3a".into(), b: "3b".into() };
+        assert_eq!(parse("160e entre 3era ay 3b").kind, glued);
     }
 
     #[test]
@@ -538,6 +559,11 @@ mod tests {
         assert!(found.iter().any(|c| c.label.contains("Hermanos Ameijeiras") && c.municipality == "Centro Habana"));
 
         assert!(s.candidates("la casa azul detrás del policlínico").is_empty());
+
+        // Found in a live test: "3era" and "a y" typed as "ay".
+        let found = s.candidates("160e entre 3era ay 3b");
+        assert!(!found.is_empty(), "{found:?}");
+        assert!(found.iter().all(|c| c.municipality == "Habana del Este"));
 
         // Found in a live test: Alamar's streets are written "160 C" or "160C".
         let found = s.candidates("7ma entre 160c y 160d, Alamar");
