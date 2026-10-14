@@ -6,11 +6,11 @@ use anyhow::Context;
 use teloxide::prelude::*;
 use teloxide::types::{FileId, InputFile, MessageId};
 
-use super::dialog::{Dialog, Republish};
-use super::{App, chat, keyboards, local_time, now, rating, support};
+use super::dialog::{Dialog, Republish, Spot};
+use super::{App, chat, keyboards, local_date, local_time, now, rating, support};
 use crate::db;
 use crate::db::moderation::BlockReason;
-use crate::domain::effect::{Alert, Effect, Notice};
+use crate::domain::effect::{Alert, Effect, Notice, Place};
 use crate::domain::reputation::{CANCELLATION_BLOCK_SECS, Reputation, Role, Shown, cancellation_blocks};
 use crate::domain::ids::UserId;
 use crate::domain::request::Request;
@@ -39,6 +39,8 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                 }
             }
             Effect::MarkChannelTaken { .. } => {
+                let metric = db::metrics::assigned(&app.pool, &local_date(now()), request.price, request.suggested).await;
+                log_failure(metric, "metrics");
                 if let Some(msg) = request.channel_msg_id {
                     let text = i18n::channel_taken(CHANNEL_LANG, &request.id);
                     log_failure(bot.edit_message_text(app.channel, MessageId(msg), text).await, "mark taken");
@@ -53,8 +55,19 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                 log_failure(notify(bot, app, request, to, &notice).await, "notify");
             }
             Effect::SendLocation { to, point, place } => {
+                let lang = app.lang_of(to).await;
+                let (approx, note) = match place {
+                    Place::Pickup => (request.pickup_approx, request.reference.as_deref()),
+                    Place::Dropoff => (request.dropoff_approx, request.dropoff_note.as_deref()),
+                };
+                if approx {
+                    // No exact location: the client's description instead of a pin.
+                    let text = i18n::approx_point(lang, place, note.unwrap_or_default(), app.zones.municipality(point));
+                    log_failure(bot.send_message(chat(to), text).await, "send description");
+                    continue;
+                }
                 // A venue carries a title, so the driver can tell pickup from destination.
-                let title = i18n::place(app.lang_of(to).await, place);
+                let title = i18n::place(lang, place);
                 let address = app.zones.municipality(point).unwrap_or(title);
                 let sent = bot.send_venue(chat(to), point.lat, point.lon, title, address).await;
                 log_failure(sent, "send location");
@@ -77,7 +90,10 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                 log_failure(rating::start(bot, app, client, driver).await, "start rating");
             }
             Effect::Alert { alert } => log_failure(send_alert(bot, app, &alert).await, "alert"),
-            Effect::Forget { request: id } => db::requests::forget(&app.pool, &id).await?,
+            Effect::Forget { request: id } => {
+                db::requests::forget(&app.pool, &id).await?;
+                log_failure(db::metrics::closed(&app.pool, &local_date(now()), request.state).await, "metrics");
+            }
         }
     }
     Ok(())
@@ -92,6 +108,9 @@ pub async fn post_of<'a>(app: &'a App, request: &'a Request) -> anyhow::Result<P
         payment: request.payment,
         from: app.zones.municipality(request.pickup),
         to: app.zones.municipality(request.dropoff),
+        from_corner: (!request.pickup_approx).then(|| app.streets.nearest_corner(request.pickup)).flatten(),
+        to_corner: (!request.dropoff_approx).then(|| app.streets.nearest_corner(request.dropoff)).flatten(),
+        approx: request.pickup_approx || request.dropoff_approx,
         client: Some(shown(app, request.client, Role::Client).await?),
     })
 }
@@ -132,6 +151,7 @@ async fn publish(bot: &Bot, app: &App, request: &mut Request) -> anyhow::Result<
     }
     request.channel_msg_id = Some(msg.id.0);
     tracing::info!(request = %request.id, "published");
+    log_failure(db::metrics::published(&app.pool, &local_date(now()), request.km, request.price).await, "metrics");
     Ok(())
 }
 
@@ -289,9 +309,8 @@ async fn offer_republish(app: &App, request: &Request) -> anyhow::Result<()> {
         return Ok(());
     }
     let republish = Republish {
-        pickup: request.pickup,
-        reference: request.reference.clone(),
-        dropoff: request.dropoff,
+        pickup: Spot { point: request.pickup, approx: request.pickup_approx, note: request.reference.clone() },
+        dropoff: Spot { point: request.dropoff, approx: request.dropoff_approx, note: request.dropoff_note.clone() },
         km: request.km,
         price: request.price,
         payment: request.payment,

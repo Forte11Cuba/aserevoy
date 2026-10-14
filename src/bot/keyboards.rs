@@ -151,6 +151,24 @@ pub fn awaiting_client(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup 
     InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::Withdraw, format!("wd:{request}"))]])
 }
 
+/// The places found for a written address, and "none of these".
+pub fn candidates(lang: Lang, labels: &[&str]) -> InlineKeyboardMarkup {
+    let mut rows: Vec<_> = labels
+        .iter()
+        .enumerate()
+        .map(|(i, label)| vec![InlineKeyboardButton::callback(*label, format!("cand:{i}"))])
+        .collect();
+    rows.push(vec![inline(lang, Button::NoneOfThese, "cand:none")]);
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// The municipalities, two per row, for a description without a pin.
+pub fn municipalities(names: &[&str]) -> InlineKeyboardMarkup {
+    let buttons: Vec<_> =
+        names.iter().enumerate().map(|(i, n)| InlineKeyboardButton::callback(*n, format!("mun:{i}"))).collect();
+    InlineKeyboardMarkup::new(buttons.chunks(2).map(<[_]>::to_vec).collect::<Vec<_>>())
+}
+
 pub fn republish(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::Republish, "rep")]])
 }

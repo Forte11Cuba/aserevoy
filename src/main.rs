@@ -16,6 +16,8 @@ use tracing_subscriber::EnvFilter;
 use crate::bot::App;
 use crate::crypto::{PairKey, PhoneCipher};
 use crate::location::routing::Osrm;
+use crate::location::jev::Jev;
+use crate::location::streets::Streets;
 use crate::location::zones::Zones;
 
 #[tokio::main]
@@ -44,6 +46,15 @@ async fn main() -> anyhow::Result<()> {
     }
     let osrm = Osrm::new(&config.osrm_url)?;
     let zones = Zones::bundled()?;
+    let streets = Streets::load(&config.streets_path).await.context("cannot read the streets database")?;
+    let jev = match (config.jev_enabled, config.typesafe_api_key.as_deref()) {
+        (true, Some(key)) => Some(Jev::new(key)?),
+        (true, None) => {
+            tracing::warn!("JEV_ENABLED is set but TYPESAFE_API_KEY is not; written addresses work without Jev");
+            None
+        }
+        (false, _) => None,
+    };
 
     let bot = Bot::new(token);
     let me = bot.get_me().await.context("cannot reach Telegram with TELEGRAM_TOKEN")?;
@@ -56,6 +67,8 @@ async fn main() -> anyhow::Result<()> {
         pair_key,
         osrm,
         zones,
+        streets,
+        jev,
         channel,
         channel_link,
         bot_username: me.username().to_owned(),

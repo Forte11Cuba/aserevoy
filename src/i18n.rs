@@ -1,9 +1,10 @@
 //! User-facing texts in Spanish (default) and English. Every text is a `match`
 //! over `Lang`, so the compiler rejects a message missing a translation.
 
+use crate::db::metrics::Day;
 use crate::domain::driver::{DriverStatus, PaymentMethods, Profile};
 use crate::domain::effect::{Notice, Place};
-use crate::domain::fare::Cup;
+use crate::domain::fare::{Cup, Fares};
 use crate::domain::ids::RequestId;
 use crate::domain::reputation::{Role, Shown, Tag};
 use crate::domain::request::{CancelReason, DomainError, PaymentMethod};
@@ -81,6 +82,7 @@ pub enum Button {
     Counteroffer,
     Republish,
     Withdraw,
+    NoneOfThese,
     Support,
     Admins,
     OnMyWay,
@@ -168,6 +170,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Republish) => "🔁 Publish again",
         (Lang::Es, Withdraw) => "🚪 Retirarme",
         (Lang::En, Withdraw) => "🚪 Withdraw",
+        (Lang::Es, NoneOfThese) => "❌ Ninguna de estas",
+        (Lang::En, NoneOfThese) => "❌ None of these",
         (Lang::Es, Support) => "💬 Soporte",
         (Lang::En, Support) => "💬 Support",
         (Lang::Es, Admins) => "👮 Admins",
@@ -226,6 +230,8 @@ pub enum Text {
     AskDropoff,
     ConfirmDropoff,
     NeedLocation,
+    ChooseAddress,
+    AddressNotFound,
     RouteFailed,
     AmountNotNumber,
     AskPayment,
@@ -239,6 +245,7 @@ pub enum Text {
     AlreadyClosed,
     KeptWaiting,
     Withdrawn,
+    FareUsage,
     ChooseCancelReason,
     SupportUnavailable,
     UnknownCode,
@@ -301,10 +308,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, NotAllowed) => "You are not allowed to do this.",
 
         (Lang::Es, AskPickup) => {
-            "📍 ¿Dónde te recogemos? Pulsa «Enviar mi ubicación» o adjunta 📎 → Ubicación para marcar otro punto en el mapa."
+            "📍 ¿Dónde te recogemos? Pulsa «Enviar mi ubicación», adjunta 📎 → Ubicación para marcar otro punto, o escribe la dirección (por ejemplo: 23 e/ L y M, Vedado)."
         }
         (Lang::En, AskPickup) => {
-            "📍 Where should we pick you up? Tap \"Send my location\" or attach 📎 → Location to mark another point on the map."
+            "📍 Where should we pick you up? Tap \"Send my location\", attach 📎 → Location to mark another point, or type the address (for example: 23 e/ L y M, Vedado)."
         }
         (Lang::Es, ConfirmPickup) => "¿Es aquí la recogida?",
         (Lang::En, ConfirmPickup) => "Is this the pickup point?",
@@ -314,12 +321,24 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AskReference) => {
             "✍️ Write a landmark for the driver (for example: in front of the corner store) or tap Skip."
         }
-        (Lang::Es, AskDropoff) => "🏁 ¿A dónde vas? Adjunta 📎 → Ubicación y marca el destino en el mapa.",
-        (Lang::En, AskDropoff) => "🏁 Where are you going? Attach 📎 → Location and mark the destination on the map.",
+        (Lang::Es, AskDropoff) => {
+            "🏁 ¿A dónde vas? Adjunta 📎 → Ubicación y marca el destino, o escribe la dirección o un lugar conocido (por ejemplo: Hospital Ameijeiras)."
+        }
+        (Lang::En, AskDropoff) => {
+            "🏁 Where are you going? Attach 📎 → Location and mark the destination, or type the address or a known place (for example: Hospital Ameijeiras)."
+        }
         (Lang::Es, ConfirmDropoff) => "¿Es aquí el destino?",
         (Lang::En, ConfirmDropoff) => "Is this the destination?",
-        (Lang::Es, NeedLocation) => "Necesito un pin de ubicación 📍.",
-        (Lang::En, NeedLocation) => "I need a location pin 📍.",
+        (Lang::Es, ChooseAddress) => "Encontré varios lugares con ese nombre. ¿Cuál es?",
+        (Lang::En, ChooseAddress) => "I found several places by that name. Which one is it?",
+        (Lang::Es, AddressNotFound) => {
+            "No encontré esa dirección en el mapa. Envía tu ubicación 📍, o elige tu municipio y le daré tu descripción al chofer cuando lo confirmes (el precio se calcula aproximado)."
+        }
+        (Lang::En, AddressNotFound) => {
+            "I couldn't find that address on the map. Send your location 📍, or pick your municipality and I'll give your description to the driver once you confirm them (the price is estimated)."
+        }
+        (Lang::Es, NeedLocation) => "Necesito un pin de ubicación 📍 o una dirección escrita.",
+        (Lang::En, NeedLocation) => "I need a location pin 📍 or a written address.",
         (Lang::Es, RouteFailed) => "No pude calcular la ruta ahora mismo. Inténtalo de nuevo en unos minutos.",
         (Lang::En, RouteFailed) => "I couldn't work out the route right now. Please try again in a few minutes.",
         (Lang::Es, AmountNotNumber) => "Escribe solo el monto en CUP, por ejemplo 600.",
@@ -343,6 +362,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AlreadyClosed) => "This trip is already closed.",
         (Lang::Es, KeptWaiting) => "👍 Perfecto, tu solicitud sigue publicada.",
         (Lang::En, KeptWaiting) => "👍 Great, your request stays published.",
+        (Lang::Es, FareUsage) => "Uso: /tarifa base 100, /tarifa km 150 o /tarifa minimo 80 (porcentaje del precio sugerido).",
+        (Lang::En, FareUsage) => "Usage: /tarifa base 100, /tarifa km 150 or /tarifa minimo 80 (percentage of the suggested price).",
         (Lang::Es, ChooseCancelReason) => "¿Por qué cancelas el viaje?",
         (Lang::En, ChooseCancelReason) => "Why are you cancelling the trip?",
         (Lang::Es, SupportUnavailable) => "El soporte no está disponible ahora mismo. Inténtalo más tarde.",
@@ -451,15 +472,37 @@ pub fn already_active(lang: Lang, request: &RequestId) -> String {
     }
 }
 
-pub fn price_prompt(lang: Lang, km: f64, minutes: f64, suggested: Cup, minimum: Cup) -> String {
+pub fn price_prompt(lang: Lang, km: f64, minutes: f64, suggested: Cup, minimum: Cup, approx: bool) -> String {
     let minutes = minutes.round().max(1.0);
+    let about = if approx { "≈" } else { "" };
     match lang {
         Lang::Es => format!(
-            "📏 {km:.1} km (unos {minutes} min)\n💰 Precio sugerido: {suggested} CUP\n\nElige tu oferta o escribe un monto (mínimo {minimum} CUP)."
+            "📏 {about}{km:.1} km (unos {minutes} min)\n💰 Precio sugerido: {suggested} CUP\n\nElige tu oferta o escribe un monto (mínimo {minimum} CUP)."
         ),
         Lang::En => format!(
-            "📏 {km:.1} km (about {minutes} min)\n💰 Suggested price: {suggested} CUP\n\nPick your offer or type an amount (minimum {minimum} CUP)."
+            "📏 {about}{km:.1} km (about {minutes} min)\n💰 Suggested price: {suggested} CUP\n\nPick your offer or type an amount (minimum {minimum} CUP)."
         ),
+    }
+}
+
+/// "Is it here?" under the place found for a written address.
+pub fn confirm_written(lang: Lang, pickup: bool, label: &str) -> String {
+    match (lang, pickup) {
+        (Lang::Es, true) => format!("📍 {label}\n¿Es aquí la recogida?"),
+        (Lang::En, true) => format!("📍 {label}\nIs this the pickup point?"),
+        (Lang::Es, false) => format!("🏁 {label}\n¿Es aquí el destino?"),
+        (Lang::En, false) => format!("🏁 {label}\nIs this the destination?"),
+    }
+}
+
+/// To the driver, for a point without an exact location.
+pub fn approx_point(lang: Lang, place: Place, note: &str, municipality: Option<&str>) -> String {
+    let municipality = municipality.unwrap_or("?");
+    match (lang, place) {
+        (Lang::Es, Place::Pickup) => format!("📍 Recogida (sin ubicación exacta, en {municipality}):\n{note}"),
+        (Lang::En, Place::Pickup) => format!("📍 Pickup (no exact location, in {municipality}):\n{note}"),
+        (Lang::Es, Place::Dropoff) => format!("🏁 Destino (sin ubicación exacta, en {municipality}):\n{note}"),
+        (Lang::En, Place::Dropoff) => format!("🏁 Destination (no exact location, in {municipality}):\n{note}"),
     }
 }
 
@@ -472,6 +515,11 @@ pub struct Post<'a> {
     /// Municipalities of pickup and destination, when known.
     pub from: Option<&'a str>,
     pub to: Option<&'a str>,
+    /// Nearest corners, for exact points ("23 y L").
+    pub from_corner: Option<String>,
+    pub to_corner: Option<String>,
+    /// A point is a written description: distance and price are estimates.
+    pub approx: bool,
     /// The client's reputation.
     pub client: Option<Shown>,
 }
@@ -486,9 +534,20 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
         Lang::En => format!("🛵 Request {request}\n"),
     };
     if p.from.is_some() || p.to.is_some() {
-        post.push_str(&format!("📍 {} → {}\n", p.from.unwrap_or("?"), p.to.unwrap_or("?")));
+        let zone = |m: Option<&str>, corner: &Option<String>| match corner {
+            Some(c) => format!("{} ({c})", m.unwrap_or("?")),
+            None => m.unwrap_or("?").to_owned(),
+        };
+        post.push_str(&format!("📍 {} → {}\n", zone(p.from, &p.from_corner), zone(p.to, &p.to_corner)));
     }
-    post.push_str(&format!("📏 {km:.1} km\n💰 {price} CUP · {pay}"));
+    let about = if p.approx { "≈" } else { "" };
+    post.push_str(&format!("📏 {about}{km:.1} km\n💰 {price} CUP · {pay}"));
+    if p.approx {
+        post.push_str(match lang {
+            Lang::Es => "\n📝 Dirección escrita, sin ubicación exacta",
+            Lang::En => "\n📝 Written address, no exact location",
+        });
+    }
     if let Some(client) = &p.client {
         post.push_str(&format!("\n👤 {}", reputation(lang, client, true)));
     }
@@ -1023,6 +1082,50 @@ pub fn alert_low_rating(lang: Lang, role: Role, shown: &Shown) -> String {
         (Lang::Es, Role::Driver) => format!("📉 Un chofer bajó de 3.5 estrellas ({rep})."),
         (Lang::En, Role::Driver) => format!("📉 A driver fell below 3.5 stars ({rep})."),
     }
+}
+
+/// `/tarifas`: the current fares.
+pub fn fares(lang: Lang, f: &Fares) -> String {
+    match lang {
+        Lang::Es => format!(
+            "💰 Tarifas\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nPara cambiarlas (superadmins): /tarifa base|km|minimo <valor>",
+            f.base, f.per_km, f.min_percent
+        ),
+        Lang::En => format!(
+            "💰 Fares\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nTo change them (superadmins): /tarifa base|km|minimo <value>",
+            f.base, f.per_km, f.min_percent
+        ),
+    }
+}
+
+/// `/metricas`: one block per day, newest first.
+pub fn metrics(lang: Lang, days: &[Day]) -> String {
+    if days.is_empty() {
+        return match lang {
+            Lang::Es => "📊 Todavía no hay métricas.".into(),
+            Lang::En => "📊 No metrics yet.".into(),
+        };
+    }
+    let num = |v: Option<f64>, digits: usize| v.map(|v| format!("{v:.digits$}")).unwrap_or_else(|| "–".into());
+    let mut lines = vec![match lang {
+        Lang::Es => "📊 Métricas (últimos días)".to_owned(),
+        Lang::En => "📊 Metrics (last days)".to_owned(),
+    }];
+    for d in days {
+        lines.push(match lang {
+            Lang::Es => format!(
+                "\n{}\nPublicadas {} · asignadas {} · completadas {} · canceladas {} · expiradas {}\nMedia: {} km · {} CUP · final/sugerido {}",
+                d.day, d.published, d.assigned, d.completed, d.cancelled, d.expired,
+                num(d.avg_km(), 1), num(d.avg_price(), 0), num(d.final_over_suggested(), 2)
+            ),
+            Lang::En => format!(
+                "\n{}\nPublished {} · assigned {} · completed {} · cancelled {} · expired {}\nAverage: {} km · {} CUP · final/suggested {}",
+                d.day, d.published, d.assigned, d.completed, d.cancelled, d.expired,
+                num(d.avg_km(), 1), num(d.avg_price(), 0), num(d.final_over_suggested(), 2)
+            ),
+        });
+    }
+    lines.join("\n")
 }
 
 pub fn admin_invite_created(lang: Lang, link: &str) -> String {

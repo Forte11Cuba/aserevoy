@@ -20,8 +20,8 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
         "INSERT INTO requests (id, client_id, client_phone, pickup_lat, pickup_lon,
              dropoff_lat, dropoff_lon, reference, km, price, payment, state, driver_id,
              channel_msg_id, created_at, assigned_at, check_at, answer_by, confirm_by, on_my_way_at,
-             arrived_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             arrived_at, expires_at, pickup_approx, dropoff_approx, dropoff_note, suggested)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id.as_str())
     .bind(r.client.0)
@@ -45,6 +45,10 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     .bind(r.on_my_way_at)
     .bind(r.arrived_at)
     .bind(r.expires_at)
+    .bind(r.pickup_approx)
+    .bind(r.dropoff_approx)
+    .bind(&r.dropoff_note)
+    .bind(r.suggested)
     .execute(pool)
     .await;
 
@@ -330,7 +334,11 @@ fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
         client_phone: row.try_get("client_phone")?,
         pickup: Point { lat: row.try_get("pickup_lat")?, lon: row.try_get("pickup_lon")? },
         dropoff: Point { lat: row.try_get("dropoff_lat")?, lon: row.try_get("dropoff_lon")? },
+        pickup_approx: row.try_get("pickup_approx")?,
+        dropoff_approx: row.try_get("dropoff_approx")?,
         reference: row.try_get("reference")?,
+        dropoff_note: row.try_get("dropoff_note")?,
+        suggested: row.try_get("suggested")?,
         km: row.try_get("km")?,
         price: row.try_get("price")?,
         payment: PaymentMethod::parse(&payment).ok_or_else(|| decode_err("payment"))?,
@@ -364,6 +372,9 @@ mod tests {
             client_phone: Some("+5350000000".into()),
             pickup: Point { lat: 23.13, lon: -82.38 },
             dropoff: Point { lat: 23.12, lon: -82.40 },
+            pickup_approx: false,
+            dropoff_approx: false,
+            dropoff_note: None,
             reference: None,
             km: 2.0,
             price: 400,

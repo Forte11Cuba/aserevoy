@@ -29,6 +29,8 @@ use crate::domain::reputation::Role;
 use crate::domain::request::UnixTime;
 use crate::i18n::{self, Lang, TERMS_VERSION};
 use crate::location::routing::Osrm;
+use crate::location::jev::Jev;
+use crate::location::streets::Streets;
 use crate::location::zones::Zones;
 
 pub type HandlerResult = anyhow::Result<()>;
@@ -40,6 +42,10 @@ pub struct App {
     pub pair_key: PairKey,
     pub osrm: Osrm,
     pub zones: Zones,
+    /// Streets, corners and places of OSM, for written addresses.
+    pub streets: Streets,
+    /// Picks among candidate places; `None` when disabled (`JEV_ENABLED`).
+    pub jev: Option<Jev>,
     /// The offers channel.
     pub channel: ChatId,
     /// Join-request link to the channel, sent to approved drivers.
@@ -141,6 +147,15 @@ pub fn local_time(t: UnixTime) -> String {
     use chrono::TimeZone;
     match chrono_tz::America::Havana.timestamp_opt(t, 0) {
         chrono::LocalResult::Single(dt) => dt.format("%d/%m %H:%M").to_string(),
+        _ => String::new(),
+    }
+}
+
+/// The Cuban date of a time, "2026-10-14", for the daily metrics.
+pub fn local_date(t: UnixTime) -> String {
+    use chrono::TimeZone;
+    match chrono_tz::America::Havana.timestamp_opt(t, 0) {
+        chrono::LocalResult::Single(dt) => dt.format("%Y-%m-%d").to_string(),
         _ => String::new(),
     }
 }

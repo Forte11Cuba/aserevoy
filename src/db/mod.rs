@@ -6,6 +6,7 @@ pub mod dialogs;
 pub mod drivers;
 pub mod fares;
 pub mod invitations;
+pub mod metrics;
 pub mod moderation;
 pub mod reputation;
 pub mod requests;

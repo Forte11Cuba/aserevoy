@@ -44,11 +44,7 @@ Hay un solo bot. Lo que cada persona ve depende de su rol, y el rol se comprueba
 **Alta de choferes y gestores.** Hay dos caminos:
 
 - **Aplicar desde el bot:** en el menú de cualquier usuario están los botones **"Aplicar a ser chofer"** y, en la versión 2, **"Aplicar a ser gestor"**. La persona completa su ficha y los admins reciben la solicitud con los botones Aprobar y Rechazar.
-- **Invitación de un admin:** el admin pulsa "Añadir chofer" o "Añadir gestor" y elige a la persona:
-  - con el **selector de contactos** de Telegram (`KeyboardButtonRequestUsers`), y el bot recibe su ID directamente; o
-  - con un **enlace de invitación de un solo uso** (`t.me/AsereVoyBot?start=inv_X7K2`).
-
-  La persona abre la invitación y completa su ficha.
+- **Invitación de un admin:** el admin pulsa "Invitar chofer" (o "Añadir gestor" en la v2) y recibe un **enlace de invitación de un solo uso** (`t.me/AsereVoyBot?start=inv_X7K2`), que le pasa a la persona. Es la única forma de invitar (decisión 65). La persona abre el enlace y completa su ficha.
 
 En los dos casos:
 
@@ -119,8 +115,8 @@ La recogida y el destino pueden llegar como pin de ubicación o como dirección 
 | Paso | Qué ocurre | Herramienta |
 | --- | --- | --- |
 | 1 | El cliente manda un pin (puede elegir cualquier punto del mapa) y se pasa directo al paso 4 | Telegram |
-| 2 | Si escribe una dirección, se extraen campos: `{calle, numero, entre: [A, B], reparto, municipio, referencia}`. Las reglas proponen candidatos (calles, repartos y lugares conocidos de `calles.sqlite` parecidos al texto) y Jev elige entre ellos | Parser con reglas; si está activado, Jev (TypeSafe) con preguntas Choice y confianza |
-| 3 | Los campos se convierten en coordenadas. "Calle X entre A y B" se resuelve con el tramo de la calle X entre sus cruces con A y B. Se usa también una lista propia de lugares de referencia | `calles.sqlite`, generado a partir del extracto de OpenStreetMap de Cuba |
+| 2 | Si escribe una dirección, se extraen campos: `{calle, numero, entre: [A, B], reparto, municipio, referencia}`. Las reglas proponen candidatos (calles, repartos y lugares conocidos de `data/streets.sqlite` parecidos al texto) y Jev elige entre ellos | Parser con reglas; si está activado, Jev (TypeSafe) con preguntas Choice y confianza |
+| 3 | Los campos se convierten en coordenadas. "Calle X entre A y B" se resuelve con el tramo de la calle X entre sus cruces con A y B. Se usa también una lista propia de lugares de referencia | `data/streets.sqlite`, generado a partir del extracto de OpenStreetMap de Cuba |
 | 4 | Confirmación obligatoria: el bot devuelve el pin con "¿Es aquí?" y los botones [Sí] o [Corregir: enviar ubicación] | Telegram |
 | 5 | Ruta: km y minutos | OSRM propio (Docker, `cuba-latest.osm.pbf`) |
 | 6 | Precio sugerido = `base + tarifa_km × km`, redondeado a 10 CUP. Precio mínimo = `% mínimo` del sugerido | Fórmula |
@@ -148,16 +144,11 @@ La recogida y el destino pueden llegar como pin de ubicación o como dirección 
   - **Sin Jev** (interruptor apagado, error o servicio caído), el sistema funciona con reglas y pin.
 - No se usa el servidor público de demostración de OSRM, cuya política no permite usarlo en producción.
 - **Tarifas configurables:** `base`, `tarifa_km` y `% mínimo` se guardan en SQLite y los superadmins las cambian desde el bot (por ejemplo `/tarifa km 60`), para ajustarlas a la inflación sin tocar el código. Los valores iniciales vienen de `.env` y se copian a la tabla `tarifas` la primera vez que arranca el bot.
-- **Cálculo de `tarifa_km` (por definir).** El cálculo queda detrás de una interfaz con dos modos:
-  - **fija** (la del MVP): se usa la `tarifa_km` configurada;
-  - **combustible** (futuro): `tarifa_km = (precio_litro / km_por_litro × factor_retorno + desgaste_km) × (1 + margen)`. Se calibraría con trayectos reales que hoy cobran los choferes.
-    - El precio informal de la gasolina lo actualiza a mano un superadmin (`/combustible 3300`), porque la API de elTOQUE no lo ofrece.
-    - La tasa USD/CUP, que sirve como índice de `desgaste_km` (piezas en divisas), se obtiene una vez al día de la [API de elTOQUE](https://tasas.eltoque.com/docs/) (`GET /v1/trmi`): pide token, permite 60 peticiones por minuto y exige citar a elTOQUE como fuente.
-    - Cualquier cambio, manual o automático, tiene un tope de ±10 % y el bot avisa si el dato lleva más de 14 días sin actualizarse.
+- **`tarifa_km` fija** (decisión 62): un precio por km que empieza con el valor de `.env` y los superadmins cambian con `/tarifa km <valor>` (también `/tarifa base` y `/tarifa minimo`; `/tarifas` muestra los valores). No hay modo combustible ni tasa de elTOQUE.
 
-  En `metricas_diarias` se registra la relación precio final / precio sugerido, que sirve para ajustar la tarifa con cualquiera de los dos modos.
+  En `metricas_diarias` se registra la relación precio final / precio sugerido, que sirve para ajustar la tarifa.
 - La zona aproximada que se muestra en el canal es el **municipio** de La Habana donde cae cada pin ("📍 Plaza de la Revolución → Centro Habana"); si el pin está fuera de todos, no se muestra zona. Los contornos están en `data/zones.geojson`, generado una vez con `scripts/prepare_zones.py` (osmium + shapely) a partir de `cuba-latest.osm.pbf`: municipios (`admin_level=6`) dentro de la provincia (`admin_level=4`), simplificados. El bot calcula el municipio con point-in-polygon (crate `geo`). En los pins que recibe el chofer, la dirección es también el municipio.
-- **Detalle a nivel de esquina en el canal (fase 4).** Con `calles.sqlite`, junto al municipio se muestra la esquina más cercana al pin, o la que interpretaron las reglas si la dirección es escrita: "📍 Plaza (23 y L) → Habana del Este (Alamar, calle 4 y 5)". Nunca enlaces de ubicación ni la dirección completa en el canal: el enlace sería el punto exacto donde una persona espera, a la vista de todos los choferes y fácil de capturar. Los pins y la dirección completa le llegan al chofer cuando el cliente lo confirma.
+- **Detalle a nivel de esquina en el canal (fase 4).** Con `data/streets.sqlite`, junto al municipio se muestra la esquina más cercana al pin, o la que interpretaron las reglas si la dirección es escrita: "📍 Plaza (23 y L) → Habana del Este (Alamar, calle 4 y 5)". Nunca enlaces de ubicación ni la dirección completa en el canal: el enlace sería el punto exacto donde una persona espera, a la vista de todos los choferes y fácil de capturar. Los pins y la dirección completa le llegan al chofer cuando el cliente lo confirma.
 
 ## Flujo de la subasta
 
@@ -319,7 +310,7 @@ flowchart TD
   L --> B
   B <--> DB["SQLite<br/>temporal + permanente"]
   W["Barrido cada 10 s<br/>vencimientos y métricas"] --> L
-  B <--> UB["Ubicación<br/>parser con reglas, Jev opcional, calles.sqlite"]
+  B <--> UB["Ubicación<br/>parser con reglas, Jev opcional, data/streets.sqlite"]
   B <--> R["OSRM propio<br/>extracto de Cuba"]
 ```
 
@@ -366,7 +357,6 @@ pub fn accept(&mut self, driver: UserId, now: UnixTime) -> Result<Vec<Effect>, D
 - Jev (TypeSafe) opcional por HTTP, con la API key en `.env`. No hace falta un modelo local ni RAM extra en el servidor.
 - El token y la configuración en `.env`; long polling, sin dominio ni webhook.
 
-Hay que verificar que la versión de `teloxide` elegida soporte `KeyboardButtonRequestUsers`.
 
 **Estructura del proyecto:**
 
@@ -377,6 +367,7 @@ aserevoy/
   migrations/             # esquema SQLite
   docs/diseno.md          # este documento
   data/zones.geojson      # contornos de los municipios de La Habana (zona aproximada, ODbL)
+  data/streets.sqlite     # calles, esquinas, repartos y lugares de La Habana (ODbL)
   data/README.md          # origen y atribución de los datos de OpenStreetMap
   scripts/prepare_osm.py  # genera streets.sqlite a partir del extracto de OSM
   scripts/prepare_zones.py # genera data/zones.geojson a partir del extracto de OSM
@@ -459,7 +450,7 @@ El desarrollo va por fases; cada una deja algo que funciona de principio a fin. 
 | **1. Núcleo** | Proyecto, migraciones de SQLite y superadmin desde `.env`. Alta de choferes por enlace de invitación y por "Aplicar a ser chofer", con ficha editable desde el bot. Solicitud solo con pin, OSRM y tarifa fija. Publicación en el canal y aceptación atómica. Intercambio de contacto. Completado, Cancelar y barrido | Un viaje real de principio a fin |
 | **2. Subasta** | Solicitud abierta hasta 60 min con "¿Sigues esperando?" a los 30 min, confirmación del chofer por el cliente, subir el precio, Republicar, contraofertas con enlace al bot, lista editable con Aceptar y Rechazar | La experiencia tipo inDrive |
 | **3. Confianza** | Ya voy y Llegué, cancelaciones del cliente según el motivo, bloqueos, reputación ciega (estrellas, viajes y días en el bot), botón 💬 Soporte, Compartir viaje, rol de admin, términos y aviso de privacidad, anti-flood | Listo para usuarios que no conoces |
-| **4. Comodidad** | Direcciones escritas (reglas y `calles.sqlite`), descripción libre como último recurso con municipio elegido y distancia aproximada (×1,5), esquina más cercana en el canal, Jev opcional (probado antes con direcciones cubanas reales), selector de contactos para el alta de choferes, `metricas_diarias`, tasa USD desde la API de elTOQUE | Menos fricción |
+| **4. Comodidad** | Direcciones escritas (reglas y `data/streets.sqlite`), descripción libre como último recurso con municipio elegido y distancia aproximada (×1,5), esquina más cercana en el canal, Jev para elegir entre candidatos (umbral 0,7), lugares de referencia de OSM, `metricas_diarias`, `/tarifa` | Menos fricción |
 | **5. Piloto** | Una zona, pocos choferes de confianza, despliegue en producción, copias de seguridad cifradas diarias, alertas de error a los superadmins | Datos reales |
 | **Versión 2** | Gestores: rol, "Aplicar a ser gestor", solicitudes con precio para el chofer y para el cliente, varias solicitudes abiertas, oferta marcada "Vía gestor" en el canal | Después de validar el piloto |
 
@@ -501,13 +492,13 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 - [x] ¿Se añade `/emergencia` con los números de Cuba? → No por ahora.
 - [ ] ¿Los clientes en la zona piloto realmente usan Telegram? **Decide si el proyecto sigue.** Se comprobará en el piloto, sin validación previa.
 - [x] Si un chofer ya activo cambia su foto, chapa o moto, ¿vuelve a necesitar la confirmación de un admin? → No. Los choferes ya están comprobados y editan su ficha libremente.
-- [ ] ¿Qué tal funciona Jev con direcciones cubanas reales? ¿Qué umbral de confianza se usa?
+- [x] ¿Qué tal funciona Jev con direcciones cubanas reales? ¿Qué umbral de confianza se usa? → Bien: 10 de 12 en una prueba con direcciones de La Habana, ~360 ms por consulta; umbral 0,7 (decisión 63).
 - [ ] ¿El piloto es gratis? ¿Son razonables las métricas de éxito propuestas?
 - [ ] ¿Qué se dice a los usuarios sobre privacidad, datos y reputación?
 - [ ] ¿Valores iniciales de tarifa: `base`, `tarifa_km` y `% mínimo`? (Para calibrarlos, preguntar a los choferes del piloto cuánto cobran hoy por trayectos típicos.)
-- [ ] ¿Cuándo y cómo pasar `tarifa_km` del modo fijo al modo combustible? ¿Las motos del piloto son de gasolina, eléctricas o de los dos tipos?
+- [x] ¿Cuándo y cómo pasar `tarifa_km` del modo fijo al modo combustible? → No se pasa: tarifa fija editable por los superadmins (decisión 62).
 - [x] ¿Cuánto espera el bot a que el cliente responda "¿subir oferta?" antes de expirar? → Pregunta "¿Sigues esperando?" a los 30 minutos y espera 10 (decisión 50).
-- [ ] ¿Cuáles son los lugares de referencia de la zona piloto? (La zona aproximada del canal ya no depende de esto: usa los municipios de La Habana.)
+- [x] ¿Cuáles son los lugares de referencia de la zona piloto? → Los lugares con nombre y los repartos de OpenStreetMap, en `data/streets.sqlite` (decisión 63).
 - [x] ¿Dónde corre en producción? → En un VPS fuera de Cuba, pagado desde fuera.
 
 ## Registro de decisiones
@@ -520,7 +511,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 4 | Roles verificados en el servidor en cada acción; entrada al canal con solicitud de unión solo para choferes activos | 2026-10-13 |
 | 5 | Sin botón de disponibilidad: el chofer silencia el canal si no trabaja; el bot lo marca ocupado mientras tiene viaje asignado | 2026-10-13 |
 | 6 | Basta con que el chofer o el cliente marquen Completado; cierre automático a las 2 h | 2026-10-13 |
-| 7 | Ubicación por pin o por texto: reglas (+ Jev opcional) → `calles.sqlite` → confirmación → OSRM propio → precio sugerido con tarifas configurables | 2026-10-13 |
+| 7 | Ubicación por pin o por texto: reglas (+ Jev opcional) → `data/streets.sqlite` → confirmación → OSRM propio → precio sugerido con tarifas configurables | 2026-10-13 |
 | 8 | Las contraofertas se muestran al cliente en un único mensaje editable. *Sustituida por la decisión 53* | 2026-10-13 |
 | 9 | Un solo bot con roles cliente, chofer, admin y superadmin | 2026-10-13 |
 | 10 | Se elimina el estado NEGOCIANDO | 2026-10-13 |
@@ -538,9 +529,9 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 22 | Superadmins solo en `.env`; nombran y quitan admins y pueden quitar choferes en cualquier momento; cada acción guarda quién la hizo | 2026-10-14 |
 | 23 | Botón 💬 Soporte para todos los usuarios; los admins responden desde el bot. *Mecanismo fijado en la decisión 60* | 2026-10-14 |
 | 24 | Reputación de nivel A (solo agregados), calificación ciega en ambas direcciones, sin historial de viajes | 2026-10-13 |
-| 25 | Alta de choferes por selector de contactos o por enlace de invitación de un solo uso | 2026-10-13 |
+| 25 | Alta de choferes por selector de contactos o por enlace de invitación de un solo uso. *Sustituida por la decisión 65* | 2026-10-13 |
 | 26 | Canal de ofertas con ✅ Aceptar (callback) y 💬 Contraofertar (enlace al bot) | 2026-10-13 |
-| 27 | Tarifas: valores iniciales en `.env`, después editables desde el bot; `tarifa_km` en modo fijo para el MVP, con un modo basado en combustible por definir | 2026-10-13 |
+| 27 | Tarifas: valores iniciales en `.env`, después editables desde el bot; `tarifa_km` en modo fijo para el MVP, con un modo basado en combustible por definir. *El modo combustible se descarta (decisión 62)* | 2026-10-13 |
 | 28 | En el canal se muestran del cliente sus estrellas, viajes completados y días usando el bot | 2026-10-14 |
 | 29 | El teléfono del cliente es opcional (escrito o con `request_contact`) y solo vive en la solicitud. *Sustituida por la decisión 61* | 2026-10-14 |
 | 30 | El chofer puede cancelar sin penalización (motivo "inseguro" avisa a los admins); al principio no se penaliza a los choferes | 2026-10-14 |
@@ -575,3 +566,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 59 | Los admins actúan con botones en la consulta por código de soporte, las alertas y las fichas (Bloquear 24 h, Bloquear, Desbloquear, Quitar chofer), sin escribir IDs de Telegram | 2026-10-14 |
 | 60 | Soporte por una cuenta de Telegram atendida por personas (`SUPPORT_USERNAME`), con borrado automático de mensajes; el bot da un código de soporte que los admins consultan con `/caso`; alertas por privado a cada admin | 2026-10-14 |
 | 61 | @usuario de Telegram obligatorio para clientes y choferes, con guía para ponerlo; ya no se pide ni se guarda el teléfono del cliente | 2026-10-14 |
+| 62 | Precio por km fijo, editable por los superadmins con `/tarifa`; se descartan el modo combustible y la tasa de elTOQUE | 2026-10-14 |
+| 63 | Direcciones escritas: reglas sobre `data/streets.sqlite` (calles, esquinas, repartos y lugares de OSM) y Jev elige entre los candidatos con umbral de confianza 0,7; por debajo, o si no reconoce ninguno, se pide el pin o la descripción libre | 2026-10-14 |
+| 64 | Con varios candidatos para una dirección escrita: si Jev elige con confianza ≥ 0,7 se usa esa; si no, se ofrecen como botones las opciones con probabilidad ≥ 0,3 (máximo 4) más "Ninguna de estas"; sin ninguna, se pide el pin o la descripción con municipio | 2026-10-14 |
+| 65 | Los admins invitan choferes solo con enlace de un solo uso; se descarta el selector de contactos | 2026-10-14 |

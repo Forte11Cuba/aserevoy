@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 
-use crate::domain::fare::Fares;
+use crate::domain::fare::{FareKey, Fares};
 
 const BASE: &str = "base";
 const PER_KM: &str = "per_km";
@@ -21,6 +21,17 @@ pub async fn seed(pool: &SqlitePool, defaults: &Fares) -> sqlx::Result<()> {
             .execute(pool)
             .await?;
     }
+    Ok(())
+}
+
+/// A superadmin's change from the bot; it survives restarts.
+pub async fn set(pool: &SqlitePool, key: FareKey, value: i64) -> sqlx::Result<()> {
+    let key = match key {
+        FareKey::Base => BASE,
+        FareKey::PerKm => PER_KM,
+        FareKey::MinPercent => MIN_PERCENT,
+    };
+    sqlx::query("UPDATE fares SET value = ? WHERE key = ?").bind(value).bind(key).execute(pool).await?;
     Ok(())
 }
 
@@ -49,5 +60,13 @@ mod tests {
         seed(&pool, &first).await.unwrap();
         seed(&pool, &Fares { base: 1, per_km: 1, min_percent: 1 }).await.unwrap();
         assert_eq!(load(&pool).await.unwrap(), first);
+    }
+
+    #[tokio::test]
+    async fn set_changes_one_fare() {
+        let (pool, _dir) = crate::db::test_pool().await;
+        seed(&pool, &Fares { base: 100, per_km: 150, min_percent: 80 }).await.unwrap();
+        set(&pool, FareKey::PerKm, 180).await.unwrap();
+        assert_eq!(load(&pool).await.unwrap(), Fares { base: 100, per_km: 180, min_percent: 80 });
     }
 }
