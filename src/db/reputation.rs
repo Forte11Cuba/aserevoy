@@ -59,6 +59,19 @@ pub async fn add_rating(pool: &SqlitePool, user: UserId, role: Role, rating: Rat
     Ok(())
 }
 
+/// How many ratings carried each tag, in `Tag::ALL` order.
+pub async fn tags(pool: &SqlitePool, user: UserId, role: Role) -> sqlx::Result<Vec<(Tag, i64)>> {
+    let row: Option<(i64, i64, i64, i64)> = sqlx::query_as(
+        "SELECT tag_punctual, tag_kind, tag_overcharged, tag_no_show FROM reputation WHERE telegram_id = ? AND role = ?",
+    )
+    .bind(user.0)
+    .bind(role.as_str())
+    .fetch_optional(pool)
+    .await?;
+    let (p, k, o, n) = row.unwrap_or_default();
+    Ok(Tag::ALL.into_iter().zip([p, k, o, n]).collect())
+}
+
 /// Whether this pair's trip counts: true the first time in 7 days (and the
 /// window starts), false while a previous one is recent.
 pub async fn pair_counts(pool: &SqlitePool, pair_hmac: &str, now: UnixTime) -> sqlx::Result<bool> {

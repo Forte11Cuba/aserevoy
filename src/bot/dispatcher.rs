@@ -86,6 +86,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
     match db::dialogs::get::<Dialog>(&app.pool, cx.user).await? {
         Some(Dialog::Ride(ride)) => return client::on_message(&cx, ride, &msg).await,
         Some(Dialog::DriverForm(form)) => return driver::on_message(&cx, form, &msg).await,
+        Some(Dialog::EditField { field }) => return driver::on_edit_message(&cx, field, &msg).await,
         Some(Dialog::Counteroffer { request, amount }) if pressed == Some(Button::SendOffer) => {
             return auction::send_counteroffer(&cx, &request, amount).await;
         }
@@ -97,6 +98,8 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::RequestRide) => client::start(&cx).await,
         Some(Button::ApplyDriver) => driver::apply(&cx).await,
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
+        Some(Button::DriverMenu) => driver::menu(&cx).await,
+        Some(Button::MyStats) => driver::stats(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
         Some(Button::AdminPanel) => panel::show(&cx).await,
@@ -168,7 +171,9 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
     }
     let data = q.data.as_deref().unwrap_or_default();
     let (kind, arg) = data.split_once(':').unwrap_or((data, ""));
-    let pressed: Option<MessageId> = q.message.as_ref().map(|m| m.id());
+    // Only a message in the user's own chat: handlers edit it there. One in
+    // a channel has the same kind of id and must not be mistaken.
+    let pressed: Option<MessageId> = q.message.as_ref().filter(|m| m.chat().id == chat(cx.user)).map(|m| m.id());
     let spend = |msg: Option<MessageId>| async move {
         if let Some(msg) = msg {
             let _ = bot.edit_message_reply_markup(chat(cx.user), msg).await;
@@ -289,8 +294,11 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             Err(_) => None,
         },
         ("dok" | "dno", _) => driver::review(&cx, kind == "dok", arg, pressed).await?,
+        ("dna" | "dnr", _) => driver::review_name(&cx, kind == "dna", arg, pressed).await?,
+        ("df", _) => driver::edit_field(&cx, arg).await?,
+        // The old "✏️ Edit profile" button: the profile with its field buttons.
         ("dedit", _) => {
-            driver::edit(&cx).await?;
+            driver::show_profile(&cx).await?;
             None
         }
         ("pick" | "drop" | "apx" | "cand" | "mun" | "zone" | "zpg" | "dback" | "padj" | "pok" | "pay" | "pub" | "sback", _) => {

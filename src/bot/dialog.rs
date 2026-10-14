@@ -14,6 +14,8 @@ pub enum Dialog {
     /// After a request closed without a trip: what "Publish again" reuses.
     /// Any other message leaves it in place.
     Republish(Republish),
+    /// A driver changing one field of their profile.
+    EditField { field: FormStep },
     /// A driver making a counteroffer: `amount` is what the +/− buttons have
     /// reached (it starts at the client's price); ✅ Send sends it, and a
     /// typed amount is sent at once.
@@ -125,6 +127,7 @@ pub struct Trip {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FormStep {
     Alias,
+    FullName,
     Phone,
     Plate,
     BikeModel,
@@ -133,14 +136,46 @@ pub enum FormStep {
     BikePhoto,
 }
 
-/// A driver filling in or editing their profile. When editing, fields start
-/// with the current values and Skip keeps them.
+impl FormStep {
+    pub const ALL: [FormStep; 8] = [
+        FormStep::Alias,
+        FormStep::FullName,
+        FormStep::Phone,
+        FormStep::Plate,
+        FormStep::BikeModel,
+        FormStep::BikeColor,
+        FormStep::Photo,
+        FormStep::BikePhoto,
+    ];
+
+    /// For the ✏️ buttons of the profile (`df:<code>`).
+    pub fn code(self) -> &'static str {
+        match self {
+            FormStep::Alias => "al",
+            FormStep::FullName => "fn",
+            FormStep::Phone => "ph",
+            FormStep::Plate => "pl",
+            FormStep::BikeModel => "bm",
+            FormStep::BikeColor => "bc",
+            FormStep::Photo => "pp",
+            FormStep::BikePhoto => "bp",
+        }
+    }
+
+    pub fn parse(code: &str) -> Option<FormStep> {
+        FormStep::ALL.into_iter().find(|f| f.code() == code)
+    }
+}
+
+/// A driver filling in their application, one question after another.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DriverForm {
     pub step: Option<FormStep>,
     /// Invitation being used, with who created it.
     pub invite: Option<(String, i64)>,
     pub alias: Option<String>,
+    #[serde(default)]
+    pub full_name: Option<String>,
     pub phone: Option<String>,
     pub plate: Option<String>,
     pub bike_model: Option<String>,

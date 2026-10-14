@@ -6,8 +6,8 @@ use crate::domain::driver::{DriverStatus, Profile};
 use crate::domain::effect::{Notice, Place};
 use crate::domain::fare::{Cup, Fares};
 use crate::domain::ids::RequestId;
-use crate::domain::reputation::{Role, Shown, Tag};
-use crate::domain::request::{CancelReason, DomainError, PaymentMethod};
+use crate::domain::reputation::{Reputation, Role, Shown, Tag};
+use crate::domain::request::{CancelReason, DomainError, PaymentMethod, UnixTime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Lang {
@@ -56,6 +56,16 @@ pub enum Button {
     RequestRide,
     ApplyDriver,
     MyProfile,
+    DriverMenu,
+    MyStats,
+    FieldAlias,
+    FieldFullName,
+    FieldPhone,
+    FieldPlate,
+    FieldModel,
+    FieldColor,
+    FieldPhoto,
+    FieldBikePhoto,
     InviteDriver,
     /// Shows the other language's name.
     SwitchLang,
@@ -75,7 +85,6 @@ pub enum Button {
     CancelTrip,
     Approve,
     Reject,
-    EditProfile,
     Confirm,
     RaisePrice,
     KeepWaiting,
@@ -116,7 +125,7 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 18] = [
+const REPLY_BUTTONS: [Button; 20] = [
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -127,6 +136,8 @@ const REPLY_BUTTONS: [Button; 18] = [
     Button::RequestRide,
     Button::ApplyDriver,
     Button::MyProfile,
+    Button::DriverMenu,
+    Button::MyStats,
     Button::InviteDriver,
     Button::Support,
     Button::SwitchLang,
@@ -178,8 +189,26 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Approve) => "✅ Approve",
         (Lang::Es, Reject) => "❌ Rechazar",
         (Lang::En, Reject) => "❌ Reject",
-        (Lang::Es, EditProfile) => "✏️ Editar ficha",
-        (Lang::En, EditProfile) => "✏️ Edit profile",
+        (Lang::Es, DriverMenu) => "🏍 Chofer",
+        (Lang::En, DriverMenu) => "🏍 Driver",
+        (Lang::Es, MyStats) => "📊 Mis estadísticas",
+        (Lang::En, MyStats) => "📊 My stats",
+        (Lang::Es, FieldAlias) => "Alias",
+        (Lang::En, FieldAlias) => "Alias",
+        (Lang::Es, FieldFullName) => "Nombre completo",
+        (Lang::En, FieldFullName) => "Full name",
+        (Lang::Es, FieldPhone) => "Celular",
+        (Lang::En, FieldPhone) => "Phone",
+        (Lang::Es, FieldPlate) => "Chapa",
+        (Lang::En, FieldPlate) => "Plate",
+        (Lang::Es, FieldModel) => "Modelo",
+        (Lang::En, FieldModel) => "Model",
+        (Lang::Es, FieldColor) => "Color",
+        (Lang::En, FieldColor) => "Color",
+        (Lang::Es, FieldPhoto) => "Mi foto",
+        (Lang::En, FieldPhoto) => "My photo",
+        (Lang::Es, FieldBikePhoto) => "Foto de la moto",
+        (Lang::En, FieldBikePhoto) => "Bike photo",
         (Lang::Es, Confirm) => "✅ Confirmar",
         (Lang::En, Confirm) => "✅ Confirm",
         (Lang::Es, RaisePrice) => "⬆️ Subir precio",
@@ -325,6 +354,14 @@ pub enum Text {
     NoActiveRequest,
     // Driver profile.
     AskAlias,
+    AskFullName,
+    InvalidFullName,
+    DriverMenu,
+    FullNameMissing,
+    EditWhich,
+    NameSentForReview,
+    NameApproved,
+    NameRejected,
     AskDriverPhone,
     AskPlate,
     AskBikeModel,
@@ -486,6 +523,26 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::Es, NoActiveRequest) => "No tienes ninguna solicitud abierta.",
         (Lang::En, NoActiveRequest) => "You have no open request.",
 
+        (Lang::Es, AskFullName) => {
+            "🪪 Tu nombre completo, como en el carnet de identidad. Lo ven los admins y, por seguridad, el cliente cuando te asignan su viaje."
+        }
+        (Lang::En, AskFullName) => {
+            "🪪 Your full name, as on your ID card. Admins see it and, for safety, the client once you're assigned their trip."
+        }
+        (Lang::Es, InvalidFullName) => "Escribe tu nombre y tus apellidos (al menos dos palabras).",
+        (Lang::En, InvalidFullName) => "Type your name and surname (at least two words).",
+        (Lang::Es, DriverMenu) => "🏍 Menú de chofer.",
+        (Lang::En, DriverMenu) => "🏍 Driver menu.",
+        (Lang::Es, FullNameMissing) => "⚠️ Falta tu nombre completo: pulsa «Nombre completo» para añadirlo.",
+        (Lang::En, FullNameMissing) => "⚠️ Your full name is missing: tap \"Full name\" to add it.",
+        (Lang::Es, EditWhich) => "✏️ Para cambiar un dato, pulsa su botón.",
+        (Lang::En, EditWhich) => "✏️ To change something, tap its button.",
+        (Lang::Es, NameSentForReview) => "⏳ Nombre enviado. Un admin lo revisará; mientras, sigue el anterior.",
+        (Lang::En, NameSentForReview) => "⏳ Name sent. An admin will review it; until then the previous one stays.",
+        (Lang::Es, NameApproved) => "✅ Tu nombre completo fue aprobado.",
+        (Lang::En, NameApproved) => "✅ Your full name was approved.",
+        (Lang::Es, NameRejected) => "❌ Tu cambio de nombre no fue aprobado. Si crees que es un error, escribe a soporte.",
+        (Lang::En, NameRejected) => "❌ Your name change wasn't approved. If you think it's a mistake, write to support.",
         (Lang::Es, AskAlias) => "🧑 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
         (Lang::En, AskAlias) => "🧑 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
@@ -715,14 +772,15 @@ pub fn place(lang: Lang, place: Place) -> &'static str {
 /// To the client when a driver accepts: who is coming and how to reach them.
 pub fn driver_assigned(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown, username: Option<&str>) -> String {
     let rep = reputation(lang, driver, false);
+    let name = full_name_line(p);
     let contact = username.map(|u| format!("\n💬 @{u}")).unwrap_or_default();
     let card = match lang {
         Lang::Es => format!(
-            "✅ ¡Un chofer aceptó tu viaje {request}!\n\n🧑 {} · {rep}\n🏍 {}, {}\n🔢 Chapa: {}\n📞 {}",
+            "✅ ¡Un chofer aceptó tu viaje {request}!\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Chapa: {}\n📞 {}",
             p.alias, p.bike_model, p.bike_color, p.plate, p.phone
         ),
         Lang::En => format!(
-            "✅ A driver accepted your trip {request}!\n\n🧑 {} · {rep}\n🏍 {}, {}\n🔢 Plate: {}\n📞 {}",
+            "✅ A driver accepted your trip {request}!\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Plate: {}\n📞 {}",
             p.alias, p.bike_model, p.bike_color, p.plate, p.phone
         ),
     };
@@ -795,13 +853,14 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
         (Lang::Es, DriverStatus::Blocked) => "⛔ Bloqueado",
         (Lang::En, DriverStatus::Blocked) => "⛔ Blocked",
     });
+    let name = p.full_name.as_deref().map(|n| format!("\n🪪 {n}")).unwrap_or_default();
     let mut card = match lang {
         Lang::Es => format!(
-            "🧑 {}\n📞 {}\n🏍 {}, {}\n🔢 Chapa: {}",
+            "🧑 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Chapa: {}",
             p.alias, p.phone, p.bike_model, p.bike_color, p.plate
         ),
         Lang::En => format!(
-            "🧑 {}\n📞 {}\n🏍 {}, {}\n🔢 Plate: {}",
+            "🧑 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Plate: {}",
             p.alias, p.phone, p.bike_model, p.bike_color, p.plate
         ),
     };
@@ -813,6 +872,68 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
 }
 
 /// To admins: a new driver application to approve or reject.
+/// Under the driver's own profile: the name waiting for approval.
+pub fn name_pending(lang: Lang, name: &str) -> String {
+    match lang {
+        Lang::Es => format!("\n⏳ Nombre en revisión: {name}"),
+        Lang::En => format!("\n⏳ Name under review: {name}"),
+    }
+}
+
+/// To staff: a driver's new full name, to approve or reject.
+pub fn name_change(lang: Lang, alias: &str, old: Option<&str>, new: &str) -> String {
+    match (lang, old) {
+        (Lang::Es, Some(old)) => format!("🪪 {alias} quiere cambiar su nombre completo:\n{old} → {new}"),
+        (Lang::Es, None) => format!("🪪 {alias} añadió su nombre completo: {new}"),
+        (Lang::En, Some(old)) => format!("🪪 {alias} wants to change their full name:\n{old} → {new}"),
+        (Lang::En, None) => format!("🪪 {alias} added their full name: {new}"),
+    }
+}
+
+pub fn plate_changed(lang: Lang, alias: &str, old: &str, new: &str) -> String {
+    match lang {
+        Lang::Es => format!("🔢 {alias} cambió su chapa: {old} → {new}"),
+        Lang::En => format!("🔢 {alias} changed their plate: {old} → {new}"),
+    }
+}
+
+pub fn photo_changed(lang: Lang, alias: &str) -> String {
+    match lang {
+        Lang::Es => format!("📷 {alias} cambió su foto. Esta es la nueva."),
+        Lang::En => format!("📷 {alias} changed their photo. This is the new one."),
+    }
+}
+
+/// "📊 My stats": what the bot keeps about a driver, all aggregate.
+pub fn driver_stats(lang: Lang, rep: Option<&Reputation>, tags: &[(Tag, i64)], now: UnixTime) -> String {
+    let Some(rep) = rep else {
+        return match lang {
+            Lang::Es => "📊 Aún no tienes viajes.".into(),
+            Lang::En => "📊 No trips yet.".into(),
+        };
+    };
+    let days = rep.shown(now).days;
+    let stars = match (lang, rep.average()) {
+        (Lang::Es, Some(avg)) => format!("⭐ {avg:.1} de 5 ({} calificaciones)", rep.stars_count),
+        (Lang::En, Some(avg)) => format!("⭐ {avg:.1} out of 5 ({} ratings)", rep.stars_count),
+        (Lang::Es, None) => "⭐ Aún sin calificaciones".into(),
+        (Lang::En, None) => "⭐ No ratings yet".into(),
+    };
+    let mut text = match lang {
+        Lang::Es => format!("📊 Tus estadísticas\n\n{stars}\n🛵 {} viajes completados\n📅 {days} días en el bot", rep.trips),
+        Lang::En => format!("📊 Your stats\n\n{stars}\n🛵 {} trips completed\n📅 {days} days in the bot", rep.trips),
+    };
+    let tagged: Vec<String> = tags.iter().filter(|(_, n)| *n > 0).map(|(t, n)| format!("{} × {n}", tag(lang, *t))).collect();
+    if !tagged.is_empty() {
+        text.push_str(match lang {
+            Lang::Es => "\n\nLo que dicen los clientes:\n",
+            Lang::En => "\n\nWhat clients say:\n",
+        });
+        text.push_str(&tagged.join("\n"));
+    }
+    text
+}
+
 pub fn application(lang: Lang, p: &Profile, invited: bool) -> String {
     let card = profile_card(lang, p, None);
     match (lang, invited) {
@@ -973,16 +1094,23 @@ pub fn channel_confirming(lang: Lang, request: &RequestId) -> String {
 /// phone until they confirm.
 pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown) -> String {
     let rep = reputation(lang, driver, false);
+    let name = full_name_line(p);
     match lang {
         Lang::Es => format!(
-            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n🧑 {} · {rep}\n🏍 {}, {}\n🔢 Chapa: {}\n\nTienes 5 min para confirmarlo o cancelar.",
+            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Chapa: {}\n\nTienes 5 min para confirmarlo o cancelar.",
             p.alias, p.bike_model, p.bike_color, p.plate
         ),
         Lang::En => format!(
-            "🛵 A driver wants to take your trip {request}:\n\n🧑 {} · {rep}\n🏍 {}, {}\n🔢 Plate: {}\n\nYou have 5 min to confirm or cancel.",
+            "🛵 A driver wants to take your trip {request}:\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Plate: {}\n\nYou have 5 min to confirm or cancel.",
             p.alias, p.bike_model, p.bike_color, p.plate
         ),
     }
+}
+
+/// The driver's full name for the client, for safety (none for drivers from
+/// before it was asked).
+fn full_name_line(p: &Profile) -> String {
+    p.full_name.as_deref().map(|n| format!("\n🪪 {n}")).unwrap_or_default()
 }
 
 /// To the client after confirming: how to reach the driver.
@@ -1053,7 +1181,7 @@ pub fn terms(lang: Lang) -> &'static str {
         Lang::Es => {
             "📜 Términos y privacidad de Asere Voy\n\n\
 1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de las motos y no asegura los viajes. El precio y el pago (efectivo o transferencia) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
-2. Qué guardamos: de los choferes, su ficha (alias, celular cifrado, moto, chapa y fotos). De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste.\n\n\
+2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, moto, chapa y fotos). De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste.\n\n\
 3. Qué no guardamos: no hay historial de viajes. Cada solicitud (ubicaciones y referencia) se borra al cerrarse, y nunca guardamos el teléfono de los clientes. Las calificaciones son ciegas y solo se suman a los totales.\n\n\
 4. Quién ve qué: en el canal de ofertas los choferes ven el municipio, la distancia, el precio y tu reputación, nunca tu ubicación exacta ni tu contacto. Esos datos solo los recibe el chofer que confirmes.\n\n\
 5. Normas: respeto mutuo y nada ilegal. Tres cancelaciones en 7 días bloquean la cuenta 24 horas. Los admins pueden bloquear cuentas o quitar choferes.\n\n\
@@ -1064,7 +1192,7 @@ Datos del mapa © colaboradores de OpenStreetMap (licencia ODbL)."
         Lang::En => {
             "📜 Asere Voy terms and privacy\n\n\
 1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the motorbikes and does not insure the trips. Price and payment (cash or transfer) are agreed directly between client and driver; the bot handles no money.\n\n\
-2. What we keep: for drivers, their profile (alias, encrypted phone, motorbike, plate and photos). For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it.\n\n\
+2. What we keep: for drivers, their profile (alias, encrypted full name and phone, motorbike, plate and photos). For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it.\n\n\
 3. What we don't keep: there is no trip history. Each request (locations and landmark) is deleted when it closes, and we never keep clients' phone numbers. Ratings are blind and only added to the totals.\n\n\
 4. Who sees what: in the offers channel drivers see the municipality, distance, price and your reputation, never your exact location or contact. Only the driver you confirm gets those.\n\n\
 5. Rules: mutual respect and nothing illegal. Three cancellations in 7 days block the account for 24 hours. Admins can block accounts or remove drivers.\n\n\

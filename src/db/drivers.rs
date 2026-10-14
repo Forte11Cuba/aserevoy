@@ -8,6 +8,8 @@ use crate::domain::request::UnixTime;
 
 /// Creates the profile as `pending`, or updates the editable fields of an
 /// existing one without touching its status (edits need no new approval).
+/// The full name is set only when creating: a change goes through
+/// `set_pending_name` and an admin's approval.
 pub async fn save_profile(
     pool: &SqlitePool,
     cipher: &PhoneCipher,
@@ -17,9 +19,9 @@ pub async fn save_profile(
     now: UnixTime,
 ) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO drivers (telegram_id, alias, phone_enc, plate, bike_model, bike_color,
+        "INSERT INTO drivers (telegram_id, alias, full_name_enc, phone_enc, plate, bike_model, bike_color,
              photo_file_id, bike_photo_file_id, status, created_at, added_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
          ON CONFLICT (telegram_id) DO UPDATE SET
              alias = excluded.alias, phone_enc = excluded.phone_enc, plate = excluded.plate,
              bike_model = excluded.bike_model, bike_color = excluded.bike_color,
@@ -28,6 +30,7 @@ pub async fn save_profile(
     )
     .bind(id.0)
     .bind(&p.alias)
+    .bind(p.full_name.as_deref().map(|n| cipher.encrypt(n)))
     .bind(cipher.encrypt(&p.phone))
     .bind(&p.plate)
     .bind(&p.bike_model)
@@ -47,6 +50,29 @@ pub async fn get(pool: &SqlitePool, cipher: &PhoneCipher, id: UserId) -> anyhow:
         .fetch_optional(pool)
         .await?;
     row.map(|row| from_row(&row, cipher)).transpose()
+}
+
+/// A new full name, waiting for an admin. Replaces any other waiting one.
+pub async fn set_pending_name(pool: &SqlitePool, cipher: &PhoneCipher, id: UserId, name: &str) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE drivers SET pending_full_name_enc = ? WHERE telegram_id = ?")
+        .bind(cipher.encrypt(name))
+        .bind(id.0)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// An admin decides on the waiting name: approved, it becomes the full name.
+/// Returns false if there was none (already decided).
+pub async fn decide_pending_name(pool: &SqlitePool, id: UserId, approve: bool) -> sqlx::Result<bool> {
+    let query = if approve {
+        "UPDATE drivers SET full_name_enc = pending_full_name_enc, pending_full_name_enc = NULL
+         WHERE telegram_id = ? AND pending_full_name_enc IS NOT NULL"
+    } else {
+        "UPDATE drivers SET pending_full_name_enc = NULL WHERE telegram_id = ? AND pending_full_name_enc IS NOT NULL"
+    };
+    let done = sqlx::query(query).bind(id.0).execute(pool).await?;
+    Ok(done.rows_affected() == 1)
 }
 
 pub async fn status(pool: &SqlitePool, id: UserId) -> sqlx::Result<Option<DriverStatus>> {
@@ -145,11 +171,16 @@ pub async fn list(
 fn from_row(row: &SqliteRow, cipher: &PhoneCipher) -> anyhow::Result<Driver> {
     let decode_err = |what: &str| anyhow::anyhow!("invalid driver {what}");
     let phone_enc: Vec<u8> = row.try_get("phone_enc")?;
+    let decrypt = |column: &str| -> anyhow::Result<Option<String>> {
+        let blob: Option<Vec<u8>> = row.try_get(column)?;
+        blob.map(|b| cipher.decrypt(&b)).transpose()
+    };
     let status: String = row.try_get("status")?;
     Ok(Driver {
         id: UserId(row.try_get("telegram_id")?),
         profile: Profile {
             alias: row.try_get("alias")?,
+            full_name: decrypt("full_name_enc")?,
             phone: cipher.decrypt(&phone_enc)?,
             plate: row.try_get("plate")?,
             bike_model: row.try_get("bike_model")?,
@@ -158,6 +189,7 @@ fn from_row(row: &SqliteRow, cipher: &PhoneCipher) -> anyhow::Result<Driver> {
             bike_photo_file_id: row.try_get("bike_photo_file_id")?,
         },
         status: DriverStatus::parse(&status).ok_or_else(|| decode_err("status"))?,
+        pending_full_name: decrypt("pending_full_name_enc")?,
     })
 }
 
@@ -173,6 +205,7 @@ mod tests {
     fn profile(alias: &str) -> Profile {
         Profile {
             alias: alias.into(),
+            full_name: Some("José Pérez Díaz".into()),
             phone: "+5351234567".into(),
             plate: "P123456".into(),
             bike_model: "Suzuki AX 100".into(),
@@ -196,6 +229,27 @@ mod tests {
         let driver = get(&pool, &c, id).await.unwrap().unwrap();
         assert_eq!(driver.status, DriverStatus::Active);
         assert_eq!(driver.profile, profile("Pepito"));
+    }
+
+    #[tokio::test]
+    async fn a_new_full_name_waits_for_an_admin() {
+        let (pool, _dir) = test_pool().await;
+        let (c, id) = (cipher(), UserId(7));
+        save_profile(&pool, &c, id, &profile("Pepe"), None, 10).await.unwrap();
+        assert!(set_pending_name(&pool, &c, id, "José Pérez Ruiz").await.unwrap());
+        let d = get(&pool, &c, id).await.unwrap().unwrap();
+        assert_eq!(d.profile.full_name.as_deref(), Some("José Pérez Díaz"));
+        assert_eq!(d.pending_full_name.as_deref(), Some("José Pérez Ruiz"));
+
+        assert!(decide_pending_name(&pool, id, true).await.unwrap());
+        assert!(!decide_pending_name(&pool, id, true).await.unwrap());
+        let d = get(&pool, &c, id).await.unwrap().unwrap();
+        assert_eq!((d.profile.full_name.as_deref(), d.pending_full_name), (Some("José Pérez Ruiz"), None));
+
+        set_pending_name(&pool, &c, id, "Otro Nombre").await.unwrap();
+        assert!(decide_pending_name(&pool, id, false).await.unwrap());
+        let d = get(&pool, &c, id).await.unwrap().unwrap();
+        assert_eq!((d.profile.full_name.as_deref(), d.pending_full_name), (Some("José Pérez Ruiz"), None));
     }
 
     #[tokio::test]

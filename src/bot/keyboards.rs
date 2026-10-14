@@ -19,7 +19,7 @@ fn inline(lang: Lang, b: Button, data: impl Into<String>) -> InlineKeyboardButto
 }
 
 pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup {
-    let profile = if is_driver { Button::MyProfile } else { Button::ApplyDriver };
+    let profile = if is_driver { Button::DriverMenu } else { Button::ApplyDriver };
     let mut rows = vec![vec![reply(lang, Button::RequestRide)], vec![reply(lang, profile)]];
     if is_staff {
         rows.push(vec![reply(lang, Button::AdminPanel)]);
@@ -420,8 +420,32 @@ pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {
     ]])
 }
 
-pub fn edit_profile(lang: Lang) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::EditProfile, "dedit")]])
+/// "🏍 Driver" below: stats and profile, and back to the main menu.
+pub fn driver_menu(lang: Lang) -> KeyboardMarkup {
+    KeyboardMarkup::new(vec![
+        vec![reply(lang, Button::MyStats), reply(lang, Button::MyProfile)],
+        vec![reply(lang, Button::MainMenu)],
+    ])
+    .resize_keyboard()
+    .persistent()
+}
+
+/// Under the driver's profile: one button per field (`df:<field>`).
+pub fn profile_fields(lang: Lang) -> InlineKeyboardMarkup {
+    let field = |b: Button, code: &str| inline(lang, b, format!("df:{code}"));
+    InlineKeyboardMarkup::new(vec![
+        vec![field(Button::FieldAlias, "al"), field(Button::FieldFullName, "fn"), field(Button::FieldPhone, "ph")],
+        vec![field(Button::FieldPlate, "pl"), field(Button::FieldModel, "bm"), field(Button::FieldColor, "bc")],
+        vec![field(Button::FieldPhoto, "pp"), field(Button::FieldBikePhoto, "bp")],
+    ])
+}
+
+/// For staff: approve or reject a driver's new full name.
+pub fn review_name(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        inline(lang, Button::Approve, format!("dna:{}", driver.0)),
+        inline(lang, Button::Reject, format!("dnr:{}", driver.0)),
+    ]])
 }
 
 #[cfg(test)]
