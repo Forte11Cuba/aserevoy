@@ -404,13 +404,9 @@ async fn confirm_route(cx: &Ctx<'_>, pickup: Spot, dropoff: Spot) -> anyhow::Res
             return Ok(false);
         }
     };
-    // Without an exact point the route is a guess: the driver is paid for it.
-    let approx = pickup.approx || dropoff.approx;
-    let (km, minutes) = if approx {
-        (fare::approximate_km(route.km), fare::approximate_km(route.minutes))
-    } else {
-        (route.km, route.minutes)
-    };
+    // From a reparto's point the route is an estimate, used as is: the
+    // auction (the client's buttons, counteroffers) corrects the price.
+    let (km, minutes) = (route.km, route.minutes);
     let fares = db::fares::load(&cx.app.pool).await?;
     let suggested = fare::suggested_price(km, &fares);
     let minimum = fare::minimum_price(suggested, &fares);

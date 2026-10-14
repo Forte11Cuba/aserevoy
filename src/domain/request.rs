@@ -174,7 +174,7 @@ pub struct NewRequest {
     pub client_phone: Option<String>,
     pub pickup: Point,
     pub dropoff: Point,
-    /// No exact location: the municipality's centre (see `fare::approximate_km`).
+    /// No exact location: a written description placed at its reparto.
     pub pickup_approx: bool,
     pub dropoff_approx: bool,
     pub reference: Option<String>,
