@@ -124,6 +124,12 @@ La recogida y el destino pueden llegar como pin de ubicación o como dirección 
 
 - El texto de referencia ("frente a la bodega") se conserva y se le muestra al chofer, porque en Cuba las direcciones son informales.
 - Si no se entiende la dirección, el bot pide: "No entendí la dirección, envía tu ubicación 📍".
+- **Descripción libre como último recurso (fase 4).** Si la dirección no se entiende y el cliente no quiere o no puede mandar un pin, se acepta su descripción tal cual ("la casa azul detrás del policlínico"):
+  - el cliente elige su **municipio con botones** (los 15 de La Habana), para que el canal siga mostrando la zona;
+  - el **contacto es obligatorio** (@usuario o teléfono), porque el chofer seguramente tendrá que llamar para orientarse;
+  - el canal lo marca: "📝 Dirección escrita, sin ubicación exacta";
+  - la descripción es tan sensible como un pin: no va al canal ni a los logs, y el chofer la recibe solo cuando el cliente lo confirma.
+- **Distancia aproximada (fase 4).** Si uno de los dos puntos (o los dos) no tiene coordenadas exactas, se usa el centro de su municipio, se calcula la ruta con OSRM y los km se multiplican por **1,5** para cubrir la incertidumbre del chofer. El precio sugerido y el mínimo salen de esos km, y el canal los muestra como aproximados ("≈10 km"). El factor se calibra en el piloto.
 - **Jev (TypeSafe) para interpretar direcciones, opcional** (se activa con un interruptor de configuración):
   - **Cómo se usa.** Jev no genera texto: elige entre opciones (`Choice`), puntúa o responde sí/no, y devuelve una **confianza**. Su propia documentación recomienda el patrón que usamos: las reglas encuentran candidatos y Jev elige cuál es el correcto, con una opción "ninguna".
     - Con confianza alta, se geocodifica.
@@ -148,6 +154,7 @@ La recogida y el destino pueden llegar como pin de ubicación o como dirección 
 
   En `metricas_diarias` se registra la relación precio final / precio sugerido, que sirve para ajustar la tarifa con cualquiera de los dos modos.
 - La zona aproximada que se muestra en el canal es el **municipio** de La Habana donde cae cada pin ("📍 Plaza de la Revolución → Centro Habana"); si el pin está fuera de todos, no se muestra zona. Los contornos están en `data/zones.geojson`, generado una vez con `scripts/prepare_zones.py` (osmium + shapely) a partir de `cuba-latest.osm.pbf`: municipios (`admin_level=6`) dentro de la provincia (`admin_level=4`), simplificados. El bot calcula el municipio con point-in-polygon (crate `geo`). En los pins que recibe el chofer, la dirección es también el municipio.
+- **Detalle a nivel de esquina en el canal (fase 4).** Con `calles.sqlite`, junto al municipio se muestra la esquina más cercana al pin, o la que interpretaron las reglas si la dirección es escrita: "📍 Plaza (23 y L) → Habana del Este (Alamar, calle 4 y 5)". Nunca enlaces de ubicación ni la dirección completa en el canal: el enlace sería el punto exacto donde una persona espera, a la vista de todos los choferes y fácil de capturar. Los pins y la dirección completa le llegan al chofer cuando el cliente lo confirma.
 
 ## Flujo de la subasta
 
@@ -450,7 +457,7 @@ El desarrollo va por fases; cada una deja algo que funciona de principio a fin. 
 | **1. Núcleo** | Proyecto, migraciones de SQLite y superadmin desde `.env`. Alta de choferes por enlace de invitación y por "Aplicar a ser chofer", con ficha editable desde el bot. Solicitud solo con pin, OSRM y tarifa fija. Publicación en el canal y aceptación atómica. Intercambio de contacto. Completado, Cancelar y barrido | Un viaje real de principio a fin |
 | **2. Subasta** | Solicitud abierta hasta 60 min con "¿Sigues esperando?" a los 30 min, confirmación del chofer por el cliente, subir el precio, Republicar, contraofertas con enlace al bot, lista editable con Aceptar y Rechazar | La experiencia tipo inDrive |
 | **3. Confianza** | Ya voy y Llegué, cancelaciones del cliente según el motivo, bloqueos, reputación ciega (estrellas, viajes y días en el bot), botón 💬 Soporte, Compartir viaje, rol de admin, términos y aviso de privacidad, anti-flood | Listo para usuarios que no conoces |
-| **4. Comodidad** | Direcciones escritas (reglas y `calles.sqlite`), Jev opcional (probado antes con direcciones cubanas reales), selector de contactos para el alta de choferes, `metricas_diarias`, tasa USD desde la API de elTOQUE | Menos fricción |
+| **4. Comodidad** | Direcciones escritas (reglas y `calles.sqlite`), descripción libre como último recurso con municipio elegido y distancia aproximada (×1,5), esquina más cercana en el canal, Jev opcional (probado antes con direcciones cubanas reales), selector de contactos para el alta de choferes, `metricas_diarias`, tasa USD desde la API de elTOQUE | Menos fricción |
 | **5. Piloto** | Una zona, pocos choferes de confianza, despliegue en producción, copias de seguridad cifradas diarias, alertas de error a los superadmins | Datos reales |
 | **Versión 2** | Gestores: rol, "Aplicar a ser gestor", solicitudes con precio para el chofer y para el cliente, varias solicitudes abiertas, oferta marcada "Vía gestor" en el canal | Después de validar el piloto |
 
@@ -559,3 +566,6 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 52 | Se mantiene el flujo largo para pedir el viaje (confirmación de cada pin, referencia, precio, pago y teléfono por separado) | 2026-10-14 |
 | 53 | Lluvia de contraofertas: cada una llega al cliente como un mensaje propio con Aceptar y Rechazar, y se borra cuando vence, se rechaza, se reemplaza o se cierra la solicitud | 2026-10-14 |
 | 54 | Mientras espera la confirmación, el chofer puede pulsar Retirarme: la solicitud vuelve a ABIERTA y al canal. Si el cliente no confirma en 5 min, la solicitud se sigue cancelando (decisión 51) | 2026-10-14 |
+| 55 | Descripción libre como último recurso: municipio elegido con botones, contacto obligatorio, marcada en el canal; el texto solo llega al chofer al confirmar (fase 4) | 2026-10-14 |
+| 56 | Sin coordenadas exactas, la distancia se estima desde el centro del municipio con OSRM y se multiplica por 1,5; el canal la muestra como aproximada (fase 4) | 2026-10-14 |
+| 57 | El canal muestra, junto al municipio, la esquina más cercana de origen y destino; nunca enlaces de ubicación ni la dirección completa (fase 4) | 2026-10-14 |
