@@ -1,11 +1,21 @@
+mod bot;
 mod config;
 mod crypto;
 mod db;
 mod domain;
 mod i18n;
 mod location;
+mod tasks;
 
+use std::sync::Arc;
+
+use anyhow::Context;
+use teloxide::prelude::*;
 use tracing_subscriber::EnvFilter;
+
+use crate::bot::App;
+use crate::crypto::PhoneCipher;
+use crate::location::routing::Osrm;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,8 +31,27 @@ async fn main() -> anyhow::Result<()> {
     let fares = db::fares::load(&pool).await?;
     tracing::info!(?fares, superadmins = config.superadmins.len(), "database ready");
 
-    if config.telegram_token.is_none() {
-        tracing::warn!("TELEGRAM_TOKEN is not set; the bot is not started yet");
-    }
+    let Some(token) = config.telegram_token.clone() else {
+        tracing::warn!("TELEGRAM_TOKEN is not set; the bot is not started");
+        return Ok(());
+    };
+    let channel = ChatId(config.offers_channel_id.context("OFFERS_CHANNEL_ID is required to run the bot")?);
+    let cipher = PhoneCipher::from_hex(config.phone_key.as_deref().context("PHONE_KEY is required to run the bot")?)?;
+    let osrm = Osrm::new(&config.osrm_url)?;
+
+    let bot = Bot::new(token);
+    let me = bot.get_me().await.context("cannot reach Telegram with TELEGRAM_TOKEN")?;
+    let channel_link = bot
+        .create_chat_invite_link(channel)
+        .name("Asere Voy")
+        .creates_join_request(true)
+        .await
+        .context("the bot must be an admin of the offers channel, allowed to invite users")?
+        .invite_link;
+
+    let app = Arc::new(App::new(pool, config, cipher, osrm, channel, channel_link, me.username().to_owned()));
+    tokio::spawn(tasks::sweeper::run(bot.clone(), app.clone()));
+    tracing::info!("bot started");
+    bot::dispatcher::run(bot, app).await;
     Ok(())
 }

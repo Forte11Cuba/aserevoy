@@ -11,14 +11,6 @@ pub enum DriverStatus {
 }
 
 impl DriverStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            DriverStatus::Pending => "pending",
-            DriverStatus::Active => "active",
-            DriverStatus::Blocked => "blocked",
-        }
-    }
-
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "pending" => Some(DriverStatus::Pending),
@@ -110,9 +102,10 @@ mod tests {
     }
 
     #[test]
-    fn status_round_trips() {
-        for s in [DriverStatus::Pending, DriverStatus::Active, DriverStatus::Blocked] {
-            assert_eq!(DriverStatus::parse(s.as_str()), Some(s));
-        }
+    fn status_parses_the_column_values() {
+        assert_eq!(DriverStatus::parse("pending"), Some(DriverStatus::Pending));
+        assert_eq!(DriverStatus::parse("active"), Some(DriverStatus::Active));
+        assert_eq!(DriverStatus::parse("blocked"), Some(DriverStatus::Blocked));
+        assert_eq!(DriverStatus::parse("other"), None);
     }
 }

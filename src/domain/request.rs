@@ -22,7 +22,7 @@ pub const ROUND_SECS: i64 = 5 * 60;
 /// Assigned trips nobody marks as completed are closed after this.
 pub const AUTO_COMPLETE_SECS: i64 = 2 * 60 * 60;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Point {
     pub lat: f64,
     pub lon: f64,
@@ -60,7 +60,7 @@ impl State {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PaymentMethod {
     Cash,
     Transfer,

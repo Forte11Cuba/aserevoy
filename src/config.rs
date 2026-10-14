@@ -8,7 +8,7 @@ use crate::domain::ids::UserId;
 /// Settings read from the environment (`.env` in development). See `.env.example`.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Optional until the bot layer exists; required to run the bot.
+    /// Without it the program only prepares the database and exits.
     pub telegram_token: Option<String>,
     pub database_url: String,
     pub superadmins: Vec<UserId>,
@@ -16,7 +16,10 @@ pub struct Config {
     /// Hex key that encrypts drivers' phones at rest.
     pub phone_key: Option<String>,
     pub osrm_url: String,
+    // Jev (typed addresses) arrives in phase 4.
+    #[allow(dead_code)]
     pub typesafe_api_key: Option<String>,
+    #[allow(dead_code)]
     pub jev_enabled: bool,
     pub default_fares: Fares,
 }

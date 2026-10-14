@@ -130,6 +130,16 @@ pub async fn active_for(pool: &SqlitePool, user: UserId) -> sqlx::Result<Option<
     .transpose()
 }
 
+/// Whether the driver already holds an assigned trip.
+pub async fn driver_busy(pool: &SqlitePool, driver: UserId) -> sqlx::Result<bool> {
+    let found: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM requests WHERE driver_id = ? AND state = 'assigned'")
+            .bind(driver.0)
+            .fetch_optional(pool)
+            .await?;
+    Ok(found.is_some())
+}
+
 /// Removes a closed request. Nothing about the trip is kept.
 pub async fn forget(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM requests WHERE id = ?")
@@ -277,8 +287,10 @@ mod tests {
         insert(&pool, &r).await.unwrap();
         assert_eq!(active_for(&pool, UserId(1)).await.unwrap().unwrap().id, r.id);
         assert!(active_for(&pool, UserId(9)).await.unwrap().is_none());
+        assert!(!driver_busy(&pool, UserId(9)).await.unwrap());
         try_assign(&pool, &r.id, UserId(9), T0 + 1).await.unwrap();
         assert_eq!(active_for(&pool, UserId(9)).await.unwrap().unwrap().id, r.id);
+        assert!(driver_busy(&pool, UserId(9)).await.unwrap());
     }
 
     #[tokio::test]
