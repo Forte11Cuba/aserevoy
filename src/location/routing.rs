@@ -31,7 +31,9 @@ impl Osrm {
             "{}/route/v1/driving/{},{};{},{}?overview=false",
             self.base_url, from.lon, from.lat, to.lon, to.lat
         );
-        let body = self.http.get(url).send().await?.text().await?;
+        // The URL holds the coordinates: keep it out of errors, which get logged.
+        let response = self.http.get(url).send().await.map_err(|e| e.without_url())?;
+        let body = response.text().await.map_err(|e| e.without_url())?;
         parse(&body)
     }
 }
