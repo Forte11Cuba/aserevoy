@@ -155,6 +155,7 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
         Ride::ConfirmDropoff { .. } => {
             cx.say(Text::ConfirmDropoff, keyboards::confirm_point(cx.lang, "drop")).await
         }
+        Ride::ConfirmApprox { pickup, spot } => ask_approx(cx, pickup, spot).await,
         Ride::Payment { .. } => cx.say(Text::AskPayment, keyboards::payment(cx.lang)).await,
         Ride::Summary { trip, price, payment } => show_summary(cx, trip, price, payment).await,
     }
@@ -177,9 +178,12 @@ async fn back(cx: &Ctx<'_>, ride: Ride) -> anyhow::Result<()> {
         // From the repartos: to the municipalities.
         Ride::RepartoPickup { text, choices, .. } => ask_description(cx, None, text, choices).await,
         Ride::RepartoDropoff { pickup, text, choices, .. } => ask_description(cx, Some(pickup), text, choices).await,
-        Ride::ChoosePickup { .. } | Ride::DescribePickup { .. } | Ride::ConfirmPickup { .. } | Ride::Reference { .. } => {
-            ask_pickup(cx).await
-        }
+        Ride::ChoosePickup { .. }
+        | Ride::DescribePickup { .. }
+        | Ride::ConfirmPickup { .. }
+        | Ride::Reference { .. }
+        | Ride::ConfirmApprox { pickup: None, .. } => ask_pickup(cx).await,
+        Ride::ConfirmApprox { pickup: Some(pickup), .. } => ask_dropoff(cx, pickup).await,
         // A described pickup has no landmark step: back to the pickup itself.
         Ride::Dropoff { pickup } if pickup.approx => ask_pickup(cx).await,
         Ride::Dropoff { pickup } => {
@@ -345,6 +349,21 @@ pub async fn on_callback(
             ask_dropoff(cx, pickup).await?;
             true
         }
+        (Ride::ConfirmApprox { pickup, spot }, "apx", "ok") => match pickup {
+            None => {
+                ask_dropoff(cx, spot).await?;
+                true
+            }
+            Some(pickup) => confirm_route(cx, pickup, spot).await?,
+        },
+        (Ride::ConfirmApprox { pickup: None, .. }, "apx", "fix") => {
+            ask_pickup(cx).await?;
+            true
+        }
+        (Ride::ConfirmApprox { pickup: Some(pickup), .. }, "apx", "fix") => {
+            ask_dropoff(cx, pickup).await?;
+            true
+        }
         (Ride::ChoosePickup { text, options }, "cand", "none") => {
             ask_description(cx, None, text, options).await?;
             true
@@ -507,14 +526,24 @@ async fn reparto_typed(
     }
 }
 
-/// The description placed at the reparto's point: the next step for a pickup
-/// (a description is its own landmark), or the route for a destination.
+/// The description placed at the reparto's point, shown on the map for the
+/// client to confirm: nothing goes on without "Yes, it's here".
 async fn described_at(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, reparto: Candidate) -> anyhow::Result<()> {
     let spot = Spot { point: reparto.point, approx: true, note: Some(format!("{text} ({})", reparto.label)) };
-    match pickup {
-        None => ask_dropoff(cx, spot).await,
-        Some(pickup) => confirm_route(cx, pickup, spot).await.map(|_| ()),
-    }
+    cx.bot.send_location(chat(cx.user), spot.point.lat, spot.point.lon).await?;
+    ask_approx(cx, pickup, spot).await
+}
+
+/// "Around here, in <reparto>?" with ✅ / ✏️. Once confirmed, a pickup goes
+/// to the destination (a description is its own landmark) and a destination
+/// to the route.
+async fn ask_approx(cx: &Ctx<'_>, pickup: Option<Spot>, spot: Spot) -> anyhow::Result<()> {
+    let note = spot.note.clone().unwrap_or_default();
+    let municipality = cx.app.zones.municipality(spot.point).unwrap_or("?").to_owned();
+    let question = i18n::confirm_approx(cx.lang, pickup.is_none(), &note, &municipality);
+    cx.save(Ride::ConfirmApprox { pickup, spot }).await?;
+    cx.bot.send_message(chat(cx.user), question).reply_markup(keyboards::confirm_point(cx.lang, "apx")).await?;
+    Ok(())
 }
 
 /// Returns false (and keeps the step) if the route could not be computed.

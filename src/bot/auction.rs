@@ -3,6 +3,7 @@
 //! client accepts or rejects each counteroffer.
 
 use teloxide::prelude::*;
+use teloxide::types::MessageId;
 
 use super::client::Ctx;
 use super::dialog::Dialog;
@@ -99,22 +100,62 @@ pub async fn start_counteroffer(cx: &Ctx<'_>, id: &str) -> anyhow::Result<()> {
     if request.client == cx.user {
         return say(i18n::domain_error(cx.lang, &DomainError::OwnRequest)).await;
     }
-    // The driver may also type their price: wait for it, with Cancel below.
-    let dialog = Dialog::Counteroffer { request: request.id.as_str().to_owned() };
+    // The amount starts at the client's price; ✅ Send and ❌ Cancel below.
+    let dialog = Dialog::Counteroffer { request: request.id.as_str().to_owned(), amount: request.price };
     db::dialogs::set(&cx.app.pool, cx.user, &dialog, now()).await?;
     cx.bot
         .send_message(chat(cx.user), i18n::text(cx.lang, Text::CounterofferHow))
-        .reply_markup(keyboards::cancel_only(cx.lang))
+        .reply_markup(keyboards::counteroffer_send(cx.lang))
         .await?;
-    let prompt = i18n::counteroffer_prompt(cx.lang, &effects::post_of(cx.app, &request).await?);
-    cx.bot
-        .send_message(chat(cx.user), prompt)
-        .reply_markup(keyboards::counteroffer_amounts(&request.id, request.price))
-        .await?;
+    let prompt = i18n::counteroffer_prompt(cx.lang, &effects::post_of(cx.app, &request).await?, request.price);
+    cx.bot.send_message(chat(cx.user), prompt).reply_markup(keyboards::counteroffer_steps(&request.id)).await?;
     Ok(())
 }
 
-/// A message while making a counteroffer: the amount, typed.
+/// `cad:<id>:<delta>`: a +/− button. The amount never goes below the
+/// client's current price; the message is edited to show it.
+pub async fn adjust_counteroffer(
+    cx: &Ctx<'_>,
+    id: &RequestId,
+    delta: Cup,
+    pressed: Option<MessageId>,
+) -> anyhow::Result<Option<String>> {
+    let Some(Dialog::Counteroffer { request, amount }) = db::dialogs::get(&cx.app.pool, cx.user).await? else {
+        return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
+    };
+    if request != id.as_str() {
+        return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
+    }
+    let Some(open) = db::requests::get(&cx.app.pool, id).await?.filter(|r| r.state == State::Open) else {
+        return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
+    };
+    let amount = (amount.max(open.price) + delta).max(open.price);
+    db::dialogs::set(&cx.app.pool, cx.user, &Dialog::Counteroffer { request, amount }, now()).await?;
+    if let Some(msg) = pressed {
+        let prompt = i18n::counteroffer_prompt(cx.lang, &effects::post_of(cx.app, &open).await?, amount);
+        // Unchanged text (already at the client's price) is an error: ignored.
+        let _ = cx.bot.edit_message_text(chat(cx.user), msg, prompt).reply_markup(keyboards::counteroffer_steps(id)).await;
+    }
+    Ok(None)
+}
+
+/// ✅ Send: the amount the buttons reached.
+pub async fn send_counteroffer(cx: &Ctx<'_>, request: &str, amount: Cup) -> anyhow::Result<()> {
+    let Some(id) = RequestId::parse(request) else {
+        return Ok(());
+    };
+    let price = db::requests::get(&cx.app.pool, &id).await?.map(|r| r.price);
+    if price.is_some_and(|price| amount <= price) {
+        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::RaiseFirst)).await?;
+        return Ok(());
+    }
+    if let Some(problem) = counteroffer(cx, &id, amount).await? {
+        cx.bot.send_message(chat(cx.user), problem).await?;
+    }
+    Ok(())
+}
+
+/// A message while making a counteroffer: the amount, typed, sent at once.
 pub async fn counteroffer_typed(cx: &Ctx<'_>, request: &str, msg: &Message) -> anyhow::Result<()> {
     let amount = msg.text().map(|t| t.trim().trim_end_matches("CUP").trim().parse::<Cup>());
     let (Some(id), Some(Ok(amount))) = (RequestId::parse(request), amount) else {

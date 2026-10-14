@@ -125,31 +125,66 @@ impl Streets {
     /// The points a written address may refer to, best first.
     pub fn candidates(&self, text: &str) -> Vec<Candidate> {
         let address = parse(text);
-        let area = self.area_hint(&address.hints);
+        let mut area = self.area_hint(&address.hints);
         let mut found = match &address.kind {
+            // "entre 5ta B y 5ta C Avenida de los Cocos": no street before.
+            // Or after a comma: "entre 5ta B y 5ta C, Avenida de los Cocos".
+            AddressKind::Between { street, a, b } if street.is_empty() => {
+                let found = self.street_last(a, b);
+                if found.is_empty() {
+                    let blocks: Vec<Candidate> =
+                        address.hints.iter().flat_map(|street| self.blocks(street, a, b)).collect();
+                    // The hint was the street ("Los Cocos" is a reparto too).
+                    if !blocks.is_empty() {
+                        area = None;
+                    }
+                    blocks
+                } else {
+                    found
+                }
+            }
             AddressKind::Between { street, a, b } => self.between(street, a, b),
             AddressKind::Corner { street, cross } => {
                 let corners: Vec<Candidate> =
                     self.corners_of(street, cross).into_iter().map(|c| self.corner_candidate(c)).collect();
-                if corners.is_empty() {
-                    // No such corner: two parallel streets ("21 D y 21 C")
-                    // mean the block of a street crossing both.
-                    self.crossing_both(street, cross)
-                } else {
+                if !corners.is_empty() {
                     corners
+                } else {
+                    // The street without "entre" ("Calle L 23 y 21"), or the
+                    // cross streets first ("5ta B y 5ta C Avenida de los
+                    // Cocos"); else two parallel streets ("21 D y 21 C")
+                    // mean the block of one crossing both.
+                    let mut blocks = self.street_first(street, cross);
+                    blocks.extend(self.street_last(street, cross));
+                    if blocks.is_empty() { self.crossing_both(street, cross) } else { blocks }
                 }
             }
-            AddressKind::Place(name) => self.places_named(name),
+            AddressKind::Place(name) => self.places_in_text(name),
         };
         // A named municipality or reparto rules out places elsewhere, even if
         // none is left: better to ask for the pin than to suggest the wrong one.
         if let Some(area) = &area {
             found.retain(|c| area.contains(c));
         }
+        // A hint that is no area may be the street itself ("5 y Calzada,
+        // Avenida de los Presidentes"): if some places name it, keep those.
+        if area.is_none() {
+            for hint in &address.hints {
+                let names_it = |c: &Candidate| {
+                    let label = normalize(&c.label);
+                    let words: Vec<&str> = label.split(' ').collect();
+                    hint.split(' ').all(|w| words.contains(&w))
+                };
+                if found.iter().any(names_it) {
+                    found.retain(names_it);
+                }
+            }
+        }
         // Parallel streets deduced from cross streets are close but distinct.
         if !found.iter().any(|c| c.inferred) {
             dedup_nearby(&mut found);
         }
+        merge_same_label(&mut found);
         found.truncate(MAX_CANDIDATES);
         // When all are in one municipality, it tells nothing apart.
         let one_municipality = found.windows(2).all(|w| w[0].municipality == w[1].municipality);
@@ -196,9 +231,33 @@ impl Streets {
         }
     }
 
-    /// The middle of the block between the two corners, or one of the corners
-    /// if only one is known.
-    fn between(&self, street: &str, a: &str, b: &str) -> Vec<Candidate> {
+    /// "X A y B": the street, then the cross streets without "entre". Every
+    /// cut of "X A" that names a real block counts ("l 23" → "l" and "23").
+    fn street_first(&self, rest: &str, b: &str) -> Vec<Candidate> {
+        let words: Vec<&str> = rest.split(' ').collect();
+        (1..words.len())
+            .flat_map(|cut| {
+                let (street, a) = (words[..cut].join(" "), words[cut..].join(" "));
+                self.blocks(&street, &a, b)
+            })
+            .collect()
+    }
+
+    /// "A y B X": the street comes after the cross streets, glued to the
+    /// second one. Every way of cutting "B X" that names a real block counts
+    /// ("5 c cocos" → "5 c" and "cocos"); several are offered as choices.
+    fn street_last(&self, a: &str, rest: &str) -> Vec<Candidate> {
+        let words: Vec<&str> = rest.split(' ').collect();
+        (1..words.len())
+            .flat_map(|cut| {
+                let (b, street) = (words[..cut].join(" "), words[cut..].join(" "));
+                self.blocks(&street, a, &b)
+            })
+            .collect()
+    }
+
+    /// The middle of each block of `street` between its corners with `a` and `b`.
+    fn blocks(&self, street: &str, a: &str, b: &str) -> Vec<Candidate> {
         let (first, second) = (self.corners_of(street, a), self.corners_of(street, b));
         let mut found = Vec::new();
         for x in &first {
@@ -216,6 +275,14 @@ impl Streets {
                 }
             }
         }
+        found
+    }
+
+    /// The middle of the block between the two corners, or one of the corners
+    /// if only one is known.
+    fn between(&self, street: &str, a: &str, b: &str) -> Vec<Candidate> {
+        let (first, second) = (self.corners_of(street, a), self.corners_of(street, b));
+        let mut found = self.blocks(street, a, b);
         if found.is_empty() && first.is_empty() && second.is_empty() {
             // The street's name is unknown (a popular one, like "Doble Vía"):
             // it must be one that crosses both cross streets on one block.
@@ -265,6 +332,31 @@ impl Streets {
         found
     }
 
+    /// A place by name; if none is called that, the name may end with an
+    /// area ("coppelia vedado") or carry extra words ("heladería coppelia").
+    fn places_in_text(&self, name: &str) -> Vec<Candidate> {
+        let found = self.places_named(name);
+        if !found.is_empty() {
+            return found;
+        }
+        let words: Vec<&str> = name.split(' ').collect();
+        for cut in (1..words.len()).rev() {
+            if let Some(area) = self.area_hint(&[words[cut..].join(" ")]) {
+                let found: Vec<Candidate> =
+                    self.places_named(&words[..cut].join(" ")).into_iter().filter(|c| area.contains(c)).collect();
+                if !found.is_empty() {
+                    return found;
+                }
+            }
+        }
+        // Without the kind of place, which OSM may leave out of the name.
+        let bare: Vec<&str> = words.iter().copied().filter(|w| !PLACE_KINDS.contains(w)).collect();
+        if bare.is_empty() || bare.len() == words.len() {
+            return Vec::new();
+        }
+        self.places_in_text(&bare.join(" "))
+    }
+
     fn places_named(&self, name: &str) -> Vec<Candidate> {
         if name.is_empty() {
             return Vec::new();
@@ -273,16 +365,7 @@ impl Streets {
             self.places.iter().filter(|p| !p.is_reparto() && name_matches(&p.norm, name)).collect();
         // Exact names first, then shorter ones (closer to what was written).
         found.sort_by_key(|p| (p.norm != name, p.norm.len()));
-        found
-            .into_iter()
-            .map(|p| Candidate {
-                label: format!("{} ({}) en {}", p.name, kind_label(&p.kind), p.municipality),
-                point: p.point,
-                municipality: p.municipality.clone(),
-                inferred: false,
-                short: String::new(),
-            })
-            .collect()
+        found.into_iter().map(place_candidate).collect()
     }
 
     /// The repartos of a municipality, by name (one point per name).
@@ -364,6 +447,13 @@ fn best_named<T: Clone>(items: &[T], written: &str, name: impl Fn(&T) -> String)
     scored.into_iter().map(|(_, item)| item).collect()
 }
 
+/// Kinds of place people put before the name ("heladería Coppelia"), as
+/// `normalize` leaves them (accents gone, doubled letters once).
+const PLACE_KINDS: [&str; 16] = [
+    "heladeria", "helados", "hotel", "hospital", "policlinico", "restaurante", "cafeteria", "parque", "cine",
+    "teatro", "museo", "iglesia", "escuela", "tienda", "mercado", "estadio",
+];
+
 enum Area {
     Municipality(String),
     Near(Point, String),
@@ -394,11 +484,107 @@ fn dedup_nearby(found: &mut Vec<Candidate>) {
     *found = kept;
 }
 
-fn kind_label(kind: &str) -> String {
-    kind.replace('_', " ")
+/// Two blocks with the same name close together are one for the client
+/// (a cross street that meets the street twice, as 24 de Febrero does
+/// Circunvalación around 1ro de Mayo): one option, at their middle.
+fn merge_same_label(found: &mut Vec<Candidate>) {
+    let mut kept: Vec<(Candidate, usize)> = Vec::new();
+    for c in found.drain(..) {
+        match kept.iter_mut().find(|(k, _)| k.label == c.label && km_between(k.point, c.point) <= BLOCK_MAX_KM) {
+            Some((k, n)) => {
+                // Running mean of the merged points.
+                *n += 1;
+                k.point.lat += (c.point.lat - k.point.lat) / *n as f64;
+                k.point.lon += (c.point.lon - k.point.lon) / *n as f64;
+            }
+            None => kept.push((c, 1)),
+        }
+    }
+    *found = kept.into_iter().map(|(c, _)| c).collect();
 }
 
-/// "Calle 23" → "23", for the short corner shown in the channel.
+fn place_candidate(p: &Place) -> Candidate {
+    Candidate {
+        label: match kind_label(&p.kind) {
+            // "Hospital Ameijeiras (hospital)" says it twice.
+            Some(kind) if !normalize(&p.name).contains(&normalize(kind)) => {
+                format!("{} ({kind}) en {}", p.name, p.municipality)
+            }
+            _ => format!("{} en {}", p.name, p.municipality),
+        },
+        point: p.point,
+        municipality: p.municipality.clone(),
+        inferred: false,
+        short: String::new(),
+    }
+}
+
+/// The OSM kind of place in Spanish, for the common ones; the rest (and
+/// vague ones like "information") are left out of the label.
+fn kind_label(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "guest_house" | "chalet" => "casa de renta",
+        "hostel" => "hostal",
+        "hotel" | "motel" | "resort" | "beach_resort" => "hotel",
+        "restaurant" | "restaurant;fast_food" => "restaurante",
+        "fast_food" | "food_court" => "comida rápida",
+        "cafe" | "internet_cafe" => "cafetería",
+        "bar" | "pub" | "biergarten" => "bar",
+        "nightclub" | "nightclub;bar" => "discoteca",
+        "ice_cream" => "heladería",
+        "bakery" | "pastry" | "confectionery" => "panadería",
+        "school" | "college" | "language_school" | "music_school" => "escuela",
+        "university" => "universidad",
+        "kindergarten" | "childcare" => "círculo infantil",
+        "hospital" => "hospital",
+        "clinic" => "policlínico",
+        "doctors" | "doctor" => "consultorio",
+        "dentist" => "dentista",
+        "pharmacy" | "chemist" => "farmacia",
+        "veterinary" => "veterinaria",
+        "place_of_worship" | "monastery" => "iglesia",
+        "monument" | "memorial" => "monumento",
+        "museum" | "museum;attraction" => "museo",
+        "gallery" | "arts_centre" => "galería",
+        "theatre" => "teatro",
+        "cinema" => "cine",
+        "library" => "biblioteca",
+        "park" | "garden" | "playground" => "parque",
+        "stadium" | "sports_centre" | "pitch" => "instalación deportiva",
+        "fitness_centre" => "gimnasio",
+        "swimming_pool" => "piscina",
+        "attraction" | "viewpoint" | "theme_park" | "castle" | "zoo" | "aquarium" => "lugar turístico",
+        "supermarket" | "department_store" | "mall" => "tienda",
+        "convenience" | "variety_store" | "general" | "kiosk" => "tienda",
+        "marketplace" | "greengrocer" => "mercado",
+        "butcher" => "carnicería",
+        "clothes" | "shoes" => "tienda de ropa",
+        "mobile_phone" | "electronics" | "computer" => "tienda de electrónica",
+        "hardware" => "ferretería",
+        "bank" => "banco",
+        "atm" => "cajero",
+        "bureau_de_change" => "casa de cambio",
+        "post_office" => "correos",
+        "police" => "policía",
+        "fire_station" => "bomberos",
+        "townhall" => "gobierno",
+        "courthouse" => "tribunal",
+        "fuel" => "servicentro",
+        "car_repair" | "motorcycle_repair" | "tyres" => "taller",
+        "car_rental" => "renta de autos",
+        "bus_station" => "terminal de ómnibus",
+        "railway_station" => "estación de trenes",
+        "ferry_terminal" => "terminal de lanchas",
+        "parking" => "parqueo",
+        "travel_agency" => "agencia de viajes",
+        "hairdresser" | "beauty" => "peluquería",
+        "community_centre" | "social_centre" | "social_club" => "casa de cultura",
+        "farm" => "finca",
+        "beach" => "playa",
+        _ => return None,
+    })
+}
+
 /// "Playa · Miramar · 12 entre 3ra y 5ta": the municipality (short name,
 /// left out when `with_municipality` is false), the reparto unless it is
 /// named like the municipality, and the label without "Calle" at the start
@@ -432,6 +618,7 @@ fn short_municipality(name: &str) -> &str {
     }
 }
 
+/// "Calle 23" → "23", for the short corner shown in the channel.
 fn short(name: &str) -> &str {
     name.strip_prefix("Calle ").unwrap_or(name)
 }
@@ -563,6 +750,42 @@ const GENERIC: [&str; 18] = [
 /// ordinals as numbers: "Calle 23" → "23", "5ta Avenida" → "5",
 /// "Calzada de Infanta" → "infanta", "Quinta" → "5".
 pub fn normalize(text: &str) -> String {
+    single_letters(&normalize_words(text))
+}
+
+/// A doubled letter counts once: "Copelia" is "Coppelia" (digits stay: "11").
+fn single_letters(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if !(c.is_alphabetic() && out.ends_with(c)) {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn normalize_words(text: &str) -> String {
+    // "Calzada (7)": the name before the brackets is all generic words, but
+    // it is what people say ("5ta y Calzada"); keep it after the number, so
+    // both "Calzada" and "7" match.
+    if let Some((head, rest)) = text.split_once('(') {
+        let head = words_of(head);
+        if !head.is_empty() && head.iter().all(|w| GENERIC.contains(&w.as_str())) {
+            let rest = normalize_words(rest);
+            return if rest.is_empty() { head.join(" ") } else { format!("{rest} {}", head.join(" ")) };
+        }
+    }
+    let words = words_of(text);
+    let meaningful: Vec<&String> = words.iter().filter(|w| !GENERIC.contains(&w.as_str())).collect();
+    // "Paseo" or "La Rampa" alone are names: keep the words if all are generic.
+    if meaningful.is_empty() {
+        return words.join(" ");
+    }
+    meaningful.iter().map(|w| w.as_str()).collect::<Vec<_>>().join(" ")
+}
+
+/// Lowercase words without accents or punctuation, ordinals as numbers.
+fn words_of(text: &str) -> Vec<String> {
     let plain: String = text
         .to_lowercase()
         .chars()
@@ -577,13 +800,7 @@ pub fn normalize(text: &str) -> String {
             _ => ' ',
         })
         .collect();
-    let words = join_letter_suffixes(plain.split_whitespace().map(ordinal).collect());
-    let meaningful: Vec<&String> = words.iter().filter(|w| !GENERIC.contains(&w.as_str())).collect();
-    // "Paseo" or "La Rampa" alone are names: keep the words if all are generic.
-    if meaningful.is_empty() {
-        return words.join(" ");
-    }
-    meaningful.iter().map(|w| w.as_str()).collect::<Vec<_>>().join(" ")
+    join_letter_suffixes(plain.split_whitespace().map(ordinal).collect())
 }
 
 /// A number followed by a single letter is one name, however it is written:
@@ -668,6 +885,8 @@ mod tests {
         assert_eq!(normalize("Calle 23"), "23");
         assert_eq!(normalize("5ta Avenida"), "5");
         assert_eq!(normalize("Quinta Avenida"), "5");
+        assert_eq!(normalize("Calzada (7)"), "7 calzada");
+        assert_eq!(normalize("Avenida de los Presidentes (Calle G)"), "presidentes g");
         assert_eq!(normalize("Calzada de Infanta"), "infanta");
         assert_eq!(normalize("Calle San Lázaro"), "san lazaro");
         assert_eq!(normalize("Paseo"), "paseo");
@@ -692,7 +911,7 @@ mod tests {
         let corner = AddressKind::Corner { street: "infanta".into(), cross: "san lazaro".into() };
         assert_eq!(parse("Infanta esq. San Lázaro").kind, corner);
         assert_eq!(parse("infanta y san lazaro").kind, corner);
-        assert_eq!(parse("frente al Coppelia").kind, AddressKind::Place("coppelia".into()));
+        assert_eq!(parse("frente al Coppelia").kind, AddressKind::Place("copelia".into()));
         // Cuban shorthands: "%" for "entre", "e/" glued, "&" for "y", "esq/".
         assert_eq!(parse("23 % L y M").kind, between);
         assert_eq!(parse("23e/L y M").kind, between);
@@ -705,7 +924,7 @@ mod tests {
         // A landmark after the streets is not part of them.
         assert_eq!(parse("23 e/ L y M por la cafeteria el riki").kind, between);
         assert_eq!(parse("infanta y san lazaro frente al parque").kind, corner);
-        assert_eq!(parse("frente al Coppelia").kind, AddressKind::Place("coppelia".into()));
+        assert_eq!(parse("frente al Coppelia").kind, AddressKind::Place("copelia".into()));
         let glued = AddressKind::Between { street: "160e".into(), a: "3a".into(), b: "3b".into() };
         assert_eq!(parse("160e entre 3era ay 3b").kind, glued);
     }
@@ -746,6 +965,14 @@ mod tests {
         // Alamar has no such street in OSM: nothing rather than another one.
         assert!(s.candidates("4 entre 5 y 7, Alamar").is_empty());
 
+        // Coppelia as people write it: one "p", with the reparto, or with
+        // the kind of place first.
+        for text in ["copelia, vedado", "coppelia vedado", "heladeria copelia vedado"] {
+            let found = s.candidates(text);
+            assert!(found.len() == 1 && found[0].label.starts_with("Coppelia"), "{text}: {found:?}");
+        }
+        assert!(s.candidates("copelia").len() > 1);
+
         let found = s.candidates("hospital ameijeiras");
         assert!(found.iter().any(|c| c.label.contains("Hermanos Ameijeiras") && c.municipality == "Centro Habana"));
 
@@ -778,6 +1005,37 @@ mod tests {
         let found = s.candidates("160e entre 3era ay 3b");
         assert!(!found.is_empty(), "{found:?}");
         assert!(found.iter().all(|c| c.municipality == "Habana del Este"));
+
+        // Found in a live test: 24 de Febrero meets Circunvalación on both
+        // sides of 1ro de Mayo; two identical options are one.
+        let found = s.candidates("circunvalacion entre 1ero de mayo y 24 de febrero");
+        assert_eq!(found.len(), 1, "{found:?}");
+
+        // Found in a live test: "Calzada (7)" is Calzada, and Calle 5ta runs
+        // parallel to it, so the street is a third one, maybe after a comma.
+        let found = s.candidates("calle 5 y calzada, avenida los presidentes");
+        assert!(found.len() == 1 && found[0].label.starts_with("Avenida de los Presidentes (Calle G) entre Calle 5ta y Calzada"), "{found:?}");
+        assert!(s.candidates("calle 5 y calzada").len() > 1);
+        assert_eq!(s.candidates("calzada y L").len(), 1);
+
+        // Found in a live test: the cross streets first, then the street.
+        for text in [
+            "5ta b y 5ta c avenida de los cocos",
+            "entre 5ta b y 5ta c avenida de los cocos",
+            "entre 5ta b y 5ta c, avenida de los cocos",
+        ] {
+            let found = s.candidates(text);
+            assert!(found.len() == 1 && found[0].label.starts_with("Avenida de Los Cocos (164) entre 5ta B y 5ta C"), "{found:?}");
+            assert!(found[0].short.starts_with("Alamar · "), "{found:?}");
+        }
+        // Found in a live test: no "entre" between the street and the cross streets.
+        let found = s.candidates("calle l 23 y 21");
+        assert!(found.len() == 1 && found[0].label.starts_with("Calle L entre"), "{found:?}");
+        let found = s.candidates("hotel nacional");
+        assert!(found.len() == 1 && found[0].label == "Hotel Nacional en Plaza de la Revolución", "{found:?}");
+        assert!(s.candidates("hospital ameijeiras").iter().any(|c| c.label.starts_with("Hospital Hermanos Ameijeiras en")));
+        let found = s.candidates("L y M 23");
+        assert!(found.len() == 1 && found[0].municipality == "Plaza de la Revolución", "{found:?}");
 
         // Found in a live test: Alamar's streets are written "160 C" or "160C".
         let found = s.candidates("7ma entre 160c y 160d, Alamar");

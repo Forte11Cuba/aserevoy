@@ -378,7 +378,7 @@ impl Request {
     /// details. The driver only now learns the exact points.
     fn assigned_effects(&mut self, driver: UserId, to_client: Notice) -> Vec<Effect> {
         let id = self.id.clone();
-        let mut effects = vec![Effect::MarkChannelTaken { request: id.clone() }];
+        let mut effects = vec![Effect::ChannelTaken { request: id.clone() }];
         effects.extend(self.dismiss_offers(Some(driver)));
         effects.extend([
             Effect::Notify { to: self.client, notice: to_client },

@@ -86,7 +86,10 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
     match db::dialogs::get::<Dialog>(&app.pool, cx.user).await? {
         Some(Dialog::Ride(ride)) => return client::on_message(&cx, ride, &msg).await,
         Some(Dialog::DriverForm(form)) => return driver::on_message(&cx, form, &msg).await,
-        Some(Dialog::Counteroffer { request }) => return auction::counteroffer_typed(&cx, &request, &msg).await,
+        Some(Dialog::Counteroffer { request, amount }) if pressed == Some(Button::SendOffer) => {
+            return auction::send_counteroffer(&cx, &request, amount).await;
+        }
+        Some(Dialog::Counteroffer { request, .. }) => return auction::counteroffer_typed(&cx, &request, &msg).await,
         // Only their buttons use them; messages work as usual.
         Some(Dialog::Republish(_) | Dialog::Terms { .. }) | None => {}
     }
@@ -198,6 +201,11 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
     let id = arg.split(':').next().and_then(RequestId::parse);
     let alert = match (kind, id) {
         ("acc", Some(id)) => Some(trip::accept(bot, app, cx.user, cx.lang, &id).await?),
+        ("cad", Some(id)) => match number(arg) {
+            Some(delta) => auction::adjust_counteroffer(&cx, &id, delta, pressed).await?,
+            None => None,
+        },
+        // Buttons from before the +/− steps: they send at once.
         ("cof", Some(id)) => match number(arg) {
             Some(amount) => auction::counteroffer(&cx, &id, amount).await?,
             None => None,
@@ -285,7 +293,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             driver::edit(&cx).await?;
             None
         }
-        ("pick" | "drop" | "cand" | "mun" | "zone" | "zpg" | "dback" | "padj" | "pok" | "pay" | "pub" | "sback", _) => {
+        ("pick" | "drop" | "apx" | "cand" | "mun" | "zone" | "zpg" | "dback" | "padj" | "pok" | "pay" | "pub" | "sback", _) => {
             if let Some(Dialog::Ride(ride)) = db::dialogs::get(&app.pool, cx.user).await? {
                 client::on_callback(&cx, ride, kind, arg, pressed).await?;
             }

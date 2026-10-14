@@ -63,13 +63,11 @@ pub fn confirm_point(lang: Lang, which: &str) -> InlineKeyboardMarkup {
 
 /// Steps to adjust the offer, and the button to make it.
 pub fn price_adjust(lang: Lang, offer: Cup) -> InlineKeyboardMarkup {
-    let step = |delta: Cup| {
-        let label = if delta > 0 { format!("+{delta}") } else { format!("−{}", -delta) };
-        InlineKeyboardButton::callback(label, format!("padj:{delta}"))
-    };
+    // The same steps as a driver's counteroffer.
+    let step = |delta: Cup| InlineKeyboardButton::callback(i18n::amount_step(delta), format!("padj:{delta}"));
     InlineKeyboardMarkup::new(vec![
-        vec![step(-1000), step(-500), step(-100)],
-        vec![step(100), step(500), step(1000)],
+        vec![step(-100), step(-1000), step(-5000), step(-10000)],
+        vec![step(100), step(1000), step(5000), step(10000)],
         vec![InlineKeyboardButton::callback(i18n::offer_button(lang, offer), "pok")],
     ])
 }
@@ -131,15 +129,19 @@ pub fn confirm_driver(lang: Lang, request: &RequestId, driver: UserId) -> Inline
     ]])
 }
 
-/// Amounts a driver can counteroffer, above the client's price.
-pub fn counteroffer_amounts(request: &RequestId, price: Cup) -> InlineKeyboardMarkup {
-    let step = |delta: Cup| InlineKeyboardButton::callback(format!("+{delta}"), format!("cof:{request}:{}", price + delta));
-    InlineKeyboardMarkup::new(vec![vec![step(50), step(100), step(500), step(1000)]])
+/// Steps for the counteroffer: each tap adds to (or takes from) the amount
+/// so far; it never goes below the client's price.
+pub fn counteroffer_steps(request: &RequestId) -> InlineKeyboardMarkup {
+    let step = |delta: Cup| InlineKeyboardButton::callback(i18n::amount_step(delta), format!("cad:{request}:{delta}"));
+    InlineKeyboardMarkup::new(vec![
+        vec![step(-100), step(-1000), step(-5000), step(-10000)],
+        vec![step(100), step(1000), step(5000), step(10000)],
+    ])
 }
 
-/// Only Cancel below, while a driver may type a counteroffer.
-pub fn cancel_only(lang: Lang) -> KeyboardMarkup {
-    KeyboardMarkup::new(vec![vec![reply(lang, Button::Cancel)]]).resize_keyboard()
+/// Below, while a driver makes a counteroffer: send the amount, or leave.
+pub fn counteroffer_send(lang: Lang) -> KeyboardMarkup {
+    KeyboardMarkup::new(vec![vec![reply(lang, Button::SendOffer), reply(lang, Button::Cancel)]]).resize_keyboard()
 }
 
 /// Under one counteroffer: accept it or reject it (the amount is in the message).

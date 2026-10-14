@@ -38,12 +38,12 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                     log_failure(bot.edit_message_text(app.channel, MessageId(msg), text).await, "mark confirming");
                 }
             }
-            Effect::MarkChannelTaken { .. } => {
+            Effect::ChannelTaken { .. } => {
                 let metric = db::metrics::assigned(&app.pool, &local_date(now()), request.price, request.suggested).await;
                 log_failure(metric, "metrics");
-                if let Some(msg) = request.channel_msg_id {
-                    let text = i18n::channel_taken(CHANNEL_LANG, &request.id);
-                    log_failure(bot.edit_message_text(app.channel, MessageId(msg), text).await, "mark taken");
+                if let Some(msg) = request.channel_msg_id.take() {
+                    log_failure(bot.delete_message(app.channel, MessageId(msg)).await, "delete taken post");
+                    log_failure(db::requests::clear_channel_msg(&app.pool, &request.id).await, "clear post");
                 }
             }
             Effect::DeleteFromChannel { .. } => {
@@ -246,8 +246,20 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 .reply_markup(keyboards::awaiting_client(lang, id))
                 .await?;
         }
-        Notice::DriverWithdrew { .. } | Notice::ClientOnTheWay { .. } | Notice::DriverArrived { .. } => {
+        Notice::DriverWithdrew { .. } => {
             bot.send_message(chat(to), i18n::notice(lang, notice)).await?;
+        }
+        // The trip's buttons again, on the latest message: the first ones
+        // are far up the chat by now.
+        Notice::ClientOnTheWay { request: id } => {
+            bot.send_message(chat(to), i18n::notice(lang, notice))
+                .reply_markup(keyboards::driver_trip(lang, id))
+                .await?;
+        }
+        Notice::DriverArrived { request: id } => {
+            bot.send_message(chat(to), i18n::notice(lang, notice))
+                .reply_markup(keyboards::client_trip(lang, id))
+                .await?;
         }
         Notice::OfferOutbid { .. }
         | Notice::ClientDeclined { .. }

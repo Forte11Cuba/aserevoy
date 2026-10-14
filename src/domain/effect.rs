@@ -11,8 +11,9 @@ pub enum Effect {
     UpdateChannelPost { request: RequestId },
     /// Edit the channel post to "Waiting for the client" and remove its buttons.
     MarkChannelConfirming { request: RequestId },
-    /// Edit the channel post to "Taken" and remove its buttons.
-    MarkChannelTaken { request: RequestId },
+    /// The trip was taken: its post leaves the channel, which shows only
+    /// offers still open.
+    ChannelTaken { request: RequestId },
     DeleteFromChannel { request: RequestId },
     Notify { to: UserId, notice: Notice },
     SendLocation { to: UserId, point: Point, place: Place },
