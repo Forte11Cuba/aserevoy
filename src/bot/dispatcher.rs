@@ -74,6 +74,12 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
     if let Some(code) = text.and_then(|t| t.strip_prefix("/caso")) {
         return support::lookup(&cx, code).await;
     }
+    if text == Some("/tarifas") {
+        return admin::show_fares(&cx).await;
+    }
+    if let Some(args) = text.and_then(|t| t.strip_prefix("/tarifa ")) {
+        return admin::set_fare(&cx, args).await;
+    }
     match db::dialogs::get::<Dialog>(&app.pool, cx.user).await? {
         Some(Dialog::Ride(ride)) => return client::on_message(&cx, ride, &msg).await,
         Some(Dialog::DriverForm(form)) => return driver::on_message(&cx, form, &msg).await,

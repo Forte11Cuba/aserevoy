@@ -3,7 +3,7 @@
 
 use crate::domain::driver::{DriverStatus, PaymentMethods, Profile};
 use crate::domain::effect::{Notice, Place};
-use crate::domain::fare::Cup;
+use crate::domain::fare::{Cup, Fares};
 use crate::domain::ids::RequestId;
 use crate::domain::reputation::{Role, Shown, Tag};
 use crate::domain::request::{CancelReason, DomainError, PaymentMethod};
@@ -239,6 +239,7 @@ pub enum Text {
     AlreadyClosed,
     KeptWaiting,
     Withdrawn,
+    FareUsage,
     ChooseCancelReason,
     SupportUnavailable,
     UnknownCode,
@@ -343,6 +344,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AlreadyClosed) => "This trip is already closed.",
         (Lang::Es, KeptWaiting) => "👍 Perfecto, tu solicitud sigue publicada.",
         (Lang::En, KeptWaiting) => "👍 Great, your request stays published.",
+        (Lang::Es, FareUsage) => "Uso: /tarifa base 100, /tarifa km 150 o /tarifa minimo 80 (porcentaje del precio sugerido).",
+        (Lang::En, FareUsage) => "Usage: /tarifa base 100, /tarifa km 150 or /tarifa minimo 80 (percentage of the suggested price).",
         (Lang::Es, ChooseCancelReason) => "¿Por qué cancelas el viaje?",
         (Lang::En, ChooseCancelReason) => "Why are you cancelling the trip?",
         (Lang::Es, SupportUnavailable) => "El soporte no está disponible ahora mismo. Inténtalo más tarde.",
@@ -1022,6 +1025,20 @@ pub fn alert_low_rating(lang: Lang, role: Role, shown: &Shown) -> String {
         (Lang::En, Role::Client) => format!("📉 A client fell below 3.5 stars ({rep})."),
         (Lang::Es, Role::Driver) => format!("📉 Un chofer bajó de 3.5 estrellas ({rep})."),
         (Lang::En, Role::Driver) => format!("📉 A driver fell below 3.5 stars ({rep})."),
+    }
+}
+
+/// `/tarifas`: the current fares.
+pub fn fares(lang: Lang, f: &Fares) -> String {
+    match lang {
+        Lang::Es => format!(
+            "💰 Tarifas\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nPara cambiarlas (superadmins): /tarifa base|km|minimo <valor>",
+            f.base, f.per_km, f.min_percent
+        ),
+        Lang::En => format!(
+            "💰 Fares\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nTo change them (superadmins): /tarifa base|km|minimo <value>",
+            f.base, f.per_km, f.min_percent
+        ),
     }
 }
 

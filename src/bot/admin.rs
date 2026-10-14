@@ -9,6 +9,7 @@ use crate::db;
 use crate::db::invitations::InviteRole;
 use crate::db::moderation::BlockReason;
 use crate::domain::driver::DriverStatus;
+use crate::domain::fare::FareKey;
 use crate::domain::ids::{InviteCode, UserId};
 use crate::domain::reputation::{CANCELLATION_BLOCK_SECS, Role};
 use crate::i18n::{self, Text};
@@ -99,6 +100,38 @@ async fn kick_from_channel(bot: &Bot, app: &App, driver: UserId, allow_back: boo
     if allow_back {
         let _ = bot.unban_chat_member(app.channel, id).await;
     }
+}
+
+/// `/tarifas` (staff): the current fares.
+pub async fn show_fares(cx: &Ctx<'_>) -> anyhow::Result<()> {
+    if !cx.app.is_staff(cx.user).await? {
+        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
+        return Ok(());
+    }
+    let fares = db::fares::load(&cx.app.pool).await?;
+    cx.bot.send_message(chat(cx.user), i18n::fares(cx.lang, &fares)).await?;
+    Ok(())
+}
+
+/// `/tarifa <base|km|minimo> <value>` (superadmins): changes a fare for new
+/// requests; open ones keep their price.
+pub async fn set_fare(cx: &Ctx<'_>, args: &str) -> anyhow::Result<()> {
+    if !cx.app.config.is_superadmin(cx.user) {
+        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
+        return Ok(());
+    }
+    let mut words = args.split_whitespace();
+    let parsed = match (words.next().and_then(FareKey::parse), words.next().and_then(|v| v.parse().ok())) {
+        (Some(key), Some(value)) if key.valid(value) => Some((key, value)),
+        _ => None,
+    };
+    let Some((key, value)) = parsed else {
+        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::FareUsage)).await?;
+        return Ok(());
+    };
+    db::fares::set(&cx.app.pool, key, value).await?;
+    tracing::info!(?key, value, "fare changed");
+    show_fares(cx).await
 }
 
 /// "👮 Admins" (superadmins only): the list with Remove buttons, and Invite.

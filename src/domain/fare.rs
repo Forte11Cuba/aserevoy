@@ -1,5 +1,5 @@
-//! Price suggestion. Phase 1 uses the "fixed" mode: a configured `per_km` rate.
-//! A fuel-based mode may replace how `per_km` is obtained later (see docs/diseno.md).
+//! Price suggestion: a flat base plus a fixed rate per km. The initial values
+//! come from `.env`; superadmins change them from the bot (`/tarifa`).
 
 /// Amount in CUP.
 pub type Cup = i64;
@@ -20,6 +20,34 @@ pub fn suggested_price(km: f64, fares: &Fares) -> Cup {
 
 pub fn minimum_price(suggested: Cup, fares: &Fares) -> Cup {
     round_to_10(suggested as f64 * f64::from(fares.min_percent) / 100.0)
+}
+
+/// Which fare a superadmin changes with `/tarifa <name> <value>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FareKey {
+    Base,
+    PerKm,
+    MinPercent,
+}
+
+impl FareKey {
+    /// The names used in the command (`base`, `km`, `minimo`).
+    pub fn parse(name: &str) -> Option<FareKey> {
+        match name.to_ascii_lowercase().as_str() {
+            "base" => Some(FareKey::Base),
+            "km" => Some(FareKey::PerKm),
+            "minimo" | "mínimo" | "min" => Some(FareKey::MinPercent),
+            _ => None,
+        }
+    }
+
+    /// Whether `value` is acceptable: a positive amount, or a percentage.
+    pub fn valid(self, value: i64) -> bool {
+        match self {
+            FareKey::Base | FareKey::PerKm => (1..=1_000_000).contains(&value),
+            FareKey::MinPercent => (0..=100).contains(&value),
+        }
+    }
 }
 
 fn round_to_10(amount: f64) -> Cup {
@@ -45,6 +73,15 @@ mod tests {
     fn zero_or_negative_distance_costs_the_base() {
         assert_eq!(suggested_price(0.0, &fares()), 100);
         assert_eq!(suggested_price(-1.0, &fares()), 100);
+    }
+
+    #[test]
+    fn fare_keys_parse_and_validate() {
+        assert_eq!(FareKey::parse("KM"), Some(FareKey::PerKm));
+        assert_eq!(FareKey::parse("mínimo"), Some(FareKey::MinPercent));
+        assert_eq!(FareKey::parse("litro"), None);
+        assert!(FareKey::PerKm.valid(150) && !FareKey::PerKm.valid(0));
+        assert!(FareKey::MinPercent.valid(80) && !FareKey::MinPercent.valid(101));
     }
 
     #[test]
