@@ -19,8 +19,9 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     let result = sqlx::query(
         "INSERT INTO requests (id, client_id, client_phone, pickup_lat, pickup_lon,
              dropoff_lat, dropoff_lon, reference, km, price, payment, state, driver_id,
-             channel_msg_id, created_at, assigned_at, check_at, answer_by, confirm_by, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             channel_msg_id, created_at, assigned_at, check_at, answer_by, confirm_by, on_my_way_at,
+             arrived_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id.as_str())
     .bind(r.client.0)
@@ -41,6 +42,8 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     .bind(r.check_at)
     .bind(r.answer_by)
     .bind(r.confirm_by)
+    .bind(r.on_my_way_at)
+    .bind(r.arrived_at)
     .bind(r.expires_at)
     .execute(pool)
     .await;
@@ -223,6 +226,34 @@ pub async fn close(pool: &SqlitePool, id: &RequestId, expected: State) -> sqlx::
     Ok(done.rows_affected() == 1)
 }
 
+/// 🚶 On my way, once, by the client of an assigned trip.
+pub async fn mark_on_my_way(pool: &SqlitePool, id: &RequestId, client: UserId, now: UnixTime) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE requests SET on_my_way_at = ?
+         WHERE id = ? AND state = 'assigned' AND client_id = ? AND on_my_way_at IS NULL",
+    )
+    .bind(now)
+    .bind(id.as_str())
+    .bind(client.0)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// 📍 Arrived, once, by the driver of an assigned trip.
+pub async fn mark_arrived(pool: &SqlitePool, id: &RequestId, driver: UserId, now: UnixTime) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE requests SET arrived_at = ?
+         WHERE id = ? AND state = 'assigned' AND driver_id = ? AND arrived_at IS NULL",
+    )
+    .bind(now)
+    .bind(id.as_str())
+    .bind(driver.0)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() == 1)
+}
+
 /// The client's request in the channel or on a trip, or the request the
 /// driver holds or drives.
 pub async fn active_for(pool: &SqlitePool, user: UserId) -> sqlx::Result<Option<Request>> {
@@ -311,6 +342,8 @@ fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
         check_at: row.try_get("check_at")?,
         answer_by: row.try_get("answer_by")?,
         confirm_by: row.try_get("confirm_by")?,
+        on_my_way_at: row.try_get("on_my_way_at")?,
+        arrived_at: row.try_get("arrived_at")?,
         expires_at: row.try_get("expires_at")?,
         counteroffers: Vec::new(),
     })
@@ -395,6 +428,22 @@ mod tests {
         assert!(confirm(&pool, &r.id, UserId(9), T0 + 2).await.unwrap());
         let stored = get(&pool, &r.id).await.unwrap().unwrap();
         assert_eq!((stored.state, stored.assigned_at, stored.confirm_by), (State::Assigned, Some(T0 + 2), None));
+    }
+
+    #[tokio::test]
+    async fn on_my_way_and_arrived_are_saved_once_by_the_right_side() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        assert!(!mark_arrived(&pool, &r.id, UserId(9), T0 + 3).await.unwrap()); // not assigned yet
+        reserve(&pool, &r, 9).await;
+        confirm(&pool, &r.id, UserId(9), T0 + 2).await.unwrap();
+        assert!(!mark_on_my_way(&pool, &r.id, UserId(9), T0 + 3).await.unwrap());
+        assert!(mark_on_my_way(&pool, &r.id, UserId(1), T0 + 3).await.unwrap());
+        assert!(!mark_on_my_way(&pool, &r.id, UserId(1), T0 + 4).await.unwrap());
+        assert!(mark_arrived(&pool, &r.id, UserId(9), T0 + 5).await.unwrap());
+        let stored = get(&pool, &r.id).await.unwrap().unwrap();
+        assert_eq!((stored.on_my_way_at, stored.arrived_at), (Some(T0 + 3), Some(T0 + 5)));
     }
 
     #[tokio::test]

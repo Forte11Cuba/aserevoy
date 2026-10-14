@@ -15,6 +15,10 @@ pub struct Config {
     pub offers_channel_id: Option<i64>,
     /// Hex key that encrypts drivers' phones at rest.
     pub phone_key: Option<String>,
+    /// Hex key for the fingerprints of client-driver pairs (ratings).
+    pub pair_key: Option<String>,
+    /// The human Telegram account that answers support (without the @).
+    pub support_username: Option<String>,
     pub osrm_url: String,
     // Jev (typed addresses) arrives in phase 4.
     #[allow(dead_code)]
@@ -49,6 +53,8 @@ impl Config {
                 .map(|v| v.parse().context("OFFERS_CHANNEL_ID must be numeric"))
                 .transpose()?,
             phone_key: optional("PHONE_KEY"),
+            pair_key: optional("PAIR_KEY"),
+            support_username: optional("SUPPORT_USERNAME").map(|u| u.trim().trim_start_matches('@').to_owned()),
             osrm_url: optional("OSRM_URL").unwrap_or_else(|| "http://localhost:5000".into()),
             typesafe_api_key: optional("TYPESAFE_API_KEY"),
             jev_enabled: parse_or("JEV_ENABLED", false)?,

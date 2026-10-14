@@ -5,7 +5,8 @@ use crate::domain::driver::{DriverStatus, PaymentMethods, Profile};
 use crate::domain::effect::{Notice, Place};
 use crate::domain::fare::Cup;
 use crate::domain::ids::RequestId;
-use crate::domain::request::{DomainError, PaymentMethod};
+use crate::domain::reputation::{Role, Shown, Tag};
+use crate::domain::request::{CancelReason, DomainError, PaymentMethod};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Lang {
@@ -80,13 +81,31 @@ pub enum Button {
     Counteroffer,
     Republish,
     Withdraw,
+    Support,
+    Admins,
+    OnMyWay,
+    Arrived,
+    ShareTrip,
+    InviteAdmin,
+    RemoveAdmin,
+    Block24h,
+    Block,
+    Unblock,
+    RemoveDriver,
+    UsernameSet,
+    WriteSupport,
+    AcceptTerms,
+    RatingDone,
+    Back,
 }
 
-const REPLY_BUTTONS: [Button; 9] = [
+const REPLY_BUTTONS: [Button; 11] = [
     Button::RequestRide,
     Button::ApplyDriver,
     Button::MyProfile,
     Button::InviteDriver,
+    Button::Support,
+    Button::Admins,
     Button::SwitchLang,
     Button::Cancel,
     Button::Skip,
@@ -149,6 +168,38 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Republish) => "🔁 Publish again",
         (Lang::Es, Withdraw) => "🚪 Retirarme",
         (Lang::En, Withdraw) => "🚪 Withdraw",
+        (Lang::Es, Support) => "💬 Soporte",
+        (Lang::En, Support) => "💬 Support",
+        (Lang::Es, Admins) => "👮 Admins",
+        (Lang::En, Admins) => "👮 Admins",
+        (Lang::Es, OnMyWay) => "🚶 Ya voy",
+        (Lang::En, OnMyWay) => "🚶 On my way",
+        (Lang::Es, Arrived) => "📍 Llegué",
+        (Lang::En, Arrived) => "📍 I'm here",
+        (Lang::Es, ShareTrip) => "📤 Compartir viaje",
+        (Lang::En, ShareTrip) => "📤 Share trip",
+        (Lang::Es, InviteAdmin) => "➕ Invitar admin",
+        (Lang::En, InviteAdmin) => "➕ Invite an admin",
+        (Lang::Es, RemoveAdmin) => "❌ Quitar",
+        (Lang::En, RemoveAdmin) => "❌ Remove",
+        (Lang::Es, Block24h) => "⛔ Bloquear 24 h",
+        (Lang::En, Block24h) => "⛔ Block 24 h",
+        (Lang::Es, Block) => "⛔ Bloquear",
+        (Lang::En, Block) => "⛔ Block",
+        (Lang::Es, Unblock) => "✅ Desbloquear",
+        (Lang::En, Unblock) => "✅ Unblock",
+        (Lang::Es, RemoveDriver) => "🚫 Quitar chofer",
+        (Lang::En, RemoveDriver) => "🚫 Remove driver",
+        (Lang::Es, UsernameSet) => "✅ Ya lo puse",
+        (Lang::En, UsernameSet) => "✅ I've set it",
+        (Lang::Es, WriteSupport) => "💬 Escribir a soporte",
+        (Lang::En, WriteSupport) => "💬 Message support",
+        (Lang::Es, AcceptTerms) => "✅ Acepto",
+        (Lang::En, AcceptTerms) => "✅ I accept",
+        (Lang::Es, RatingDone) => "✅ Listo",
+        (Lang::En, RatingDone) => "✅ Done",
+        (Lang::Es, Back) => "↩️ Volver",
+        (Lang::En, Back) => "↩️ Back",
     }
 }
 
@@ -178,7 +229,6 @@ pub enum Text {
     RouteFailed,
     AmountNotNumber,
     AskPayment,
-    AskPhone,
     InvalidPhone,
     PublishFailed,
     // Channel and trip.
@@ -189,6 +239,23 @@ pub enum Text {
     AlreadyClosed,
     KeptWaiting,
     Withdrawn,
+    ChooseCancelReason,
+    SupportUnavailable,
+    UnknownCode,
+    NeedUsername,
+    StillNoUsername,
+    TermsAccepted,
+    TermsFirst,
+    RatingThanks,
+    RatingTags,
+    AdminWelcome,
+    AdminRemovedYou,
+    NoAdmins,
+    StaffBlocked,
+    StaffUnblocked,
+    DriverRemoved,
+    YouWereRemoved,
+    YouWereUnblocked,
     CounterofferSent,
     NoActiveRequest,
     // Driver profile.
@@ -259,12 +326,6 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AmountNotNumber) => "Type just the amount in CUP, for example 600.",
         (Lang::Es, AskPayment) => "¿Cómo vas a pagar?",
         (Lang::En, AskPayment) => "How will you pay?",
-        (Lang::Es, AskPhone) => {
-            "📱 No tienes @usuario en Telegram, así que el chofer no podrá escribirte. Si quieres, comparte o escribe un teléfono para que te llame (es opcional)."
-        }
-        (Lang::En, AskPhone) => {
-            "📱 You have no Telegram @username, so the driver won't be able to message you. If you like, share or type a phone number so they can call you (optional)."
-        }
         (Lang::Es, InvalidPhone) => "Ese número no parece válido. Escríbelo de nuevo o pulsa Omitir.",
         (Lang::En, InvalidPhone) => "That number doesn't look valid. Type it again or tap Skip.",
         (Lang::Es, PublishFailed) => "No pude publicar tu solicitud. Inténtalo de nuevo.",
@@ -282,6 +343,44 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AlreadyClosed) => "This trip is already closed.",
         (Lang::Es, KeptWaiting) => "👍 Perfecto, tu solicitud sigue publicada.",
         (Lang::En, KeptWaiting) => "👍 Great, your request stays published.",
+        (Lang::Es, ChooseCancelReason) => "¿Por qué cancelas el viaje?",
+        (Lang::En, ChooseCancelReason) => "Why are you cancelling the trip?",
+        (Lang::Es, SupportUnavailable) => "El soporte no está disponible ahora mismo. Inténtalo más tarde.",
+        (Lang::En, SupportUnavailable) => "Support isn't available right now. Please try again later.",
+        (Lang::Es, UnknownCode) => "No encontré ese código, o ya venció.",
+        (Lang::En, UnknownCode) => "I couldn't find that code, or it expired.",
+        (Lang::Es, NeedUsername) => {
+            "👤 Para usar Asere Voy necesitas un nombre de usuario de Telegram (@usuario). Así el chofer y el cliente pueden escribirse o llamarse por Telegram sin compartir el teléfono.\n\nCómo ponerlo: Ajustes → Nombre de usuario (o Editar perfil → Nombre de usuario), elige uno y guarda. Luego pulsa «Ya lo puse»."
+        }
+        (Lang::En, NeedUsername) => {
+            "👤 To use Asere Voy you need a Telegram username (@username), so drivers and clients can message or call each other on Telegram without sharing phone numbers.\n\nHow: Settings → Username (or Edit profile → Username), pick one and save. Then tap \"I've set it\"."
+        }
+        (Lang::Es, StillNoUsername) => "Todavía no veo tu @usuario. Ponlo en Ajustes → Nombre de usuario y vuelve a intentarlo.",
+        (Lang::En, StillNoUsername) => "I still don't see your @username. Set it in Settings → Username and try again.",
+        (Lang::Es, TermsAccepted) => "¡Gracias! Ya puedes usar Asere Voy.",
+        (Lang::En, TermsAccepted) => "Thanks! You can now use Asere Voy.",
+        (Lang::Es, TermsFirst) => "Abre el bot y acepta los términos primero.",
+        (Lang::En, TermsFirst) => "Open the bot and accept the terms first.",
+        (Lang::Es, RatingThanks) => "⭐ ¡Gracias por calificar! La otra persona no verá tu nota.",
+        (Lang::En, RatingThanks) => "⭐ Thanks for rating! The other person won't see your rating.",
+        (Lang::Es, RatingTags) => "Si quieres, añade etiquetas y pulsa Listo.",
+        (Lang::En, RatingTags) => "If you like, add tags and tap Done.",
+        (Lang::Es, AdminWelcome) => "👮 Ya eres admin de Asere Voy.",
+        (Lang::En, AdminWelcome) => "👮 You're now an Asere Voy admin.",
+        (Lang::Es, AdminRemovedYou) => "Ya no eres admin de Asere Voy.",
+        (Lang::En, AdminRemovedYou) => "You're no longer an Asere Voy admin.",
+        (Lang::Es, NoAdmins) => "No hay admins nombrados todavía.",
+        (Lang::En, NoAdmins) => "No admins appointed yet.",
+        (Lang::Es, StaffBlocked) => "⛔ Bloqueado.",
+        (Lang::En, StaffBlocked) => "⛔ Blocked.",
+        (Lang::Es, StaffUnblocked) => "✅ Desbloqueado.",
+        (Lang::En, StaffUnblocked) => "✅ Unblocked.",
+        (Lang::Es, DriverRemoved) => "🚫 Chofer quitado.",
+        (Lang::En, DriverRemoved) => "🚫 Driver removed.",
+        (Lang::Es, YouWereRemoved) => "Ya no eres chofer de Asere Voy. Si crees que es un error, escribe a 💬 Soporte.",
+        (Lang::En, YouWereRemoved) => "You're no longer an Asere Voy driver. If you think it's a mistake, write to 💬 Support.",
+        (Lang::Es, YouWereUnblocked) => "✅ Tu cuenta fue desbloqueada.",
+        (Lang::En, YouWereUnblocked) => "✅ Your account was unblocked.",
         (Lang::Es, Withdrawn) => "🚪 Te retiraste. La solicitud volvió al canal.",
         (Lang::En, Withdrawn) => "🚪 You withdrew. The request is back in the channel.",
         (Lang::Es, CounterofferSent) => "💬 Contraoferta enviada. Vale 5 min; te aviso si el cliente la acepta.",
@@ -364,26 +463,35 @@ pub fn price_prompt(lang: Lang, km: f64, minutes: f64, suggested: Cup, minimum: 
     }
 }
 
+/// What the channel shows of a request.
+pub struct Post<'a> {
+    pub request: &'a RequestId,
+    pub km: f64,
+    pub price: Cup,
+    pub payment: PaymentMethod,
+    /// Municipalities of pickup and destination, when known.
+    pub from: Option<&'a str>,
+    pub to: Option<&'a str>,
+    /// The client's reputation.
+    pub client: Option<Shown>,
+}
+
 /// The offer as drivers see it in the channel: approximate zones (the
 /// municipality of each pin), never the exact location or the contact.
-pub fn channel_post(
-    lang: Lang,
-    request: &RequestId,
-    km: f64,
-    price: Cup,
-    pay: PaymentMethod,
-    from: Option<&str>,
-    to: Option<&str>,
-) -> String {
-    let pay = payment(lang, pay);
+pub fn channel_post(lang: Lang, p: &Post) -> String {
+    let (request, km, price) = (p.request, p.km, p.price);
+    let pay = payment(lang, p.payment);
     let mut post = match lang {
         Lang::Es => format!("🛵 Solicitud {request}\n"),
         Lang::En => format!("🛵 Request {request}\n"),
     };
-    if from.is_some() || to.is_some() {
-        post.push_str(&format!("📍 {} → {}\n", from.unwrap_or("?"), to.unwrap_or("?")));
+    if p.from.is_some() || p.to.is_some() {
+        post.push_str(&format!("📍 {} → {}\n", p.from.unwrap_or("?"), p.to.unwrap_or("?")));
     }
     post.push_str(&format!("📏 {km:.1} km\n💰 {price} CUP · {pay}"));
+    if let Some(client) = &p.client {
+        post.push_str(&format!("\n👤 {}", reputation(lang, client, true)));
+    }
     post
 }
 
@@ -405,18 +513,20 @@ pub fn channel_taken(lang: Lang, request: &RequestId) -> String {
 }
 
 /// To the client when a driver accepts: who is coming and how to reach them.
-pub fn driver_assigned(lang: Lang, request: &RequestId, driver: &Profile) -> String {
-    let p = driver;
-    match lang {
+pub fn driver_assigned(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown, username: Option<&str>) -> String {
+    let rep = reputation(lang, driver, false);
+    let contact = username.map(|u| format!("\n💬 @{u}")).unwrap_or_default();
+    let card = match lang {
         Lang::Es => format!(
-            "✅ ¡Un chofer aceptó tu viaje {request}!\n\n🧑 {}\n🏍 {}, {}\n🔢 Chapa: {}\n📞 {}",
+            "✅ ¡Un chofer aceptó tu viaje {request}!\n\n🧑 {} · {rep}\n🏍 {}, {}\n🔢 Chapa: {}\n📞 {}",
             p.alias, p.bike_model, p.bike_color, p.plate, p.phone
         ),
         Lang::En => format!(
-            "✅ A driver accepted your trip {request}!\n\n🧑 {}\n🏍 {}, {}\n🔢 Plate: {}\n📞 {}",
+            "✅ A driver accepted your trip {request}!\n\n🧑 {} · {rep}\n🏍 {}, {}\n🔢 Plate: {}\n📞 {}",
             p.alias, p.bike_model, p.bike_color, p.plate, p.phone
         ),
-    }
+    };
+    card + &contact
 }
 
 /// To the driver who won: the client's contact and the details of the trip.
@@ -564,6 +674,10 @@ pub fn notice(lang: Lang, notice: &Notice) -> String {
         (Lang::En, DriverConfirmed { request, .. }) => format!("✅ You confirmed the driver for trip {request}."),
         (Lang::Es, DriverAssigned { request, .. }) => format!("✅ ¡Un chofer aceptó tu viaje {request}!"),
         (Lang::En, DriverAssigned { request, .. }) => format!("✅ A driver accepted your trip {request}!"),
+        (Lang::Es, ClientOnTheWay { request }) => format!("🚶 El cliente del viaje {request} va hacia el punto de recogida."),
+        (Lang::En, ClientOnTheWay { request }) => format!("🚶 The client of trip {request} is heading to the pickup."),
+        (Lang::Es, DriverArrived { request }) => format!("📍 Tu chofer del viaje {request} llegó al punto de recogida."),
+        (Lang::En, DriverArrived { request }) => format!("📍 Your driver for trip {request} is at the pickup."),
         (Lang::Es, TripAssigned { request, .. }) => format!("🛵 El viaje {request} es tuyo."),
         (Lang::En, TripAssigned { request, .. }) => format!("🛵 Trip {request} is yours."),
         (Lang::Es, ClientDeclined { request }) => format!("❌ El cliente prefirió no confirmar la solicitud {request}."),
@@ -642,6 +756,10 @@ pub fn domain_error(lang: Lang, error: &DomainError) -> String {
         (Lang::En, NotParticipant) => "Only the trip's client or driver can do this.".into(),
         (Lang::Es, OfferGone) => "Esa contraoferta ya no es válida.".into(),
         (Lang::En, OfferGone) => "That counteroffer is no longer valid.".into(),
+        (Lang::Es, ReasonNeeded) => "Elige un motivo para cancelar.".into(),
+        (Lang::En, ReasonNeeded) => "Pick a reason to cancel.".into(),
+        (Lang::Es, AlreadyDone) => "Ya lo habías marcado.".into(),
+        (Lang::En, AlreadyDone) => "You already did that.".into(),
     }
 }
 
@@ -654,52 +772,50 @@ pub fn channel_confirming(lang: Lang, request: &RequestId) -> String {
 
 /// To the client when a driver accepts: who wants the trip, without the
 /// phone until they confirm.
-pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile) -> String {
+pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown) -> String {
+    let rep = reputation(lang, driver, false);
     match lang {
         Lang::Es => format!(
-            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n🧑 {}\n🏍 {}, {}\n🔢 Chapa: {}\n\nTienes 5 min para confirmarlo o cancelar.",
+            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n🧑 {} · {rep}\n🏍 {}, {}\n🔢 Chapa: {}\n\nTienes 5 min para confirmarlo o cancelar.",
             p.alias, p.bike_model, p.bike_color, p.plate
         ),
         Lang::En => format!(
-            "🛵 A driver wants to take your trip {request}:\n\n🧑 {}\n🏍 {}, {}\n🔢 Plate: {}\n\nYou have 5 min to confirm or cancel.",
+            "🛵 A driver wants to take your trip {request}:\n\n🧑 {} · {rep}\n🏍 {}, {}\n🔢 Plate: {}\n\nYou have 5 min to confirm or cancel.",
             p.alias, p.bike_model, p.bike_color, p.plate
         ),
     }
 }
 
 /// To the client after confirming: how to reach the driver.
-pub fn driver_confirmed(lang: Lang, request: &RequestId, p: &Profile) -> String {
-    match lang {
+pub fn driver_confirmed(lang: Lang, request: &RequestId, p: &Profile, username: Option<&str>) -> String {
+    let mut text = match lang {
         Lang::Es => format!("✅ Viaje {request} confirmado. {} va hacia ti.\n📞 {}", p.alias, p.phone),
         Lang::En => format!("✅ Trip {request} confirmed. {} is on the way.\n📞 {}", p.alias, p.phone),
+    };
+    if let Some(u) = username {
+        text.push_str(&format!("\n💬 @{u}"));
     }
+    text
 }
 
 /// One counteroffer, as its own message to the client.
-pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup) -> String {
+pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup, driver: &Shown) -> String {
+    let rep = reputation(lang, driver, false);
     match lang {
         Lang::Es => format!(
-            "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n🧑 {}\n🏍 {}, {}\n\nVale 5 min.",
+            "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n🧑 {} · {rep}\n🏍 {}, {}\n\nVale 5 min.",
             p.alias, p.bike_model, p.bike_color
         ),
         Lang::En => format!(
-            "💬 Counteroffer for your trip {request}\n\n💰 {amount} CUP\n🧑 {}\n🏍 {}, {}\n\nValid for 5 min.",
+            "💬 Counteroffer for your trip {request}\n\n💰 {amount} CUP\n🧑 {} · {rep}\n🏍 {}, {}\n\nValid for 5 min.",
             p.alias, p.bike_model, p.bike_color
         ),
     }
 }
 
 /// To a driver who opened "Counteroffer" from the channel.
-pub fn counteroffer_prompt(
-    lang: Lang,
-    request: &RequestId,
-    km: f64,
-    price: Cup,
-    pay: PaymentMethod,
-    from: Option<&str>,
-    to: Option<&str>,
-) -> String {
-    let post = channel_post(lang, request, km, price, pay, from, to);
+pub fn counteroffer_prompt(lang: Lang, post: &Post) -> String {
+    let post = channel_post(lang, post);
     match lang {
         Lang::Es => format!("{post}\n\n¿Por cuánto lo harías?"),
         Lang::En => format!("{post}\n\nWhat would you do it for?"),
@@ -711,6 +827,217 @@ pub fn raise_prompt(lang: Lang, price: Cup) -> String {
         Lang::Es => format!("Ahora ofreces {price} CUP. ¿A cuánto lo subes?"),
         Lang::En => format!("You're offering {price} CUP. How much do you raise it to?"),
     }
+}
+
+/// Version of the terms below; raising it asks everyone to accept again.
+pub const TERMS_VERSION: i64 = 1;
+
+/// Terms of use and privacy notice, accepted on first use.
+pub fn terms(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "📜 Términos y privacidad de Asere Voy\n\n\
+1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de las motos y no asegura los viajes. El precio y el pago (efectivo o transferencia) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
+2. Qué guardamos: de los choferes, su ficha (alias, celular cifrado, moto, chapa, fotos y métodos de pago). De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste.\n\n\
+3. Qué no guardamos: no hay historial de viajes. Cada solicitud (ubicaciones y referencia) se borra al cerrarse, y nunca guardamos el teléfono de los clientes. Las calificaciones son ciegas y solo se suman a los totales.\n\n\
+4. Quién ve qué: en el canal de ofertas los choferes ven el municipio, la distancia, el precio y tu reputación, nunca tu ubicación exacta ni tu contacto. Esos datos solo los recibe el chofer que confirmes.\n\n\
+5. Normas: respeto mutuo y nada ilegal. Tres cancelaciones en 7 días bloquean la cuenta 24 horas. Los admins pueden bloquear cuentas o quitar choferes.\n\n\
+6. Para usar el bot necesitas un @usuario de Telegram: el chofer que confirmes y tú podrán escribirse por él.\n\n\
+7. Ante cualquier problema (accidentes, robos o cobros abusivos), pulsa 💬 Soporte: te llevará a la cuenta de soporte, que verá tu cuenta de Telegram mientras te atiende.\n\n\
+Datos del mapa © colaboradores de OpenStreetMap (licencia ODbL)."
+        }
+        Lang::En => {
+            "📜 Asere Voy terms and privacy\n\n\
+1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the motorbikes and does not insure the trips. Price and payment (cash or transfer) are agreed directly between client and driver; the bot handles no money.\n\n\
+2. What we keep: for drivers, their profile (alias, encrypted phone, motorbike, plate, photos and payment methods). For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it.\n\n\
+3. What we don't keep: there is no trip history. Each request (locations and landmark) is deleted when it closes, and we never keep clients' phone numbers. Ratings are blind and only added to the totals.\n\n\
+4. Who sees what: in the offers channel drivers see the municipality, distance, price and your reputation, never your exact location or contact. Only the driver you confirm gets those.\n\n\
+5. Rules: mutual respect and nothing illegal. Three cancellations in 7 days block the account for 24 hours. Admins can block accounts or remove drivers.\n\n\
+6. You need a Telegram @username to use the bot: you and the driver you confirm can message each other through it.\n\n\
+7. For any problem (accidents, theft or overcharging), tap 💬 Support: it takes you to the support account, which will see your Telegram account while helping you.\n\n\
+Map data © OpenStreetMap contributors (ODbL license)."
+        }
+    }
+}
+
+/// "⭐4.7 · 23 trips · 120 days", or "New" instead of the stars.
+pub fn reputation(lang: Lang, shown: &Shown, with_days: bool) -> String {
+    let stars = match (lang, shown.stars) {
+        (_, Some(avg)) => format!("⭐{avg:.1}"),
+        (Lang::Es, None) => "🆕 Nuevo".to_owned(),
+        (Lang::En, None) => "🆕 New".to_owned(),
+    };
+    let trips = match lang {
+        Lang::Es => format!("{} viajes", shown.trips),
+        Lang::En => format!("{} trips", shown.trips),
+    };
+    if !with_days {
+        return format!("{stars} · {trips}");
+    }
+    let days = match lang {
+        Lang::Es => format!("{} días en el bot", shown.days),
+        Lang::En => format!("{} days in the bot", shown.days),
+    };
+    format!("{stars} · {trips} · {days}")
+}
+
+pub fn cancel_reason(lang: Lang, reason: CancelReason) -> &'static str {
+    match (lang, reason) {
+        (Lang::Es, CancelReason::DriverNotComing) => "🕒 El chofer no llega",
+        (Lang::En, CancelReason::DriverNotComing) => "🕒 The driver isn't coming",
+        (Lang::Es, CancelReason::ChangedMind) => "🙅 Ya no lo necesito",
+        (Lang::En, CancelReason::ChangedMind) => "🙅 I don't need it anymore",
+        (Lang::Es, CancelReason::ClientNoShow) => "🙈 El cliente no apareció",
+        (Lang::En, CancelReason::ClientNoShow) => "🙈 The client didn't show up",
+        (Lang::Es, CancelReason::Unsafe) => "⚠️ Me sentí inseguro",
+        (Lang::En, CancelReason::Unsafe) => "⚠️ I felt unsafe",
+        (Lang::Es, CancelReason::Other) => "Otro motivo",
+        (Lang::En, CancelReason::Other) => "Another reason",
+    }
+}
+
+pub fn tag(lang: Lang, tag: Tag) -> &'static str {
+    match (lang, tag) {
+        (Lang::Es, Tag::Punctual) => "⏱ Puntual",
+        (Lang::En, Tag::Punctual) => "⏱ Punctual",
+        (Lang::Es, Tag::Kind) => "😊 Amable",
+        (Lang::En, Tag::Kind) => "😊 Kind",
+        (Lang::Es, Tag::Overcharged) => "💸 Cobró de más",
+        (Lang::En, Tag::Overcharged) => "💸 Overcharged",
+        (Lang::Es, Tag::NoShow) => "🙈 No apareció",
+        (Lang::En, Tag::NoShow) => "🙈 Didn't show up",
+    }
+}
+
+/// Asks for stars about the other side of a finished trip.
+pub fn rate_prompt(lang: Lang, rated: Role) -> &'static str {
+    match (lang, rated) {
+        (Lang::Es, Role::Driver) => "🏁 ¿Qué tal fue tu chofer? Tu nota es anónima y la otra persona no la verá.",
+        (Lang::En, Role::Driver) => "🏁 How was your driver? Your rating is anonymous; they won't see it.",
+        (Lang::Es, Role::Client) => "🏁 ¿Qué tal fue el cliente? Tu nota es anónima y la otra persona no la verá.",
+        (Lang::En, Role::Client) => "🏁 How was the client? Your rating is anonymous; they won't see it.",
+    }
+}
+
+pub fn blocked(lang: Lang, until: Option<&str>) -> String {
+    match (lang, until) {
+        (Lang::Es, Some(t)) => format!("⛔ Tu cuenta está bloqueada hasta el {t}. Si crees que es un error, escribe a 💬 Soporte."),
+        (Lang::En, Some(t)) => format!("⛔ Your account is blocked until {t}. If you think it's a mistake, write to 💬 Support."),
+        (Lang::Es, None) => "⛔ Tu cuenta está bloqueada. Si crees que es un error, escribe a 💬 Soporte.".into(),
+        (Lang::En, None) => "⛔ Your account is blocked. If you think it's a mistake, write to 💬 Support.".into(),
+    }
+}
+
+/// To the client after "Share trip", to forward to someone they trust.
+pub fn share_trip(lang: Lang, request: &RequestId, p: &Profile, time: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "🛵 Voy en moto con Asere Voy.\nChofer: {}\nMoto: {}, {}\nChapa: {}\nSalida: {time}\nViaje: {request}",
+            p.alias, p.bike_model, p.bike_color, p.plate
+        ),
+        Lang::En => format!(
+            "🛵 I'm riding with Asere Voy.\nDriver: {}\nMotorbike: {}, {}\nPlate: {}\nDeparture: {time}\nTrip: {request}",
+            p.alias, p.bike_model, p.bike_color, p.plate
+        ),
+    }
+}
+
+/// 💬 Support: the support account to write to, and the code to include.
+pub fn support(lang: Lang, username: &str, code: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "💬 Escribe a nuestro soporte, @{username}, e incluye tu código {code} para que podamos ayudarte. Si es sobre un viaje, añade también su código."
+        ),
+        Lang::En => format!(
+            "💬 Message our support, @{username}, and include your code {code} so we can help you. If it's about a trip, add its code too."
+        ),
+    }
+}
+
+/// `/caso <code>`: who the person is, for staff.
+pub fn case_summary(
+    lang: Lang,
+    code: &str,
+    driver: Option<DriverStatus>,
+    as_client: Option<&Shown>,
+    as_driver: Option<&Shown>,
+    blocked: Option<Option<String>>,
+) -> String {
+    let none = match lang {
+        Lang::Es => "sin viajes",
+        Lang::En => "no trips",
+    };
+    let rep = |s: Option<&Shown>| s.map(|s| reputation(lang, s, true)).unwrap_or_else(|| none.into());
+    let mut lines = vec![match lang {
+        Lang::Es => format!("🔎 Código {code}"),
+        Lang::En => format!("🔎 Code {code}"),
+    }];
+    lines.push(match lang {
+        Lang::Es => format!("Como cliente: {}", rep(as_client)),
+        Lang::En => format!("As a client: {}", rep(as_client)),
+    });
+    if let Some(status) = driver {
+        let status = match (lang, status) {
+            (Lang::Es, DriverStatus::Pending) => "pendiente",
+            (Lang::En, DriverStatus::Pending) => "pending",
+            (Lang::Es, DriverStatus::Active) => "activo",
+            (Lang::En, DriverStatus::Active) => "active",
+            (Lang::Es, DriverStatus::Blocked) => "bloqueado",
+            (Lang::En, DriverStatus::Blocked) => "blocked",
+        };
+        lines.push(match lang {
+            Lang::Es => format!("Chofer ({status}): {}", rep(as_driver)),
+            Lang::En => format!("Driver ({status}): {}", rep(as_driver)),
+        });
+    }
+    if let Some(until) = blocked {
+        lines.push(match (lang, until) {
+            (Lang::Es, Some(t)) => format!("⛔ Bloqueado hasta el {t}"),
+            (Lang::En, Some(t)) => format!("⛔ Blocked until {t}"),
+            (Lang::Es, None) => "⛔ Bloqueado".into(),
+            (Lang::En, None) => "⛔ Blocked".into(),
+        });
+    }
+    lines.join("\n")
+}
+
+pub fn alert_unsafe(lang: Lang, request: &RequestId) -> String {
+    match lang {
+        Lang::Es => format!("⚠️ Un chofer canceló el viaje {request} porque se sintió inseguro. Los botones actúan sobre el cliente."),
+        Lang::En => format!("⚠️ A driver cancelled trip {request} because they felt unsafe. The buttons act on the client."),
+    }
+}
+
+pub fn alert_cancellations(lang: Lang) -> String {
+    match lang {
+        Lang::Es => "⛔ Un cliente acumuló 3 cancelaciones en 7 días y quedó bloqueado 24 horas.".into(),
+        Lang::En => "⛔ A client reached 3 cancellations in 7 days and is blocked for 24 hours.".into(),
+    }
+}
+
+pub fn alert_low_rating(lang: Lang, role: Role, shown: &Shown) -> String {
+    let rep = reputation(lang, shown, false);
+    match (lang, role) {
+        (Lang::Es, Role::Client) => format!("📉 Un cliente bajó de 3.5 estrellas ({rep})."),
+        (Lang::En, Role::Client) => format!("📉 A client fell below 3.5 stars ({rep})."),
+        (Lang::Es, Role::Driver) => format!("📉 Un chofer bajó de 3.5 estrellas ({rep})."),
+        (Lang::En, Role::Driver) => format!("📉 A driver fell below 3.5 stars ({rep})."),
+    }
+}
+
+pub fn admin_invite_created(lang: Lang, link: &str) -> String {
+    match lang {
+        Lang::Es => format!("🔗 Enlace para nombrar un admin (un solo uso, vence en 48 h):\n{link}"),
+        Lang::En => format!("🔗 Link to appoint an admin (single use, expires in 48 h):\n{link}"),
+    }
+}
+
+pub fn admins_list(lang: Lang, names: &[String]) -> String {
+    let head = match lang {
+        Lang::Es => "👮 Admins:",
+        Lang::En => "👮 Admins:",
+    };
+    std::iter::once(head.to_owned()).chain(names.iter().map(|n| format!("• {n}"))).collect::<Vec<_>>().join("\n")
 }
 
 #[cfg(test)]

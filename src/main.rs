@@ -14,7 +14,7 @@ use teloxide::prelude::*;
 use tracing_subscriber::EnvFilter;
 
 use crate::bot::App;
-use crate::crypto::PhoneCipher;
+use crate::crypto::{PairKey, PhoneCipher};
 use crate::location::routing::Osrm;
 use crate::location::zones::Zones;
 
@@ -38,6 +38,10 @@ async fn main() -> anyhow::Result<()> {
     };
     let channel = ChatId(config.offers_channel_id.context("OFFERS_CHANNEL_ID is required to run the bot")?);
     let cipher = PhoneCipher::from_hex(config.phone_key.as_deref().context("PHONE_KEY is required to run the bot")?)?;
+    let pair_key = PairKey::from_hex(config.pair_key.as_deref().context("PAIR_KEY is required to run the bot")?)?;
+    if config.support_username.is_none() {
+        tracing::warn!("SUPPORT_USERNAME is not set; the Support button will say it is unavailable");
+    }
     let osrm = Osrm::new(&config.osrm_url)?;
     let zones = Zones::bundled()?;
 
@@ -49,12 +53,14 @@ async fn main() -> anyhow::Result<()> {
         pool,
         config,
         cipher,
+        pair_key,
         osrm,
         zones,
         channel,
         channel_link,
         bot_username: me.username().to_owned(),
         seen_langs: Default::default(),
+        last_action: Default::default(),
     });
     tokio::spawn(tasks::sweeper::run(bot.clone(), app.clone()));
     tracing::info!("bot started");

@@ -1,6 +1,8 @@
 //! Every 10 s: asks "still waiting?" and expires requests, releases drivers
 //! the client did not confirm, auto-completes forgotten trips, drops expired
-//! counteroffers (and their messages), invitations and idle conversations.
+//! counteroffers (and their messages), applies blind ratings that are due,
+//! and deletes expired invitations, conversations, cancellations, blocks,
+//! pair fingerprints and support codes.
 //! Deadlines live in the database, so a restart loses nothing.
 
 use std::time::Duration;
@@ -8,7 +10,7 @@ use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::types::MessageId;
 
-use crate::bot::{App, AppRef, chat, effects, now};
+use crate::bot::{App, AppRef, chat, effects, now, rating};
 use crate::db;
 use crate::domain::request::{AUTO_COMPLETE_SECS, Request, Tick, UnixTime};
 
@@ -40,8 +42,15 @@ async fn sweep(bot: &Bot, app: &App) -> anyhow::Result<()> {
             tracing::warn!(request = %expired.request, error = %e, "hiding expired offer failed");
         }
     }
+    if let Err(e) = rating::apply_due(bot, app).await {
+        tracing::error!(error = %e, "applying ratings failed");
+    }
     db::invitations::delete_expired(&app.pool, now).await?;
     db::dialogs::delete_idle(&app.pool, now).await?;
+    db::moderation::delete_old_cancellations(&app.pool, now).await?;
+    db::moderation::delete_expired_blocks(&app.pool, now).await?;
+    db::reputation::delete_expired_pairs(&app.pool, now).await?;
+    db::support::delete_expired_codes(&app.pool, now).await?;
     Ok(())
 }
 
