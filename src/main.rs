@@ -41,17 +41,29 @@ async fn main() -> anyhow::Result<()> {
 
     let bot = Bot::new(token);
     let me = bot.get_me().await.context("cannot reach Telegram with TELEGRAM_TOKEN")?;
-    let channel_link = bot
-        .create_chat_invite_link(channel)
-        .name("Asere Voy")
-        .creates_join_request(true)
-        .await
-        .context("the bot must be an admin of the offers channel, allowed to invite users")?
-        .invite_link;
+    let channel_link = channel_link(&bot, &pool, channel).await?;
 
     let app = Arc::new(App::new(pool, config, cipher, osrm, channel, channel_link, me.username().to_owned()));
     tokio::spawn(tasks::sweeper::run(bot.clone(), app.clone()));
     tracing::info!("bot started");
     bot::dispatcher::run(bot, app).await;
     Ok(())
+}
+
+/// The join-request link to the offers channel, created once per channel and
+/// reused, so restarts do not pile up links.
+async fn channel_link(bot: &Bot, pool: &sqlx::SqlitePool, channel: ChatId) -> anyhow::Result<String> {
+    let key = format!("channel_link:{}", channel.0);
+    if let Some(link) = db::settings::get(pool, &key).await? {
+        return Ok(link);
+    }
+    let link = bot
+        .create_chat_invite_link(channel)
+        .name("Asere Voy")
+        .creates_join_request(true)
+        .await
+        .context("the bot must be an admin of the offers channel, allowed to invite users")?
+        .invite_link;
+    db::settings::set(pool, &key, &link).await?;
+    Ok(link)
 }
