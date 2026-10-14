@@ -1,10 +1,13 @@
 //! A ride request and its state machine:
 //!
 //! ```text
-//! Open ──accept──▶ Assigned ──complete / auto-close──▶ Completed
-//!  │                  │
-//!  ├─cancel──▶ Cancelled ◀──cancel──┘
-//!  └─expire──▶ Expired
+//!           ┌── counteroffer / raise price / still waiting ──┐
+//!           ▼                                                │
+//! Open ─────┴─ driver accepts ─▶ Confirming ─ client confirms ─▶ Assigned ─ complete / auto-close ─▶ Completed
+//!  │  └──── client accepts a counteroffer ─────────────────────▶ Assigned
+//!  │                              │ client cancels / no answer      │ client or driver cancels
+//!  ├─ client cancels ─────────────┴──────────▶ Cancelled ◀──────────┘
+//!  └─ 60 min, or no answer to "still waiting?" ─▶ Expired
 //! ```
 //!
 //! Atomicity (one winner per request, one trip per driver) is enforced by the
@@ -17,8 +20,16 @@ use super::ids::{RequestId, UserId};
 /// Unix time in seconds.
 pub type UnixTime = i64;
 
-/// How long a request stays open in the channel.
-pub const ROUND_SECS: i64 = 5 * 60;
+/// How long a request stays in the channel.
+pub const REQUEST_TTL_SECS: i64 = 60 * 60;
+/// When the client is asked "still waiting?".
+pub const STILL_WAITING_AFTER_SECS: i64 = 30 * 60;
+/// How long the client has to answer it.
+pub const STILL_WAITING_ANSWER_SECS: i64 = 10 * 60;
+/// How long the client has to confirm the driver who accepted.
+pub const CONFIRM_SECS: i64 = 5 * 60;
+/// How long a counteroffer stays valid.
+pub const COUNTEROFFER_SECS: i64 = 5 * 60;
 /// Assigned trips nobody marks as completed are closed after this.
 pub const AUTO_COMPLETE_SECS: i64 = 2 * 60 * 60;
 
@@ -31,6 +42,8 @@ pub struct Point {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Open,
+    /// A driver accepted; the client has to confirm them.
+    Confirming,
     Assigned,
     Completed,
     Cancelled,
@@ -41,6 +54,7 @@ impl State {
     pub fn as_str(self) -> &'static str {
         match self {
             State::Open => "open",
+            State::Confirming => "confirming",
             State::Assigned => "assigned",
             State::Completed => "completed",
             State::Cancelled => "cancelled",
@@ -51,6 +65,7 @@ impl State {
     pub fn parse(s: &str) -> Option<Self> {
         Some(match s {
             "open" => State::Open,
+            "confirming" => State::Confirming,
             "assigned" => State::Assigned,
             "completed" => State::Completed,
             "cancelled" => State::Cancelled,
@@ -87,14 +102,26 @@ impl PaymentMethod {
 pub enum DomainError {
     #[error("price {offered} is below the minimum {minimum}")]
     PriceBelowMinimum { offered: Cup, minimum: Cup },
+    #[error("the new price must be higher than {current}")]
+    PriceNotHigher { current: Cup },
     #[error("the request is no longer open")]
     NotOpen,
     #[error("the request is not assigned")]
     NotAssigned,
-    #[error("a driver cannot accept their own request")]
+    #[error("a driver cannot take their own request")]
     OwnRequest,
     #[error("only the client or the assigned driver can do this")]
     NotParticipant,
+    #[error("the counteroffer is no longer valid")]
+    OfferGone,
+}
+
+/// A driver's latest counteroffer on an open request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Counteroffer {
+    pub driver: UserId,
+    pub amount: Cup,
+    pub expires_at: UnixTime,
 }
 
 /// What the client fills in before publishing.
@@ -122,11 +149,30 @@ pub struct Request {
     pub price: Cup,
     pub payment: PaymentMethod,
     pub state: State,
+    /// Holding the request (`Confirming`) or doing the trip (`Assigned`).
     pub driver: Option<UserId>,
     pub channel_msg_id: Option<i32>,
+    pub offers_msg_id: Option<i32>,
     pub created_at: UnixTime,
     pub assigned_at: Option<UnixTime>,
+    /// When to ask "still waiting?"; `None` once asked.
+    pub check_at: Option<UnixTime>,
+    /// Deadline to answer "still waiting?" while the question is pending.
+    pub answer_by: Option<UnixTime>,
+    /// Deadline to confirm the driver while `Confirming`.
+    pub confirm_by: Option<UnixTime>,
     pub expires_at: UnixTime,
+    /// Active counteroffers, while `Open`.
+    pub counteroffers: Vec<Counteroffer>,
+}
+
+/// What the sweeper has to do with a request whose deadline passed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Tick {
+    /// The request closes: delete it and run the effects.
+    Close(Vec<Effect>),
+    /// Ask "still waiting?": save the new deadline and run the effects.
+    AskStillWaiting(Vec<Effect>),
 }
 
 impl Request {
@@ -153,9 +199,14 @@ impl Request {
             state: State::Open,
             driver: None,
             channel_msg_id: None,
+            offers_msg_id: None,
             created_at: now,
             assigned_at: None,
-            expires_at: now + ROUND_SECS,
+            check_at: Some(now + STILL_WAITING_AFTER_SECS),
+            answer_by: None,
+            confirm_by: None,
+            expires_at: now + REQUEST_TTL_SECS,
+            counteroffers: Vec::new(),
         };
         let effects = vec![
             Effect::PublishToChannel { request: id.clone() },
@@ -164,32 +215,173 @@ impl Request {
         Ok((request, effects))
     }
 
-    /// Validates the acceptance. The caller must then assign atomically in the
-    /// database and only apply the effects if it won.
-    pub fn accept(&mut self, driver: UserId, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
+    fn check_open(&self, now: UnixTime) -> Result<(), DomainError> {
         if self.state != State::Open || now >= self.expires_at {
             return Err(DomainError::NotOpen);
         }
+        Ok(())
+    }
+
+    fn check_client(&self, by: UserId) -> Result<(), DomainError> {
+        if by != self.client {
+            return Err(DomainError::NotParticipant);
+        }
+        Ok(())
+    }
+
+    /// ✅ Accept in the channel: the driver holds the request while the client
+    /// decides. The caller must reserve it atomically in the database and only
+    /// apply the effects if it won.
+    pub fn accept(&mut self, driver: UserId, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
+        self.check_open(now)?;
         if driver == self.client {
             return Err(DomainError::OwnRequest);
         }
+        self.state = State::Confirming;
+        self.driver = Some(driver);
+        self.confirm_by = Some(now + CONFIRM_SECS);
+        self.answer_by = None;
+        let id = self.id.clone();
+        Ok(vec![
+            Effect::MarkChannelConfirming { request: id.clone() },
+            Effect::WithdrawDriverOffers { driver },
+            Effect::Notify { to: self.client, notice: Notice::ConfirmDriver { request: id.clone(), driver } },
+            Effect::Notify { to: driver, notice: Notice::AwaitingClient { request: id } },
+        ])
+    }
+
+    /// The client confirms the driver who accepted.
+    pub fn confirm(&mut self, by: UserId, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
+        if self.state != State::Confirming {
+            return Err(DomainError::NotOpen);
+        }
+        self.check_client(by)?;
+        let driver = self.driver.expect("confirming request has a driver");
+        self.state = State::Assigned;
+        self.assigned_at = Some(now);
+        self.confirm_by = None;
+        let notice = Notice::DriverConfirmed { request: self.id.clone(), driver };
+        Ok(self.assigned_effects(driver, notice))
+    }
+
+    /// The client takes a driver's counteroffer: assigned at that price, with
+    /// no confirmation step (the client already chose the driver).
+    pub fn accept_counteroffer(
+        &mut self,
+        by: UserId,
+        driver: UserId,
+        now: UnixTime,
+    ) -> Result<Vec<Effect>, DomainError> {
+        self.check_open(now)?;
+        self.check_client(by)?;
+        let offer = self
+            .counteroffers
+            .iter()
+            .find(|o| o.driver == driver && o.expires_at > now)
+            .ok_or(DomainError::OfferGone)?;
+        self.price = offer.amount;
         self.state = State::Assigned;
         self.driver = Some(driver);
         self.assigned_at = Some(now);
-        let id = &self.id;
-        Ok(vec![
-            Effect::MarkChannelTaken { request: id.clone() },
-            Effect::Notify {
-                to: self.client,
-                notice: Notice::DriverAssigned { request: id.clone(), driver },
-            },
-            Effect::Notify {
-                to: driver,
-                notice: Notice::TripAssigned { request: id.clone(), client: self.client },
-            },
+        self.answer_by = None;
+        let mut effects = vec![Effect::WithdrawDriverOffers { driver }];
+        let notice = Notice::DriverAssigned { request: self.id.clone(), driver };
+        effects.extend(self.assigned_effects(driver, notice));
+        Ok(effects)
+    }
+
+    /// Effects of entering `Assigned`: the post is marked taken, the other
+    /// drivers who made offers are told, and both sides get each other's
+    /// details. The driver only now learns the exact points.
+    fn assigned_effects(&mut self, driver: UserId, to_client: Notice) -> Vec<Effect> {
+        let id = self.id.clone();
+        let mut effects = vec![Effect::MarkChannelTaken { request: id.clone() }];
+        effects.extend(self.dismiss_offers(Some(driver)));
+        effects.extend([
+            Effect::Notify { to: self.client, notice: to_client },
+            Effect::Notify { to: driver, notice: Notice::TripAssigned { request: id, client: self.client } },
             Effect::SendLocation { to: driver, point: self.pickup, place: Place::Pickup },
             Effect::SendLocation { to: driver, point: self.dropoff, place: Place::Dropoff },
+        ]);
+        effects
+    }
+
+    /// Clears the counteroffers, telling every driver but `except`.
+    fn dismiss_offers(&mut self, except: Option<UserId>) -> Vec<Effect> {
+        if self.counteroffers.is_empty() {
+            return Vec::new();
+        }
+        let mut effects: Vec<Effect> = self
+            .counteroffers
+            .drain(..)
+            .filter(|o| Some(o.driver) != except)
+            .map(|o| Effect::Notify { to: o.driver, notice: Notice::RequestGone { request: self.id.clone() } })
+            .collect();
+        effects.push(Effect::RefreshOffers { request: self.id.clone() });
+        effects
+    }
+
+    /// A driver offers to do the trip for `amount`, above the current price.
+    /// It replaces their previous counteroffer on this request.
+    pub fn counteroffer(&mut self, driver: UserId, amount: Cup, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
+        self.check_open(now)?;
+        if driver == self.client {
+            return Err(DomainError::OwnRequest);
+        }
+        if amount <= self.price {
+            return Err(DomainError::PriceNotHigher { current: self.price });
+        }
+        self.counteroffers.retain(|o| o.driver != driver);
+        self.counteroffers.push(Counteroffer { driver, amount, expires_at: now + COUNTEROFFER_SECS });
+        Ok(vec![Effect::RefreshOffers { request: self.id.clone() }])
+    }
+
+    /// The client turns down a counteroffer; the driver may make another.
+    pub fn reject_counteroffer(&mut self, by: UserId, driver: UserId) -> Result<Vec<Effect>, DomainError> {
+        if self.state != State::Open {
+            return Err(DomainError::NotOpen);
+        }
+        self.check_client(by)?;
+        let before = self.counteroffers.len();
+        self.counteroffers.retain(|o| o.driver != driver);
+        if self.counteroffers.len() == before {
+            return Err(DomainError::OfferGone);
+        }
+        let id = self.id.clone();
+        Ok(vec![
+            Effect::Notify { to: driver, notice: Notice::CounterofferRejected { request: id.clone() } },
+            Effect::RefreshOffers { request: id },
         ])
+    }
+
+    /// The client raises the price. Counteroffers at or below it lose their point.
+    /// Raising also answers a pending "still waiting?".
+    pub fn raise_price(&mut self, by: UserId, price: Cup, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
+        self.check_open(now)?;
+        self.check_client(by)?;
+        if price <= self.price {
+            return Err(DomainError::PriceNotHigher { current: self.price });
+        }
+        self.price = price;
+        self.answer_by = None;
+        let id = self.id.clone();
+        let mut effects = vec![
+            Effect::UpdateChannelPost { request: id.clone() },
+            Effect::Notify { to: self.client, notice: Notice::PriceRaised { request: id.clone() } },
+        ];
+        if self.counteroffers.iter().any(|o| o.amount <= price) {
+            self.counteroffers.retain(|o| o.amount > price);
+            effects.push(Effect::RefreshOffers { request: id });
+        }
+        Ok(effects)
+    }
+
+    /// The client answers "yes" to "still waiting?".
+    pub fn keep_waiting(&mut self, by: UserId, now: UnixTime) -> Result<(), DomainError> {
+        self.check_open(now)?;
+        self.check_client(by)?;
+        self.answer_by = None;
+        Ok(())
     }
 
     /// Either participant can mark the trip as completed.
@@ -212,47 +404,63 @@ impl Request {
         }]))
     }
 
-    /// The client can cancel while open or assigned; the driver only once assigned.
+    /// The client can cancel while open, confirming (turning the driver down)
+    /// or assigned; the driver only once assigned.
     pub fn cancel(&mut self, by: UserId) -> Result<Vec<Effect>, DomainError> {
+        let id = self.id.clone();
         let notify = match (self.state, self.driver) {
-            (State::Open, _) if by == self.client => None,
-            (State::Assigned, Some(driver)) if by == self.client => Some(Effect::Notify {
-                to: driver,
-                notice: Notice::CancelledByClient { request: self.id.clone() },
-            }),
-            (State::Assigned, Some(driver)) if by == driver => Some(Effect::Notify {
-                to: self.client,
-                notice: Notice::CancelledByDriver { request: self.id.clone() },
-            }),
-            (State::Open | State::Assigned, _) => return Err(DomainError::NotParticipant),
+            (State::Open, _) if by == self.client => vec![],
+            (State::Confirming, Some(driver)) if by == self.client => vec![
+                Effect::Notify { to: driver, notice: Notice::ClientDeclined { request: id.clone() } },
+                Effect::Notify { to: self.client, notice: Notice::DeclinedDriver { request: id } },
+            ],
+            (State::Assigned, Some(driver)) if by == self.client => {
+                vec![Effect::Notify { to: driver, notice: Notice::CancelledByClient { request: id } }]
+            }
+            (State::Assigned, Some(driver)) if by == driver => {
+                vec![Effect::Notify { to: self.client, notice: Notice::CancelledByDriver { request: id } }]
+            }
+            (State::Open | State::Confirming | State::Assigned, _) => return Err(DomainError::NotParticipant),
             _ => return Err(DomainError::NotOpen),
         };
         self.state = State::Cancelled;
-        Ok(self.close_effects(notify.into_iter().collect()))
+        Ok(self.close_effects(notify))
     }
 
-    /// Called by the sweeper. Expires open requests past their round and
-    /// auto-completes assigned trips nobody closed.
-    pub fn tick(&mut self, now: UnixTime) -> Option<Vec<Effect>> {
+    /// Called by the sweeper when a deadline passes.
+    pub fn tick(&mut self, now: UnixTime) -> Option<Tick> {
+        let id = self.id.clone();
         match self.state {
-            State::Open if now >= self.expires_at => {
+            State::Open if now >= self.expires_at || self.answer_by.is_some_and(|by| now >= by) => {
                 self.state = State::Expired;
-                Some(self.close_effects(vec![Effect::Notify {
-                    to: self.client,
-                    notice: Notice::Expired { request: self.id.clone() },
-                }]))
+                let notify = vec![Effect::Notify { to: self.client, notice: Notice::Expired { request: id } }];
+                Some(Tick::Close(self.close_effects(notify)))
             }
-            State::Assigned
-                if self.assigned_at.is_some_and(|at| now >= at + AUTO_COMPLETE_SECS) =>
-            {
+            State::Open if self.answer_by.is_none() && self.check_at.is_some_and(|at| now >= at) => {
+                self.check_at = None;
+                self.answer_by = Some(now + STILL_WAITING_ANSWER_SECS);
+                let ask = Effect::Notify { to: self.client, notice: Notice::StillWaiting { request: id } };
+                Some(Tick::AskStillWaiting(vec![ask]))
+            }
+            State::Confirming if self.confirm_by.is_some_and(|by| now >= by) => {
+                let driver = self.driver.expect("confirming request has a driver");
+                self.state = State::Cancelled;
+                let notify = vec![
+                    Effect::Notify { to: driver, notice: Notice::ClientDidNotConfirm { request: id.clone() } },
+                    Effect::Notify { to: self.client, notice: Notice::ConfirmTimedOut { request: id } },
+                ];
+                Some(Tick::Close(self.close_effects(notify)))
+            }
+            State::Assigned if self.assigned_at.is_some_and(|at| now >= at + AUTO_COMPLETE_SECS) => {
                 self.state = State::Completed;
-                Some(self.close_effects(Vec::new()))
+                Some(Tick::Close(self.close_effects(Vec::new())))
             }
             _ => None,
         }
     }
 
-    fn close_effects(&self, mut effects: Vec<Effect>) -> Vec<Effect> {
+    fn close_effects(&mut self, mut effects: Vec<Effect>) -> Vec<Effect> {
+        effects.extend(self.dismiss_offers(None));
         effects.push(Effect::DeleteFromChannel { request: self.id.clone() });
         effects.push(Effect::Forget { request: self.id.clone() });
         effects
@@ -266,6 +474,7 @@ mod tests {
     const CLIENT: UserId = UserId(1);
     const DRIVER: UserId = UserId(2);
     const STRANGER: UserId = UserId(3);
+    const OTHER_DRIVER: UserId = UserId(4);
     const T0: UnixTime = 1_000_000;
 
     fn fares() -> Fares {
@@ -290,18 +499,39 @@ mod tests {
         Request::open(id, new_request(580), &fares(), T0).unwrap().0
     }
 
-    fn assigned() -> Request {
+    fn confirming() -> Request {
         let mut r = open();
         r.accept(DRIVER, T0 + 10).unwrap();
         r
     }
 
+    fn assigned() -> Request {
+        let mut r = confirming();
+        r.confirm(CLIENT, T0 + 20).unwrap();
+        r
+    }
+
+    fn notified(effects: &[Effect], who: UserId) -> Vec<&Notice> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Notify { to, notice } if *to == who => Some(notice),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn has_location(effects: &[Effect]) -> bool {
+        effects.iter().any(|e| matches!(e, Effect::SendLocation { .. }))
+    }
+
     #[test]
-    fn opening_publishes_and_sets_the_round_deadline() {
+    fn opening_publishes_with_60_minutes_and_a_check_at_30() {
         let id = RequestId::parse("AB7K").unwrap();
         let (r, effects) = Request::open(id.clone(), new_request(580), &fares(), T0).unwrap();
         assert_eq!(r.state, State::Open);
-        assert_eq!(r.expires_at, T0 + ROUND_SECS);
+        assert_eq!(r.expires_at, T0 + REQUEST_TTL_SECS);
+        assert_eq!(r.check_at, Some(T0 + STILL_WAITING_AFTER_SECS));
         assert_eq!(effects[0], Effect::PublishToChannel { request: id });
     }
 
@@ -313,21 +543,158 @@ mod tests {
     }
 
     #[test]
-    fn accepting_assigns_and_sends_pickup_and_dropoff_to_the_driver() {
+    fn accepting_holds_the_request_without_revealing_the_points() {
         let mut r = open();
         let effects = r.accept(DRIVER, T0 + 10).unwrap();
-        assert_eq!(r.state, State::Assigned);
+        assert_eq!(r.state, State::Confirming);
         assert_eq!(r.driver, Some(DRIVER));
-        assert!(effects.contains(&Effect::SendLocation { to: DRIVER, point: r.pickup, place: Place::Pickup }));
-        assert!(effects.contains(&Effect::SendLocation { to: DRIVER, point: r.dropoff, place: Place::Dropoff }));
-        assert!(matches!(effects[0], Effect::MarkChannelTaken { .. }));
+        assert_eq!(r.confirm_by, Some(T0 + 10 + CONFIRM_SECS));
+        assert!(matches!(effects[0], Effect::MarkChannelConfirming { .. }));
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::ConfirmDriver { .. }]));
+        assert!(!has_location(&effects));
     }
 
     #[test]
-    fn cannot_accept_own_request_expired_or_taken() {
+    fn confirming_assigns_and_sends_pickup_and_dropoff() {
+        let mut r = confirming();
+        assert_eq!(r.confirm(DRIVER, T0 + 20).unwrap_err(), DomainError::NotParticipant);
+        let effects = r.confirm(CLIENT, T0 + 20).unwrap();
+        assert_eq!(r.state, State::Assigned);
+        assert!(effects.contains(&Effect::SendLocation { to: DRIVER, point: r.pickup, place: Place::Pickup }));
+        assert!(effects.contains(&Effect::SendLocation { to: DRIVER, point: r.dropoff, place: Place::Dropoff }));
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::DriverConfirmed { .. }]));
+    }
+
+    #[test]
+    fn cannot_accept_own_request_expired_or_held() {
         assert_eq!(open().accept(CLIENT, T0).unwrap_err(), DomainError::OwnRequest);
-        assert_eq!(open().accept(DRIVER, T0 + ROUND_SECS).unwrap_err(), DomainError::NotOpen);
-        assert_eq!(assigned().accept(STRANGER, T0 + 20).unwrap_err(), DomainError::NotOpen);
+        assert_eq!(open().accept(DRIVER, T0 + REQUEST_TTL_SECS).unwrap_err(), DomainError::NotOpen);
+        assert_eq!(confirming().accept(STRANGER, T0 + 20).unwrap_err(), DomainError::NotOpen);
+    }
+
+    #[test]
+    fn turning_the_driver_down_cancels_and_tells_both() {
+        let mut r = confirming();
+        let effects = r.cancel(CLIENT).unwrap();
+        assert_eq!(r.state, State::Cancelled);
+        assert!(matches!(notified(&effects, DRIVER)[..], [Notice::ClientDeclined { .. }]));
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::DeclinedDriver { .. }]));
+        assert!(matches!(effects.last(), Some(Effect::Forget { .. })));
+        // The waiting driver cannot cancel in the client's place.
+        assert_eq!(confirming().cancel(DRIVER).unwrap_err(), DomainError::NotParticipant);
+    }
+
+    #[test]
+    fn unconfirmed_drivers_are_released_after_5_minutes() {
+        let mut r = confirming();
+        assert!(r.tick(T0 + 10 + CONFIRM_SECS - 1).is_none());
+        let Some(Tick::Close(effects)) = r.tick(T0 + 10 + CONFIRM_SECS) else { panic!("should close") };
+        assert_eq!(r.state, State::Cancelled);
+        assert!(matches!(notified(&effects, DRIVER)[..], [Notice::ClientDidNotConfirm { .. }]));
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::ConfirmTimedOut { .. }]));
+    }
+
+    #[test]
+    fn a_confirmation_in_progress_outlives_the_60_minutes() {
+        let mut r = open();
+        r.accept(DRIVER, T0 + REQUEST_TTL_SECS - 60).unwrap();
+        assert!(r.tick(T0 + REQUEST_TTL_SECS + 1).is_none());
+        assert!(r.confirm(CLIENT, T0 + REQUEST_TTL_SECS + 2).is_ok());
+    }
+
+    #[test]
+    fn still_waiting_is_asked_at_30_minutes_and_expires_without_answer() {
+        let mut r = open();
+        assert!(r.tick(T0 + STILL_WAITING_AFTER_SECS - 1).is_none());
+        let asked = T0 + STILL_WAITING_AFTER_SECS;
+        let Some(Tick::AskStillWaiting(effects)) = r.tick(asked) else { panic!("should ask") };
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::StillWaiting { .. }]));
+        assert_eq!(r.answer_by, Some(asked + STILL_WAITING_ANSWER_SECS));
+        assert!(r.tick(asked + 1).is_none()); // asked only once
+
+        let Some(Tick::Close(effects)) = r.tick(asked + STILL_WAITING_ANSWER_SECS) else { panic!("should expire") };
+        assert_eq!(r.state, State::Expired);
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::Expired { .. }]));
+    }
+
+    #[test]
+    fn answering_keeps_the_request_until_60_minutes() {
+        let mut r = open();
+        let asked = T0 + STILL_WAITING_AFTER_SECS;
+        r.tick(asked).unwrap();
+        assert_eq!(r.keep_waiting(DRIVER, asked + 1).unwrap_err(), DomainError::NotParticipant);
+        r.keep_waiting(CLIENT, asked + 1).unwrap();
+        assert!(r.tick(asked + STILL_WAITING_ANSWER_SECS).is_none());
+        assert!(matches!(r.tick(T0 + REQUEST_TTL_SECS), Some(Tick::Close(_))));
+        assert_eq!(r.state, State::Expired);
+    }
+
+    #[test]
+    fn raising_the_price_updates_the_post_and_drops_cheaper_offers() {
+        let mut r = open();
+        r.counteroffer(DRIVER, 630, T0 + 1).unwrap();
+        r.counteroffer(OTHER_DRIVER, 700, T0 + 1).unwrap();
+        assert_eq!(r.raise_price(CLIENT, 580, T0 + 2).unwrap_err(), DomainError::PriceNotHigher { current: 580 });
+        assert_eq!(r.raise_price(DRIVER, 650, T0 + 2).unwrap_err(), DomainError::NotParticipant);
+
+        let effects = r.raise_price(CLIENT, 650, T0 + 2).unwrap();
+        assert_eq!(r.price, 650);
+        assert!(matches!(effects[0], Effect::UpdateChannelPost { .. }));
+        assert!(effects.iter().any(|e| matches!(e, Effect::RefreshOffers { .. })));
+        assert_eq!(r.counteroffers.len(), 1);
+        assert_eq!(r.counteroffers[0].driver, OTHER_DRIVER);
+    }
+
+    #[test]
+    fn counteroffers_replace_previous_ones_and_must_beat_the_price() {
+        let mut r = open();
+        assert_eq!(r.counteroffer(DRIVER, 580, T0).unwrap_err(), DomainError::PriceNotHigher { current: 580 });
+        assert_eq!(r.counteroffer(CLIENT, 700, T0).unwrap_err(), DomainError::OwnRequest);
+        r.counteroffer(DRIVER, 630, T0).unwrap();
+        r.counteroffer(DRIVER, 680, T0 + 5).unwrap();
+        assert_eq!(r.counteroffers, vec![Counteroffer { driver: DRIVER, amount: 680, expires_at: T0 + 5 + COUNTEROFFER_SECS }]);
+    }
+
+    #[test]
+    fn accepting_a_counteroffer_assigns_at_its_price_and_dismisses_the_rest() {
+        let mut r = open();
+        r.counteroffer(DRIVER, 630, T0).unwrap();
+        r.counteroffer(OTHER_DRIVER, 700, T0).unwrap();
+        let effects = r.accept_counteroffer(CLIENT, DRIVER, T0 + 10).unwrap();
+        assert_eq!((r.state, r.price, r.driver), (State::Assigned, 630, Some(DRIVER)));
+        assert!(matches!(notified(&effects, OTHER_DRIVER)[..], [Notice::RequestGone { .. }]));
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::DriverAssigned { .. }]));
+        assert!(has_location(&effects));
+        assert!(r.counteroffers.is_empty());
+    }
+
+    #[test]
+    fn expired_or_unknown_counteroffers_cannot_be_accepted() {
+        let mut r = open();
+        r.counteroffer(DRIVER, 630, T0).unwrap();
+        let late = T0 + COUNTEROFFER_SECS;
+        assert_eq!(r.accept_counteroffer(CLIENT, DRIVER, late).unwrap_err(), DomainError::OfferGone);
+        assert_eq!(r.accept_counteroffer(CLIENT, STRANGER, T0 + 1).unwrap_err(), DomainError::OfferGone);
+        assert_eq!(r.accept_counteroffer(DRIVER, DRIVER, T0 + 1).unwrap_err(), DomainError::NotParticipant);
+    }
+
+    #[test]
+    fn rejecting_a_counteroffer_tells_the_driver() {
+        let mut r = open();
+        r.counteroffer(DRIVER, 630, T0).unwrap();
+        let effects = r.reject_counteroffer(CLIENT, DRIVER).unwrap();
+        assert!(matches!(notified(&effects, DRIVER)[..], [Notice::CounterofferRejected { .. }]));
+        assert!(r.counteroffers.is_empty());
+        assert_eq!(r.reject_counteroffer(CLIENT, DRIVER).unwrap_err(), DomainError::OfferGone);
+    }
+
+    #[test]
+    fn closing_tells_drivers_with_pending_offers() {
+        let mut r = open();
+        r.counteroffer(DRIVER, 630, T0).unwrap();
+        let effects = r.cancel(CLIENT).unwrap();
+        assert!(matches!(notified(&effects, DRIVER)[..], [Notice::RequestGone { .. }]));
+        assert!(matches!(effects.last(), Some(Effect::Forget { .. })));
     }
 
     #[test]
@@ -344,48 +711,27 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_rules() {
-        // Client cancels an open request: nobody else to notify.
-        let mut r = open();
-        let effects = r.cancel(CLIENT).unwrap();
-        assert_eq!(r.state, State::Cancelled);
-        assert!(!effects.iter().any(|e| matches!(e, Effect::Notify { .. })));
-
-        // Driver cancels: client is told (and offered to republish).
+    fn cancellation_of_assigned_trips() {
         let mut r = assigned();
         let effects = r.cancel(DRIVER).unwrap();
-        assert!(matches!(
-            &effects[0],
-            Effect::Notify { to, notice: Notice::CancelledByDriver { .. } } if *to == CLIENT
-        ));
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::CancelledByDriver { .. }]));
 
-        // A driver cannot cancel an open request, nor can strangers.
+        let mut r = assigned();
+        let effects = r.cancel(CLIENT).unwrap();
+        assert!(matches!(notified(&effects, DRIVER)[..], [Notice::CancelledByClient { .. }]));
+
         assert_eq!(open().cancel(DRIVER).unwrap_err(), DomainError::NotParticipant);
         assert_eq!(assigned().cancel(STRANGER).unwrap_err(), DomainError::NotParticipant);
-
-        // Closed requests cannot be cancelled.
         let mut r = assigned();
         r.complete(CLIENT).unwrap();
         assert_eq!(r.cancel(CLIENT).unwrap_err(), DomainError::NotOpen);
     }
 
     #[test]
-    fn tick_expires_open_requests_after_the_round() {
-        let mut r = open();
-        assert!(r.tick(T0 + ROUND_SECS - 1).is_none());
-        let effects = r.tick(T0 + ROUND_SECS).unwrap();
-        assert_eq!(r.state, State::Expired);
-        assert!(matches!(
-            &effects[0],
-            Effect::Notify { notice: Notice::Expired { .. }, .. }
-        ));
-    }
-
-    #[test]
     fn tick_auto_completes_forgotten_trips() {
         let mut r = assigned();
-        assert!(r.tick(T0 + 10 + AUTO_COMPLETE_SECS - 1).is_none());
-        assert!(r.tick(T0 + 10 + AUTO_COMPLETE_SECS).is_some());
+        assert!(r.tick(T0 + 20 + AUTO_COMPLETE_SECS - 1).is_none());
+        assert!(matches!(r.tick(T0 + 20 + AUTO_COMPLETE_SECS), Some(Tick::Close(_))));
         assert_eq!(r.state, State::Completed);
     }
 }

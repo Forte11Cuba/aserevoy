@@ -1,6 +1,7 @@
 //! Telegram layer: reads updates, calls the domain and the database, and runs
 //! the effects the domain returns. Roles are checked here on every action.
 
+pub mod auction;
 pub mod client;
 pub mod dialog;
 pub mod dispatcher;

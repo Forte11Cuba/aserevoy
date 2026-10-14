@@ -75,14 +75,77 @@ pub fn payment_methods(lang: Lang) -> InlineKeyboardMarkup {
     ])
 }
 
-/// Under the offer in the channel.
-pub fn accept(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::Accept, format!("acc:{request}"))]])
+/// Under the offer in the channel: Accept is a callback (first one wins);
+/// Counteroffer opens the private chat with the bot.
+pub fn accept(lang: Lang, request: &RequestId, bot_username: &str) -> InlineKeyboardMarkup {
+    let mut row = vec![inline(lang, Button::Accept, format!("acc:{request}"))];
+    if let Ok(url) = reqwest::Url::parse(&format!("https://t.me/{bot_username}?start=co_{request}")) {
+        row.push(InlineKeyboardButton::url(button(lang, Button::Counteroffer), url));
+    }
+    InlineKeyboardMarkup::new(vec![row])
 }
 
 /// For the client while the request is open.
 pub fn open_request(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::CancelTrip, format!("can:{request}"))]])
+    InlineKeyboardMarkup::new(vec![vec![
+        inline(lang, Button::RaisePrice, format!("up:{request}")),
+        inline(lang, Button::CancelTrip, format!("can:{request}")),
+    ]])
+}
+
+/// "Still waiting?" at 30 minutes.
+pub fn still_waiting(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![inline(lang, Button::KeepWaiting, format!("kw:{request}"))],
+        vec![
+            inline(lang, Button::RaisePrice, format!("up:{request}")),
+            inline(lang, Button::CancelTrip, format!("can:{request}")),
+        ],
+    ])
+}
+
+/// New prices the client can raise to.
+pub fn raise_options(request: &RequestId, price: Cup) -> InlineKeyboardMarkup {
+    let row = [50, 100, 150]
+        .into_iter()
+        .map(|step| InlineKeyboardButton::callback(format!("{} CUP", price + step), format!("rai:{request}:{}", price + step)))
+        .collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(vec![row])
+}
+
+/// For the client when a driver accepted: confirm them or cancel.
+pub fn confirm_driver(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        inline(lang, Button::Confirm, format!("cok:{request}")),
+        inline(lang, Button::CancelTrip, format!("can:{request}")),
+    ]])
+}
+
+/// Amounts a driver can counteroffer, above the client's price.
+pub fn counteroffer_amounts(request: &RequestId, price: Cup) -> InlineKeyboardMarkup {
+    let row = [50, 100, 150]
+        .into_iter()
+        .map(|step| InlineKeyboardButton::callback(format!("{} CUP", price + step), format!("cof:{request}:{}", price + step)))
+        .collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(vec![row])
+}
+
+/// The client's list of counteroffers: accept or reject each.
+pub fn offers(lang: Lang, request: &RequestId, offers: &[(UserId, Cup, &str)]) -> InlineKeyboardMarkup {
+    let rows = offers
+        .iter()
+        .map(|(driver, amount, alias)| {
+            vec![
+                InlineKeyboardButton::callback(format!("✅ {amount} CUP · {alias}"), format!("coa:{request}:{}", driver.0)),
+                inline(lang, Button::Reject, format!("cor:{request}:{}", driver.0)),
+            ]
+        })
+        .collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(rows)
+}
+
+pub fn republish(lang: Lang) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::Republish, "rep")]])
 }
 
 /// For both sides once the trip is assigned.

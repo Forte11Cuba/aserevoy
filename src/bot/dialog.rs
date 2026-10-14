@@ -12,6 +12,20 @@ use crate::domain::request::{PaymentMethod, Point};
 pub enum Dialog {
     Ride(Ride),
     DriverForm(DriverForm),
+    /// After a request closed without a trip: what "Publish again" reuses.
+    /// Any other message leaves it in place.
+    Republish(Republish),
+}
+
+/// A closed request's trip, without the client's phone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Republish {
+    pub pickup: Point,
+    pub reference: Option<String>,
+    pub dropoff: Point,
+    pub km: f64,
+    pub price: Cup,
+    pub payment: PaymentMethod,
 }
 
 /// A client requesting a ride, step by step.

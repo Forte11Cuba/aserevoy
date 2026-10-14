@@ -4,7 +4,7 @@
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardMarkup, MessageId};
 
-use super::dialog::{Dialog, Ride, Trip};
+use super::dialog::{Dialog, Republish, Ride, Trip};
 use super::{App, chat, effects, keyboards, now};
 use crate::db;
 use crate::db::requests::InsertOutcome;
@@ -162,14 +162,8 @@ pub async fn on_callback(
             _ => false,
         },
         (Ride::Payment { trip, price }, "pay", method) => match PaymentMethod::parse(method) {
-            Some(payment) if cx.has_username => {
-                publish(cx, trip, price, payment, None).await?;
-                true
-            }
             Some(payment) => {
-                cx.save(Ride::Phone { trip, price, payment }).await?;
-                let extra = [keyboards::share_phone(cx.lang), keyboards::skip(cx.lang)];
-                cx.say(Text::AskPhone, keyboards::step(cx.lang, &extra)).await?;
+                publish_or_ask_phone(cx, trip, price, payment).await?;
                 true
             }
             None => false,
@@ -206,6 +200,35 @@ async fn confirm_route(
     let prompt = i18n::price_prompt(cx.lang, route.km, route.minutes, suggested, minimum);
     cx.bot.send_message(chat(cx.user), prompt).reply_markup(keyboards::prices(suggested)).await?;
     Ok(true)
+}
+
+/// Clients with a @username can be reached through it; the rest are offered
+/// to leave a phone first.
+async fn publish_or_ask_phone(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -> anyhow::Result<()> {
+    if cx.has_username {
+        return publish(cx, trip, price, payment, None).await;
+    }
+    cx.save(Ride::Phone { trip, price, payment }).await?;
+    let extra = [keyboards::share_phone(cx.lang), keyboards::skip(cx.lang)];
+    cx.say(Text::AskPhone, keyboards::step(cx.lang, &extra)).await
+}
+
+/// 🔁 Publish again: the same trip and price as the request that closed.
+pub async fn republish(cx: &Ctx<'_>, again: Republish) -> anyhow::Result<()> {
+    if db::requests::active_for(&cx.app.pool, cx.user).await?.is_some() {
+        return start(cx).await;
+    }
+    let fares = db::fares::load(&cx.app.pool).await?;
+    let suggested = fare::suggested_price(again.km, &fares);
+    let trip = Trip {
+        pickup: again.pickup,
+        reference: again.reference,
+        dropoff: again.dropoff,
+        km: again.km,
+        suggested,
+        minimum: fare::minimum_price(suggested, &fares),
+    };
+    publish_or_ask_phone(cx, trip, again.price, again.payment).await
 }
 
 async fn ask_payment(cx: &Ctx<'_>, trip: Trip, price: Cup) -> anyhow::Result<()> {

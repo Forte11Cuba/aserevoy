@@ -74,6 +74,11 @@ pub enum Button {
     Approve,
     Reject,
     EditProfile,
+    Confirm,
+    RaisePrice,
+    KeepWaiting,
+    Counteroffer,
+    Republish,
 }
 
 const REPLY_BUTTONS: [Button; 9] = [
@@ -131,6 +136,16 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Reject) => "❌ Reject",
         (Lang::Es, EditProfile) => "✏️ Editar ficha",
         (Lang::En, EditProfile) => "✏️ Edit profile",
+        (Lang::Es, Confirm) => "✅ Confirmar",
+        (Lang::En, Confirm) => "✅ Confirm",
+        (Lang::Es, RaisePrice) => "⬆️ Subir precio",
+        (Lang::En, RaisePrice) => "⬆️ Raise price",
+        (Lang::Es, KeepWaiting) => "✅ Sí, sigo esperando",
+        (Lang::En, KeepWaiting) => "✅ Yes, still waiting",
+        (Lang::Es, Counteroffer) => "💬 Contraofertar",
+        (Lang::En, Counteroffer) => "💬 Counteroffer",
+        (Lang::Es, Republish) => "🔁 Publicar de nuevo",
+        (Lang::En, Republish) => "🔁 Publish again",
     }
 }
 
@@ -169,6 +184,9 @@ pub enum Text {
     DriverBusy,
     AcceptedAlert,
     AlreadyClosed,
+    KeptWaiting,
+    CounterofferSent,
+    NoActiveRequest,
     // Driver profile.
     AskAlias,
     AskDriverPhone,
@@ -254,10 +272,16 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AlreadyTaken) => "Already taken.",
         (Lang::Es, DriverBusy) => "Ya tienes un viaje asignado. Complétalo o cancélalo primero.",
         (Lang::En, DriverBusy) => "You already have an assigned trip. Complete or cancel it first.",
-        (Lang::Es, AcceptedAlert) => "¡Es tuyo! Te escribí por privado.",
-        (Lang::En, AcceptedAlert) => "It's yours! I've messaged you privately.",
+        (Lang::Es, AcceptedAlert) => "¡Reservado! El cliente tiene 5 min para confirmarte. Te escribí por privado.",
+        (Lang::En, AcceptedAlert) => "Reserved! The client has 5 min to confirm you. I've messaged you privately.",
         (Lang::Es, AlreadyClosed) => "Este viaje ya se cerró.",
         (Lang::En, AlreadyClosed) => "This trip is already closed.",
+        (Lang::Es, KeptWaiting) => "👍 Perfecto, tu solicitud sigue publicada.",
+        (Lang::En, KeptWaiting) => "👍 Great, your request stays published.",
+        (Lang::Es, CounterofferSent) => "💬 Contraoferta enviada. Vale 5 min; te aviso si el cliente la acepta.",
+        (Lang::En, CounterofferSent) => "💬 Counteroffer sent. It's valid for 5 min; I'll tell you if the client accepts.",
+        (Lang::Es, NoActiveRequest) => "No tienes ninguna solicitud abierta.",
+        (Lang::En, NoActiveRequest) => "You have no open request.",
 
         (Lang::Es, AskAlias) => "🧑 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
         (Lang::En, AskAlias) => "🧑 How should clients see you? Type your alias.",
@@ -502,37 +526,80 @@ pub fn invite_created(lang: Lang, link: &str) -> String {
     }
 }
 
-/// Base text of a notice. The bot appends details such as the driver's card
-/// or the client's contact when it renders `DriverAssigned` / `TripAssigned`.
+/// Base text of a notice. The cards (`ConfirmDriver`, `DriverConfirmed`,
+/// `DriverAssigned`, `TripAssigned`) are rendered with their own functions,
+/// which have the driver's or client's details.
 pub fn notice(lang: Lang, notice: &Notice) -> String {
     use Notice::*;
     match (lang, notice) {
-        (Lang::Es, Published { request }) => {
-            format!("📣 Tu solicitud {request} ya está publicada. Te aviso cuando un chofer la acepte.")
-        }
-        (Lang::En, Published { request }) => {
-            format!("📣 Your request {request} is live. I'll let you know when a driver accepts it.")
-        }
+        (Lang::Es, Published { request }) => format!(
+            "📣 Tu solicitud {request} ya está publicada (hasta 60 min). Te aviso cuando un chofer la acepte o contraoferte."
+        ),
+        (Lang::En, Published { request }) => format!(
+            "📣 Your request {request} is live (up to 60 min). I'll let you know when a driver accepts or counteroffers."
+        ),
+        (Lang::Es, PriceRaised { request }) => format!("⬆️ Precio actualizado en la solicitud {request}."),
+        (Lang::En, PriceRaised { request }) => format!("⬆️ Price updated on request {request}."),
+        (Lang::Es, StillWaiting { request }) => format!(
+            "⏳ Tu solicitud {request} lleva 30 min publicada. ¿Sigues esperando? Si no respondes en 10 min, la retiro."
+        ),
+        (Lang::En, StillWaiting { request }) => format!(
+            "⏳ Your request {request} has been live for 30 min. Still waiting? If you don't answer within 10 min, I'll withdraw it."
+        ),
+        (Lang::Es, ConfirmDriver { request, .. }) => format!("🛵 Un chofer quiere hacer tu viaje {request}."),
+        (Lang::En, ConfirmDriver { request, .. }) => format!("🛵 A driver wants to take your trip {request}."),
+        (Lang::Es, AwaitingClient { request }) => format!(
+            "⏳ Reservaste la solicitud {request}. El cliente tiene 5 min para confirmarte; te aviso enseguida."
+        ),
+        (Lang::En, AwaitingClient { request }) => format!(
+            "⏳ You reserved request {request}. The client has 5 min to confirm you; I'll let you know."
+        ),
+        (Lang::Es, DriverConfirmed { request, .. }) => format!("✅ Confirmaste al chofer del viaje {request}."),
+        (Lang::En, DriverConfirmed { request, .. }) => format!("✅ You confirmed the driver for trip {request}."),
         (Lang::Es, DriverAssigned { request, .. }) => format!("✅ ¡Un chofer aceptó tu viaje {request}!"),
         (Lang::En, DriverAssigned { request, .. }) => format!("✅ A driver accepted your trip {request}!"),
         (Lang::Es, TripAssigned { request, .. }) => format!("🛵 El viaje {request} es tuyo."),
         (Lang::En, TripAssigned { request, .. }) => format!("🛵 Trip {request} is yours."),
+        (Lang::Es, ClientDeclined { request }) => format!("❌ El cliente prefirió no confirmar la solicitud {request}."),
+        (Lang::En, ClientDeclined { request }) => format!("❌ The client chose not to confirm request {request}."),
+        (Lang::Es, ClientDidNotConfirm { request }) => {
+            format!("⌛ El cliente no confirmó la solicitud {request} a tiempo. Ya estás libre.")
+        }
+        (Lang::En, ClientDidNotConfirm { request }) => {
+            format!("⌛ The client didn't confirm request {request} in time. You're free again.")
+        }
+        (Lang::Es, CounterofferRejected { request }) => {
+            format!("❌ El cliente rechazó tu contraoferta en la solicitud {request}. Puedes hacer otra.")
+        }
+        (Lang::En, CounterofferRejected { request }) => {
+            format!("❌ The client rejected your counteroffer on request {request}. You can make another.")
+        }
+        (Lang::Es, RequestGone { request }) => format!("La solicitud {request} ya no está disponible."),
+        (Lang::En, RequestGone { request }) => format!("Request {request} is no longer available."),
         (Lang::Es, Completed { request }) => format!("🏁 Viaje {request} completado. ¡Gracias!"),
         (Lang::En, Completed { request }) => format!("🏁 Trip {request} completed. Thanks!"),
         (Lang::Es, CancelledByClient { request }) => format!("❌ El cliente canceló el viaje {request}."),
         (Lang::En, CancelledByClient { request }) => format!("❌ The client cancelled trip {request}."),
-        (Lang::Es, CancelledByDriver { request }) => {
-            format!("❌ El chofer canceló el viaje {request}. Puedes pedir otro con 🛵 Pedir viaje.")
+        (Lang::Es, CancelledByDriver { request }) => format!("❌ El chofer canceló el viaje {request}."),
+        (Lang::En, CancelledByDriver { request }) => format!("❌ The driver cancelled trip {request}."),
+        (Lang::Es, ConfirmTimedOut { request }) => {
+            format!("⌛ No confirmaste al chofer a tiempo, así que la solicitud {request} se canceló.")
         }
-        (Lang::En, CancelledByDriver { request }) => {
-            format!("❌ The driver cancelled trip {request}. You can request another with 🛵 Request a ride.")
+        (Lang::En, ConfirmTimedOut { request }) => {
+            format!("⌛ You didn't confirm the driver in time, so request {request} was cancelled.")
         }
-        (Lang::Es, Expired { request }) => {
-            format!("⌛ Nadie tomó la solicitud {request} a tiempo. Puedes pedir otro viaje con 🛵 Pedir viaje.")
-        }
-        (Lang::En, Expired { request }) => {
-            format!("⌛ Nobody took request {request} in time. You can try again with 🛵 Request a ride.")
-        }
+        (Lang::Es, DeclinedDriver { request }) => format!("❌ Cancelaste la solicitud {request}."),
+        (Lang::En, DeclinedDriver { request }) => format!("❌ You cancelled request {request}."),
+        (Lang::Es, Expired { request }) => format!("⌛ La solicitud {request} se retiró del canal."),
+        (Lang::En, Expired { request }) => format!("⌛ Request {request} was withdrawn from the channel."),
+    }
+}
+
+/// Appended to the notices that offer the client to publish the same trip again.
+pub fn republish_hint(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => "Puedes publicarla de nuevo con el mismo precio.",
+        Lang::En => "You can publish it again at the same price.",
     }
 }
 
@@ -545,14 +612,95 @@ pub fn domain_error(lang: Lang, error: &DomainError) -> String {
         (Lang::En, PriceBelowMinimum { minimum, .. }) => {
             format!("The minimum price for this trip is {minimum} CUP.")
         }
+        (Lang::Es, PriceNotHigher { current }) => format!("El precio tiene que ser mayor que {current} CUP."),
+        (Lang::En, PriceNotHigher { current }) => format!("The price must be higher than {current} CUP."),
         (Lang::Es, NotOpen) => "Esta solicitud ya no está disponible.".into(),
         (Lang::En, NotOpen) => "This request is no longer available.".into(),
         (Lang::Es, NotAssigned) => "Este viaje no está asignado.".into(),
         (Lang::En, NotAssigned) => "This trip is not assigned.".into(),
-        (Lang::Es, OwnRequest) => "No puedes aceptar tu propia solicitud.".into(),
-        (Lang::En, OwnRequest) => "You can't accept your own request.".into(),
+        (Lang::Es, OwnRequest) => "No puedes tomar tu propia solicitud.".into(),
+        (Lang::En, OwnRequest) => "You can't take your own request.".into(),
         (Lang::Es, NotParticipant) => "Solo el cliente o el chofer del viaje pueden hacer esto.".into(),
         (Lang::En, NotParticipant) => "Only the trip's client or driver can do this.".into(),
+        (Lang::Es, OfferGone) => "Esa contraoferta ya no es válida.".into(),
+        (Lang::En, OfferGone) => "That counteroffer is no longer valid.".into(),
+    }
+}
+
+pub fn channel_confirming(lang: Lang, request: &RequestId) -> String {
+    match lang {
+        Lang::Es => format!("⏳ Solicitud {request}: un chofer espera la confirmación del cliente."),
+        Lang::En => format!("⏳ Request {request}: a driver is waiting for the client's confirmation."),
+    }
+}
+
+/// To the client when a driver accepts: who wants the trip, without the
+/// phone until they confirm.
+pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile) -> String {
+    match lang {
+        Lang::Es => format!(
+            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n🧑 {}\n🏍 {}, {}\n🔢 Chapa: {}\n\nTienes 5 min para confirmarlo o cancelar.",
+            p.alias, p.bike_model, p.bike_color, p.plate
+        ),
+        Lang::En => format!(
+            "🛵 A driver wants to take your trip {request}:\n\n🧑 {}\n🏍 {}, {}\n🔢 Plate: {}\n\nYou have 5 min to confirm or cancel.",
+            p.alias, p.bike_model, p.bike_color, p.plate
+        ),
+    }
+}
+
+/// To the client after confirming: how to reach the driver.
+pub fn driver_confirmed(lang: Lang, request: &RequestId, p: &Profile) -> String {
+    match lang {
+        Lang::Es => format!("✅ Viaje {request} confirmado. {} va hacia ti.\n📞 {}", p.alias, p.phone),
+        Lang::En => format!("✅ Trip {request} confirmed. {} is on the way.\n📞 {}", p.alias, p.phone),
+    }
+}
+
+/// One line per counteroffer in the client's list.
+pub struct OfferLine<'a> {
+    pub alias: &'a str,
+    pub bike_model: &'a str,
+    pub amount: Cup,
+    pub minutes_left: i64,
+}
+
+pub fn offers_list(lang: Lang, request: &RequestId, price: Cup, offers: &[OfferLine]) -> String {
+    let mut text = match lang {
+        Lang::Es => format!("💬 Contraofertas para tu solicitud {request} (ofreces {price} CUP):\n"),
+        Lang::En => format!("💬 Counteroffers for your request {request} (you offer {price} CUP):\n"),
+    };
+    for o in offers {
+        let left = o.minutes_left.max(1);
+        text.push_str(&match lang {
+            Lang::Es => format!("\n• {} ({}): {} CUP, vence en {left} min", o.alias, o.bike_model, o.amount),
+            Lang::En => format!("\n• {} ({}): {} CUP, expires in {left} min", o.alias, o.bike_model, o.amount),
+        });
+    }
+    text
+}
+
+/// To a driver who opened "Counteroffer" from the channel.
+pub fn counteroffer_prompt(
+    lang: Lang,
+    request: &RequestId,
+    km: f64,
+    price: Cup,
+    pay: PaymentMethod,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> String {
+    let post = channel_post(lang, request, km, price, pay, from, to);
+    match lang {
+        Lang::Es => format!("{post}\n\n¿Por cuánto lo harías?"),
+        Lang::En => format!("{post}\n\nWhat would you do it for?"),
+    }
+}
+
+pub fn raise_prompt(lang: Lang, price: Cup) -> String {
+    match lang {
+        Lang::Es => format!("Ahora ofreces {price} CUP. ¿A cuánto lo subes?"),
+        Lang::En => format!("You're offering {price} CUP. How much do you raise it to?"),
     }
 }
 
