@@ -354,6 +354,15 @@ pub async fn on_callback(
         },
         (Ride::DescribePickup { text }, "mun", _) => ask_reparto(cx, None, text, index).await?,
         (Ride::DescribeDropoff { pickup, text }, "mun", _) => ask_reparto(cx, Some(pickup), text, index).await?,
+        (Ride::RepartoPickup { ref options, .. } | Ride::RepartoDropoff { ref options, .. }, "zpg", _) => {
+            // Another page of repartos, in the same message.
+            if let (Some(page), Some(msg)) = (index, pressed) {
+                let labels: Vec<&str> = options.iter().map(|c| c.label.as_str()).collect();
+                let markup = keyboards::repartos(cx.lang, &labels, page);
+                let _ = cx.bot.edit_message_reply_markup(chat(cx.user), msg).reply_markup(markup).await;
+            }
+            false
+        }
         (Ride::RepartoPickup { text, options, .. }, "zone", _) => match index.and_then(|i| options.get(i)) {
             Some(reparto) => described_at(cx, None, text, reparto.clone()).await.map(|_| true)?,
             None => false,
@@ -402,24 +411,22 @@ pub async fn on_callback(
     Ok(())
 }
 
-/// Up to this many repartos are shown as buttons; more are typed.
-const REPARTO_BUTTONS: usize = 10;
-
-/// After the municipality: its repartos as buttons if few, or ask to type it.
+/// After the municipality: its repartos as buttons, by pages, or typed.
 /// A municipality is too big to be a point (Habana del Este spans 30 km).
 async fn ask_reparto(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, index: Option<usize>) -> anyhow::Result<bool> {
     let names = cx.app.zones.names();
     let Some(municipality) = index.and_then(|i| names.get(i)).map(|m| (*m).to_owned()) else {
         return Ok(false);
     };
-    let repartos = cx.app.streets.repartos_in(&municipality);
-    let options: Vec<Candidate> = if repartos.len() <= REPARTO_BUTTONS {
-        repartos.into_iter().map(|r| Candidate { label: r.name, point: r.point }).collect()
-    } else {
-        Vec::new()
-    };
-    let markup = keyboards::repartos(&options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
-    let question = if options.is_empty() { Text::AskReparto } else { Text::ChooseReparto };
+    let options: Vec<Candidate> = cx
+        .app
+        .streets
+        .repartos_in(&municipality)
+        .into_iter()
+        .map(|r| Candidate { label: r.name, point: r.point })
+        .collect();
+    let markup = keyboards::repartos(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), 0);
+    let question = Text::AskReparto;
     match pickup {
         None => cx.save(Ride::RepartoPickup { text, municipality, options }).await?,
         Some(pickup) => cx.save(Ride::RepartoDropoff { pickup, text, municipality, options }).await?,
@@ -452,7 +459,7 @@ async fn reparto_typed(
         }
         1 => described_at(cx, pickup, text, found[0].clone()).await,
         _ => {
-            let markup = keyboards::repartos(&found.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
+            let markup = keyboards::repartos(cx.lang, &found.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), 0);
             match pickup {
                 None => cx.save(Ride::RepartoPickup { text, municipality, options: found }).await?,
                 Some(pickup) => cx.save(Ride::RepartoDropoff { pickup, text, municipality, options: found }).await?,

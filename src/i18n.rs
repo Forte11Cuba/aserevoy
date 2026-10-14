@@ -101,6 +101,8 @@ pub enum Button {
     Back,
     StepBack,
     Publish,
+    PrevPage,
+    NextPage,
 }
 
 const REPLY_BUTTONS: [Button; 12] = [
@@ -209,6 +211,10 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Back) => "↩️ Back",
         (Lang::Es, StepBack) => "↩️ Atrás",
         (Lang::En, StepBack) => "↩️ Back",
+        (Lang::Es, PrevPage) => "◀ Anterior",
+        (Lang::En, PrevPage) => "◀ Previous",
+        (Lang::Es, NextPage) => "Siguiente ▶",
+        (Lang::En, NextPage) => "Next ▶",
         (Lang::Es, Publish) => "✅ Publicar",
         (Lang::En, Publish) => "✅ Publish",
     }
@@ -349,8 +355,12 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AddressNotFound) => {
             "I couldn't find that address on the map. Send your location 📍, or pick your municipality and I'll give your description to the driver once you confirm them (the price is estimated)."
         }
-        (Lang::Es, AskReparto) => "¿En qué reparto o zona? Escríbelo, por ejemplo: Alamar zona 6. También puedes enviar tu ubicación 📍.",
-        (Lang::En, AskReparto) => "Which neighborhood (reparto) or zone? Type it, for example: Alamar zona 6. You can also send your location 📍.",
+        (Lang::Es, AskReparto) => {
+            "¿En qué reparto o zona? Elígelo o escríbelo (por ejemplo: Alamar zona 6). También puedes enviar tu ubicación 📍."
+        }
+        (Lang::En, AskReparto) => {
+            "Which neighborhood (reparto) or zone? Pick it or type it (for example: Alamar zona 6). You can also send your location 📍."
+        }
         (Lang::Es, MapPoint) => "El punto del enlace o de las coordenadas",
         (Lang::En, MapPoint) => "The point of the link or coordinates",
         (Lang::Es, MapLinkFailed) => "No pude abrir ese enlace. Envía tu ubicación 📍 o escribe la dirección.",

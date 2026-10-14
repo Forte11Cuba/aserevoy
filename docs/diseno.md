@@ -124,7 +124,7 @@ La recogida y el destino pueden llegar como pin de ubicación o como dirección 
 - El texto de referencia ("frente a la bodega") se conserva y se le muestra al chofer, porque en Cuba las direcciones son informales.
 - Si no se entiende la dirección, el bot pide: "No entendí la dirección, envía tu ubicación 📍".
 - **Descripción libre como último recurso (fase 4).** Si la dirección no se entiende y el cliente no quiere o no puede mandar un pin, se acepta su descripción tal cual ("la casa azul detrás del policlínico"):
-  - el cliente elige su **municipio con botones** (los 15 de La Habana) y después su **reparto**: con botones si el municipio tiene 10 o menos, escrito si tiene más ("Alamar zona 6"). Si la descripción ya nombra un reparto, se usa directamente (decisión 67);
+  - el cliente elige su **municipio con botones** (los 15 de La Habana) y después su **reparto**: con botones por páginas (12 por página, en todos los municipios) o escribiéndolo ("Alamar zona 6"). Si la descripción ya nombra un reparto, se usa directamente (decisión 67);
   - el **contacto es obligatorio** (@usuario o teléfono), porque el chofer seguramente tendrá que llamar para orientarse;
   - el canal lo marca: "📝 Dirección escrita, sin ubicación exacta";
   - la descripción es tan sensible como un pin: no va al canal ni a los logs, y el chofer la recibe solo cuando el cliente lo confirma.
@@ -573,7 +573,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 64 | Con varios candidatos para una dirección escrita: si Jev elige con confianza ≥ 0,7 se usa esa; si no, se ofrecen como botones las opciones con probabilidad ≥ 0,3 (máximo 4) más "Ninguna de estas"; sin ninguna, se pide el pin o la descripción con municipio | 2026-10-14 |
 | 65 | Los admins invitan choferes solo con enlace de un solo uso; se descarta el selector de contactos | 2026-10-14 |
 | 66 | Despliegue con Docker Compose: el bot y un OSRM propio cuyo mapa de Cuba se descarga y prepara en el primer arranque (volumen `osrm-data`); la base de datos va en el volumen `bot-data`. Igual en local y en el VPS (ver `docs/docker.md`) | 2026-10-14 |
-| 67 | Una descripción sin pin se sitúa en su reparto, no en el municipio: tras el municipio se elige el reparto (botones si hay 10 o menos, escrito si hay más); si la descripción ya nombra un reparto, se usa directamente | 2026-10-14 |
+| 67 | Una descripción sin pin se sitúa en su reparto, no en el municipio: tras el municipio se elige el reparto (botones por páginas, o escrito); si la descripción ya nombra un reparto, se usa directamente | 2026-10-14 |
 | 68 | La oferta inicial se ajusta con botones −1000, −500, −100, +100, +500 y +1000 sobre el precio sugerido (nunca por debajo del mínimo), mostrando el precio por km | 2026-10-14 |
 | 69 | Sin margen para las distancias aproximadas: la ruta desde el reparto se usa tal cual; la subasta corrige el precio | 2026-10-14 |
 | 70 | Además de pins y direcciones, se aceptan coordenadas escritas (decimales o grados, minutos y segundos) y enlaces de mapas (Google Maps, OpenStreetMap, Apple Maps); los enlaces cortos de Google se resuelven con una consulta a Google desde el servidor. El punto se confirma con "¿Es aquí?", se rechaza fuera de La Habana y nunca se escribe en los logs | 2026-10-14 |

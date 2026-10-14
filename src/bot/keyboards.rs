@@ -172,11 +172,35 @@ pub fn candidates(lang: Lang, labels: &[&str]) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(rows)
 }
 
-/// Repartos to choose from, two per row.
-pub fn repartos(names: &[&str]) -> InlineKeyboardMarkup {
-    let buttons: Vec<_> =
-        names.iter().enumerate().map(|(i, n)| InlineKeyboardButton::callback(*n, format!("zone:{i}"))).collect();
-    InlineKeyboardMarkup::new(buttons.chunks(2).map(<[_]>::to_vec).collect::<Vec<_>>())
+/// Repartos per page of the list (two per row).
+pub const REPARTOS_PER_PAGE: usize = 12;
+
+/// One page of repartos to choose from, two per row, with ◀ / ▶ when there
+/// are more pages. Buttons carry the index in the whole list.
+pub fn repartos(lang: Lang, names: &[&str], page: usize) -> InlineKeyboardMarkup {
+    let pages = names.len().div_ceil(REPARTOS_PER_PAGE).max(1);
+    let page = page.min(pages - 1);
+    let start = page * REPARTOS_PER_PAGE;
+    let buttons: Vec<_> = names
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(REPARTOS_PER_PAGE)
+        .map(|(i, n)| InlineKeyboardButton::callback(*n, format!("zone:{i}")))
+        .collect();
+    let mut rows: Vec<Vec<_>> = buttons.chunks(2).map(<[_]>::to_vec).collect();
+    if pages > 1 {
+        let mut nav = Vec::new();
+        if page > 0 {
+            nav.push(inline(lang, Button::PrevPage, format!("zpg:{}", page - 1)));
+        }
+        nav.push(InlineKeyboardButton::callback(format!("{}/{pages}", page + 1), format!("zpg:{page}")));
+        if page + 1 < pages {
+            nav.push(inline(lang, Button::NextPage, format!("zpg:{}", page + 1)));
+        }
+        rows.push(nav);
+    }
+    InlineKeyboardMarkup::new(rows)
 }
 
 /// The municipalities, two per row, for a description without a pin.
@@ -296,4 +320,40 @@ pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {
 
 pub fn edit_profile(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::EditProfile, "dedit")]])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn callbacks(markup: &InlineKeyboardMarkup) -> Vec<String> {
+        markup
+            .inline_keyboard
+            .iter()
+            .flatten()
+            .filter_map(|b| match &b.kind {
+                teloxide::types::InlineKeyboardButtonKind::CallbackData(data) => Some(data.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn repartos_come_in_pages_of_twelve() {
+        let names: Vec<String> = (0..65).map(|i| format!("Reparto {i}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+
+        let first = callbacks(&repartos(Lang::Es, &names, 0));
+        assert_eq!(first.iter().filter(|c| c.starts_with("zone:")).count(), 12);
+        assert!(first.contains(&"zpg:1".to_owned()) && !first.iter().any(|c| c == "zpg:-1"));
+
+        // The last page has the remaining 5, and points back.
+        let last = callbacks(&repartos(Lang::Es, &names, 5));
+        assert_eq!(last.iter().filter(|c| c.starts_with("zone:")).count(), 5);
+        assert!(last.contains(&"zone:64".to_owned()) && last.contains(&"zpg:4".to_owned()));
+
+        // A small municipality: one page, no navigation.
+        let few = callbacks(&repartos(Lang::Es, &names[..6], 0));
+        assert_eq!(few.len(), 6);
+    }
 }
