@@ -45,12 +45,20 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
 
 async fn publish(bot: &Bot, app: &App, request: &mut Request) -> anyhow::Result<()> {
     let text = i18n::channel_post(CHANNEL_LANG, &request.id, request.km, request.price, request.payment);
-    let msg = bot
-        .send_message(app.channel, text)
-        .reply_markup(keyboards::accept(CHANNEL_LANG, &request.id))
-        .await
-        .context("cannot post to the offers channel")?;
-    db::requests::set_channel_msg(&app.pool, &request.id, msg.id.0).await?;
+    // The Accept button is added only once the post id is saved, so a quick
+    // acceptance can always mark the post as taken.
+    let msg = bot.send_message(app.channel, text).await.context("cannot post to the offers channel")?;
+    let shown = async {
+        db::requests::set_channel_msg(&app.pool, &request.id, msg.id.0).await?;
+        bot.edit_message_reply_markup(app.channel, msg.id)
+            .reply_markup(keyboards::accept(CHANNEL_LANG, &request.id))
+            .await?;
+        anyhow::Ok(())
+    };
+    if let Err(e) = shown.await {
+        log_failure(bot.delete_message(app.channel, msg.id).await, "delete post");
+        return Err(e.context("cannot add the Accept button"));
+    }
     request.channel_msg_id = Some(msg.id.0);
     tracing::info!(request = %request.id, "published");
     Ok(())
