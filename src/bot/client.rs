@@ -259,12 +259,14 @@ async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> an
         Decision::Use(i) => show_found(cx, leg, pickup, found[i].clone()).await,
         Decision::Offer(indices) => {
             let options: Vec<Candidate> = indices.into_iter().map(|i| found[i].clone()).collect();
-            let markup = keyboards::candidates(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
+            let markup = keyboards::candidates(cx.lang, options.len());
+            let question = i18n::choose_address(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
             match pickup {
                 None => cx.save(Ride::ChoosePickup { text, options }).await?,
                 Some(pickup) => cx.save(Ride::ChooseDropoff { pickup, text, options }).await?,
             }
-            cx.say(Text::ChooseAddress, markup).await
+            cx.bot.send_message(chat(cx.user), question).reply_markup(markup).await?;
+            Ok(())
         }
         Decision::Nothing => match cx.app.streets.reparto_in_text(&text) {
             // The description names a reparto ("…, Alamar"): place it there.

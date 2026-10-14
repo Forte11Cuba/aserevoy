@@ -243,7 +243,6 @@ pub enum Text {
     AskDropoff,
     ConfirmDropoff,
     NeedLocation,
-    ChooseAddress,
     AddressNotFound,
     AskReparto,
     ChooseReparto,
@@ -347,8 +346,6 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         }
         (Lang::Es, ConfirmDropoff) => "¿Es aquí el destino?",
         (Lang::En, ConfirmDropoff) => "Is this the destination?",
-        (Lang::Es, ChooseAddress) => "Encontré varios lugares con ese nombre. ¿Cuál es?",
-        (Lang::En, ChooseAddress) => "I found several places by that name. Which one is it?",
         (Lang::Es, AddressNotFound) => {
             "No encontré esa dirección en el mapa. Envía tu ubicación 📍, o elige tu municipio y le daré tu descripción al chofer cuando lo confirmes (el precio se calcula aproximado)."
         }
@@ -567,6 +564,16 @@ pub fn ride_summary(
             "📋 Check your request\n\n📍 Pickup: {from}\n🏁 Destination: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP per km) · {pay}\n\nIf it's right, publish it; if not, go back."
         ),
     }
+}
+
+/// Several places for a written address, numbered like their buttons.
+pub fn choose_address(lang: Lang, labels: &[&str]) -> String {
+    let head = match lang {
+        Lang::Es => "Encontré varios lugares con ese nombre. ¿Cuál es?",
+        Lang::En => "I found several places by that name. Which one is it?",
+    };
+    let list: Vec<String> = labels.iter().enumerate().map(|(i, l)| format!("{}. {l}", i + 1)).collect();
+    format!("{head}\n\n{}", list.join("\n"))
 }
 
 /// "Is it here?" under the place found for a written address.
@@ -1230,6 +1237,12 @@ pub fn admins_list(lang: Lang, names: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn candidates_are_listed_in_full_and_numbered() {
+        let text = choose_address(Lang::Es, &["Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este", "78 en Habana del Este"]);
+        assert!(text.contains("\n1. Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este\n2. 78"), "{text}");
+    }
 
     #[test]
     fn the_summary_shows_everything_before_publishing() {
