@@ -103,9 +103,21 @@ pub enum Button {
     Publish,
     PrevPage,
     NextPage,
+    AdminPanel,
+    PanelDrivers,
+    PanelAdmins,
+    PanelFares,
+    PanelMetrics,
+    ToPanel,
+    ToList,
+    FilterAll,
+    FilterActive,
+    FilterPending,
+    FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 12] = [
+const REPLY_BUTTONS: [Button; 13] = [
+    Button::AdminPanel,
     Button::StepBack,
     Button::RequestRide,
     Button::ApplyDriver,
@@ -211,6 +223,28 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Back) => "↩️ Back",
         (Lang::Es, StepBack) => "↩️ Atrás",
         (Lang::En, StepBack) => "↩️ Back",
+        (Lang::Es, AdminPanel) => "⚙️ Administración",
+        (Lang::En, AdminPanel) => "⚙️ Administration",
+        (Lang::Es, PanelDrivers) => "🧑‍✈️ Choferes",
+        (Lang::En, PanelDrivers) => "🧑‍✈️ Drivers",
+        (Lang::Es, PanelAdmins) => "👮 Admins",
+        (Lang::En, PanelAdmins) => "👮 Admins",
+        (Lang::Es, PanelFares) => "💰 Tarifas",
+        (Lang::En, PanelFares) => "💰 Fares",
+        (Lang::Es, PanelMetrics) => "📊 Métricas",
+        (Lang::En, PanelMetrics) => "📊 Metrics",
+        (Lang::Es, ToPanel) => "↩️ Administración",
+        (Lang::En, ToPanel) => "↩️ Administration",
+        (Lang::Es, ToList) => "↩️ Lista de choferes",
+        (Lang::En, ToList) => "↩️ Drivers list",
+        (Lang::Es, FilterAll) => "Todos",
+        (Lang::En, FilterAll) => "All",
+        (Lang::Es, FilterActive) => "🟢 Activos",
+        (Lang::En, FilterActive) => "🟢 Active",
+        (Lang::Es, FilterPending) => "⏳ Pendientes",
+        (Lang::En, FilterPending) => "⏳ Pending",
+        (Lang::Es, FilterBlocked) => "⛔ Bloqueados",
+        (Lang::En, FilterBlocked) => "⛔ Blocked",
         (Lang::Es, PrevPage) => "◀ Anterior",
         (Lang::En, PrevPage) => "◀ Previous",
         (Lang::Es, NextPage) => "Siguiente ▶",
@@ -262,6 +296,8 @@ pub enum Text {
     AlreadyClosed,
     KeptWaiting,
     Withdrawn,
+    PanelHome,
+    FareOutOfRange,
     FareUsage,
     ChooseCancelReason,
     SupportUnavailable,
@@ -274,7 +310,6 @@ pub enum Text {
     RatingTags,
     AdminWelcome,
     AdminRemovedYou,
-    NoAdmins,
     StaffBlocked,
     StaffUnblocked,
     DriverRemoved,
@@ -393,6 +428,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, KeptWaiting) => "👍 Great, your request stays published.",
         (Lang::Es, FareUsage) => "Uso: /tarifa base 100, /tarifa km 150 o /tarifa minimo 80 (porcentaje del precio sugerido).",
         (Lang::En, FareUsage) => "Usage: /tarifa base 100, /tarifa km 150 or /tarifa minimo 80 (percentage of the suggested price).",
+        (Lang::Es, PanelHome) => "⚙️ Administración. ¿Qué quieres gestionar?",
+        (Lang::En, PanelHome) => "⚙️ Administration. What do you want to manage?",
+        (Lang::Es, FareOutOfRange) => "Ese valor no es válido (el mínimo va de 0 a 100 %, los precios deben ser mayores que 0).",
+        (Lang::En, FareOutOfRange) => "That value isn't valid (the minimum goes from 0 to 100 %, prices must be above 0).",
         (Lang::Es, ChooseCancelReason) => "¿Por qué cancelas el viaje?",
         (Lang::En, ChooseCancelReason) => "Why are you cancelling the trip?",
         (Lang::Es, SupportUnavailable) => "El soporte no está disponible ahora mismo. Inténtalo más tarde.",
@@ -419,8 +458,6 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AdminWelcome) => "👮 You're now an Asere Voy admin.",
         (Lang::Es, AdminRemovedYou) => "Ya no eres admin de Asere Voy.",
         (Lang::En, AdminRemovedYou) => "You're no longer an Asere Voy admin.",
-        (Lang::Es, NoAdmins) => "No hay admins nombrados todavía.",
-        (Lang::En, NoAdmins) => "No admins appointed yet.",
         (Lang::Es, StaffBlocked) => "⛔ Bloqueado.",
         (Lang::En, StaffBlocked) => "⛔ Blocked.",
         (Lang::Es, StaffUnblocked) => "✅ Desbloqueado.",
@@ -1175,6 +1212,68 @@ pub fn alert_low_rating(lang: Lang, role: Role, shown: &Shown) -> String {
     }
 }
 
+/// The drivers list header: which ones and how many.
+pub fn drivers_list(lang: Lang, filter: crate::bot::panel::Filter, total: i64) -> String {
+    use crate::bot::panel::Filter;
+    let which = match (lang, filter) {
+        (Lang::Es, Filter::All) => "todos",
+        (Lang::En, Filter::All) => "all",
+        (Lang::Es, Filter::Active) => "activos",
+        (Lang::En, Filter::Active) => "active",
+        (Lang::Es, Filter::Pending) => "pendientes de aprobar",
+        (Lang::En, Filter::Pending) => "waiting for approval",
+        (Lang::Es, Filter::Blocked) => "bloqueados",
+        (Lang::En, Filter::Blocked) => "blocked",
+    };
+    match lang {
+        Lang::Es => format!("🧑‍✈️ Choferes ({which}): {total}\nToca uno para ver su ficha y actuar sobre él."),
+        Lang::En => format!("🧑‍✈️ Drivers ({which}): {total}\nTap one to see their profile and act on it."),
+    }
+}
+
+pub fn status_mark(status: DriverStatus) -> &'static str {
+    match status {
+        DriverStatus::Pending => "⏳",
+        DriverStatus::Active => "🟢",
+        DriverStatus::Blocked => "⛔",
+    }
+}
+
+/// A driver's card for staff: the profile (with phone), @username and reputation.
+pub fn driver_admin_card(
+    lang: Lang,
+    p: &Profile,
+    status: DriverStatus,
+    shown: Option<&Shown>,
+    username: Option<&str>,
+) -> String {
+    let mut card = profile_card(lang, p, Some(status));
+    if let Some(u) = username {
+        card.push_str(&format!("\n💬 @{u}"));
+    }
+    let rep = match (lang, shown) {
+        (_, Some(s)) => reputation(lang, s, true),
+        (Lang::Es, None) => "sin viajes".into(),
+        (Lang::En, None) => "no trips".into(),
+    };
+    card.push_str(&format!("\n{rep}"));
+    card
+}
+
+/// The fares as the panel shows them, with what the buttons change.
+pub fn fares_panel(lang: Lang, f: &Fares) -> String {
+    match lang {
+        Lang::Es => format!(
+            "💰 Tarifas (precio sugerido = base + precio por km × km)\n\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nCámbialas con los botones. Afectan a las solicitudes nuevas.",
+            f.base, f.per_km, f.min_percent
+        ),
+        Lang::En => format!(
+            "💰 Fares (suggested price = base + price per km × km)\n\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nChange them with the buttons. They apply to new requests.",
+            f.base, f.per_km, f.min_percent
+        ),
+    }
+}
+
 /// `/tarifas`: the current fares.
 pub fn fares(lang: Lang, f: &Fares) -> String {
     match lang {
@@ -1226,12 +1325,16 @@ pub fn admin_invite_created(lang: Lang, link: &str) -> String {
     }
 }
 
-pub fn admins_list(lang: Lang, names: &[String]) -> String {
-    let head = match lang {
-        Lang::Es => "👮 Admins:",
-        Lang::En => "👮 Admins:",
+/// Superadmins (read-only: they come from `.env`) and admins.
+pub fn admins_list(lang: Lang, superadmins: &[String], admins: &[String]) -> String {
+    let (supers_head, admins_head, none) = match lang {
+        Lang::Es => ("⭐ Superadmins (en .env, no se cambian desde el bot):", "👮 Admins:", "ninguno todavía"),
+        Lang::En => ("⭐ Superadmins (in .env, not changed from the bot):", "👮 Admins:", "none yet"),
     };
-    std::iter::once(head.to_owned()).chain(names.iter().map(|n| format!("• {n}"))).collect::<Vec<_>>().join("\n")
+    let list = |names: &[String]| {
+        if names.is_empty() { format!("• {none}") } else { names.iter().map(|n| format!("• {n}")).collect::<Vec<_>>().join("\n") }
+    };
+    format!("{supers_head}\n{}\n\n{admins_head}\n{}", list(superadmins), list(admins))
 }
 
 #[cfg(test)]

@@ -101,6 +101,49 @@ pub async fn remove(pool: &SqlitePool, id: UserId) -> sqlx::Result<bool> {
     Ok(done.rows_affected() == 1)
 }
 
+/// A line of the drivers list in the admin panel (no phone).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    pub id: UserId,
+    pub alias: String,
+    pub status: DriverStatus,
+}
+
+/// Drivers by alias, optionally of one status, one page at a time; and how
+/// many there are in total.
+pub async fn list(
+    pool: &SqlitePool,
+    status: Option<DriverStatus>,
+    offset: i64,
+    limit: i64,
+) -> sqlx::Result<(Vec<Listed>, i64)> {
+    let status = status.map(|s| match s {
+        DriverStatus::Pending => "pending",
+        DriverStatus::Active => "active",
+        DriverStatus::Blocked => "blocked",
+    });
+    let rows: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT telegram_id, alias, status FROM drivers WHERE (?1 IS NULL OR status = ?1)
+         ORDER BY alias COLLATE NOCASE, telegram_id LIMIT ?2 OFFSET ?3",
+    )
+    .bind(status)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM drivers WHERE (?1 IS NULL OR status = ?1)")
+        .bind(status)
+        .fetch_one(pool)
+        .await?;
+    let listed = rows
+        .into_iter()
+        .filter_map(|(id, alias, status)| {
+            DriverStatus::parse(&status).map(|status| Listed { id: UserId(id), alias, status })
+        })
+        .collect();
+    Ok((listed, total))
+}
+
 fn from_row(row: &SqliteRow, cipher: &PhoneCipher) -> anyhow::Result<Driver> {
     let decode_err = |what: &str| anyhow::anyhow!("invalid driver {what}");
     let phone_enc: Vec<u8> = row.try_get("phone_enc")?;
@@ -166,6 +209,24 @@ mod tests {
         save_profile(&pool, &cipher(), UserId(7), &profile("Pepe"), None, 10).await.unwrap();
         let blob: Vec<u8> = sqlx::query_scalar("SELECT phone_enc FROM drivers").fetch_one(&pool).await.unwrap();
         assert!(!blob.windows(8).any(|w| w == b"51234567"));
+    }
+
+    #[tokio::test]
+    async fn drivers_are_listed_by_status_and_page() {
+        let (pool, _dir) = test_pool().await;
+        let c = cipher();
+        for (id, alias) in [(1, "Beto"), (2, "ana"), (3, "Carlos")] {
+            save_profile(&pool, &c, UserId(id), &profile(alias), None, 10).await.unwrap();
+        }
+        approve(&pool, UserId(3), UserId(9)).await.unwrap();
+
+        let (all, total) = list(&pool, None, 0, 10).await.unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(all.iter().map(|d| d.alias.as_str()).collect::<Vec<_>>(), ["ana", "Beto", "Carlos"]);
+        let (active, total) = list(&pool, Some(DriverStatus::Active), 0, 10).await.unwrap();
+        assert_eq!((active.len(), total, active[0].alias.as_str()), (1, 1, "Carlos"));
+        let (page, total) = list(&pool, None, 2, 2).await.unwrap();
+        assert_eq!((page.len(), total), (1, 3));
     }
 
     #[tokio::test]

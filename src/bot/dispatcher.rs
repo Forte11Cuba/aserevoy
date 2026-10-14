@@ -12,7 +12,7 @@ use teloxide::types::{ChatJoinRequest, MessageId, User};
 use super::admin::{self, Action};
 use super::client::{self, Ctx};
 use super::dialog::Dialog;
-use super::{AppRef, HandlerResult, auction, chat, driver, keyboards, now, rating, support, trip, user_id};
+use super::{AppRef, HandlerResult, auction, chat, driver, keyboards, now, panel, rating, support, trip, user_id};
 use crate::db;
 use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
@@ -96,6 +96,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
         Some(Button::Admins) => admin::show_admins(&cx).await,
+        Some(Button::AdminPanel) => panel::show(&cx).await,
         Some(Button::SwitchLang) => {
             let lang = cx.lang.other();
             db::users::set_lang(&app.pool, cx.user, lang).await?;
@@ -269,6 +270,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
                 _ => None,
             }
         }
+        ("ap", _) => panel::on_callback(&cx, arg, pressed).await?,
         ("ina", _) => admin::invite_admin(&cx).await?,
         ("rma", _) => match arg.parse().map(UserId) {
             Ok(admin_id) => admin::remove_admin(&cx, admin_id).await?,

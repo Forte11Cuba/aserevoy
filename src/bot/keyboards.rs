@@ -4,6 +4,7 @@
 use teloxide::types::{ButtonRequest, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
 
 use crate::domain::fare::Cup;
+use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::reputation::Tag;
 use crate::domain::request::CancelReason;
@@ -17,15 +18,11 @@ fn inline(lang: Lang, b: Button, data: impl Into<String>) -> InlineKeyboardButto
     InlineKeyboardButton::callback(button(lang, b), data.into())
 }
 
-pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool, is_superadmin: bool) -> KeyboardMarkup {
+pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup {
     let profile = if is_driver { Button::MyProfile } else { Button::ApplyDriver };
     let mut rows = vec![vec![reply(lang, Button::RequestRide)], vec![reply(lang, profile)]];
     if is_staff {
-        let mut row = vec![reply(lang, Button::InviteDriver)];
-        if is_superadmin {
-            row.push(reply(lang, Button::Admins));
-        }
-        rows.push(row);
+        rows.push(vec![reply(lang, Button::AdminPanel)]);
     }
     rows.push(vec![reply(lang, Button::Support), reply(lang, Button::SwitchLang)]);
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
@@ -300,6 +297,111 @@ pub fn support_link(lang: Lang, username: &str) -> InlineKeyboardMarkup {
 /// Under the @username guide: check again.
 pub fn username_set(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::UsernameSet, "unm")]])
+}
+
+/// ⚙️ Administration: drivers and invitations for every staff member; admins,
+/// fares and metrics for superadmins.
+pub fn panel_home(lang: Lang, superadmin: bool) -> InlineKeyboardMarkup {
+    let mut rows = vec![vec![
+        inline(lang, Button::PanelDrivers, "ap:drv:all:0"),
+        inline(lang, Button::InviteDriver, "ap:inv"),
+    ]];
+    if superadmin {
+        rows.push(vec![inline(lang, Button::PanelAdmins, "ap:adm"), inline(lang, Button::PanelFares, "ap:fare")]);
+        rows.push(vec![inline(lang, Button::PanelMetrics, "ap:met")]);
+    }
+    InlineKeyboardMarkup::new(rows)
+}
+
+pub fn back_to_panel(lang: Lang) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::ToPanel, "ap:home")]])
+}
+
+/// The drivers list: one button per driver, the filters, the pages and back.
+pub fn drivers_list(
+    lang: Lang,
+    drivers: &[crate::db::drivers::Listed],
+    filter: crate::bot::panel::Filter,
+    page: i64,
+    pages: i64,
+) -> InlineKeyboardMarkup {
+    use crate::bot::panel::Filter;
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = drivers
+        .chunks(2)
+        .map(|pair| {
+            pair.iter()
+                .map(|d| {
+                    let label = format!("{} {}", i18n::status_mark(d.status), d.alias);
+                    InlineKeyboardButton::callback(label, format!("ap:d:{}", d.id.0))
+                })
+                .collect()
+        })
+        .collect();
+    let code = filter.code();
+    if pages > 1 {
+        let mut nav = Vec::new();
+        if page > 0 {
+            nav.push(inline(lang, Button::PrevPage, format!("ap:drv:{code}:{}", page - 1)));
+        }
+        nav.push(InlineKeyboardButton::callback(format!("{}/{pages}", page + 1), format!("ap:drv:{code}:{page}")));
+        if page + 1 < pages {
+            nav.push(inline(lang, Button::NextPage, format!("ap:drv:{code}:{}", page + 1)));
+        }
+        rows.push(nav);
+    }
+    let filter_button = |f: Filter, b: Button| {
+        let mark = if f == filter { "• " } else { "" };
+        InlineKeyboardButton::callback(format!("{mark}{}", button(lang, b)), format!("ap:drv:{}:0", f.code()))
+    };
+    rows.push(vec![filter_button(Filter::All, Button::FilterAll), filter_button(Filter::Active, Button::FilterActive)]);
+    rows.push(vec![
+        filter_button(Filter::Pending, Button::FilterPending),
+        filter_button(Filter::Blocked, Button::FilterBlocked),
+    ]);
+    rows.push(vec![inline(lang, Button::ToPanel, "ap:home")]);
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// Under a driver's card in the panel: what fits their status, and back.
+pub fn driver_admin(lang: Lang, driver: UserId, status: DriverStatus) -> InlineKeyboardMarkup {
+    let id = driver.0;
+    let mut rows = vec![match status {
+        DriverStatus::Pending => {
+            vec![inline(lang, Button::Approve, format!("dok:{id}")), inline(lang, Button::Reject, format!("dno:{id}"))]
+        }
+        DriverStatus::Active => vec![
+            inline(lang, Button::Block, format!("adm:bl:{id}")),
+            inline(lang, Button::RemoveDriver, format!("adm:rd:{id}")),
+        ],
+        DriverStatus::Blocked => vec![
+            inline(lang, Button::Unblock, format!("adm:ub:{id}")),
+            inline(lang, Button::RemoveDriver, format!("adm:rd:{id}")),
+        ],
+    }];
+    rows.push(vec![inline(lang, Button::ToList, "ap:drv:all:0")]);
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// Steps to change each fare, and back.
+pub fn fares_panel(lang: Lang) -> InlineKeyboardMarkup {
+    let step = |key: &str, delta: i64, unit: &str| {
+        let label = if delta > 0 { format!("+{delta}{unit}") } else { format!("−{}{unit}", -delta) };
+        InlineKeyboardButton::callback(label, format!("ap:fa:{key}:{delta}"))
+    };
+    let title = |text: String| InlineKeyboardButton::callback(text, "ap:fare");
+    let (base, km, min) = match lang {
+        Lang::Es => ("Base", "Por km", "Mínimo"),
+        Lang::En => ("Base", "Per km", "Minimum"),
+    };
+    InlineKeyboardMarkup::new(vec![
+        vec![title(base.into())],
+        vec![step("base", -50, ""), step("base", -10, ""), step("base", 10, ""), step("base", 50, "")],
+        vec![title(km.into())],
+        vec![step("km", -50, ""), step("km", -10, ""), step("km", 10, ""), step("km", 50, "")],
+        vec![title(min.into())],
+        vec![step("minimo", -5, "%"), step("minimo", 5, "%")],
+        vec![inline(lang, Button::ToPanel, "ap:home")],
+    ])
 }
 
 pub fn accept_terms(lang: Lang) -> InlineKeyboardMarkup {
