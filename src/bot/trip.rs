@@ -1,17 +1,20 @@
-//! Accepting an offer from the channel, and closing a trip (Completed or
-//! Cancel). The database decides races: `try_assign` picks one winner and
-//! `close` lets only one of two concurrent closes apply its effects.
+//! Accepting an offer from the channel, the client confirming the driver, and
+//! closing a trip (Completed or Cancel). The database decides races:
+//! `try_reserve` picks one driver and `close` lets only one of two concurrent
+//! closes apply its effects.
 
 use teloxide::prelude::*;
 
 use super::{App, chat, effects, now};
 use crate::db;
 use crate::domain::driver::DriverStatus;
+use crate::domain::effect::Notice;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::request::{DomainError, State};
 use crate::i18n::{self, Lang, Text};
 
-/// ✅ Accept in the channel. Returns the alert shown to the driver.
+/// ✅ Accept in the channel: reserves the request while the client confirms.
+/// Returns the alert shown to the driver.
 pub async fn accept(bot: &Bot, app: &App, driver: UserId, lang: Lang, id: &RequestId) -> anyhow::Result<String> {
     if app.driver_status(driver).await? != Some(DriverStatus::Active) {
         return Ok(i18n::text(lang, Text::NotActiveDriver).into());
@@ -19,7 +22,8 @@ pub async fn accept(bot: &Bot, app: &App, driver: UserId, lang: Lang, id: &Reque
     let Some(mut request) = db::requests::get(&app.pool, id).await? else {
         return Ok(i18n::text(lang, Text::AlreadyTaken).into());
     };
-    let effects = match request.accept(driver, now()) {
+    let now = now();
+    let effects = match request.accept(driver, now) {
         Ok(effects) => effects,
         Err(DomainError::NotOpen) => return Ok(i18n::text(lang, Text::AlreadyTaken).into()),
         Err(e) => return Ok(i18n::domain_error(lang, &e)),
@@ -27,12 +31,78 @@ pub async fn accept(bot: &Bot, app: &App, driver: UserId, lang: Lang, id: &Reque
     if db::requests::driver_busy(&app.pool, driver).await? {
         return Ok(i18n::text(lang, Text::DriverBusy).into());
     }
-    if !db::requests::try_assign(&app.pool, id, driver, now()).await? {
+    let confirm_by = request.confirm_by.expect("accepting sets the deadline");
+    if !db::requests::try_reserve(&app.pool, id, driver, confirm_by, now).await? {
         return Ok(i18n::text(lang, Text::AlreadyTaken).into());
+    }
+    tracing::info!(request = %id, "reserved");
+    effects::apply(bot, app, &mut request, effects).await?;
+    Ok(i18n::text(lang, Text::AcceptedAlert).into())
+}
+
+/// ✅ Confirm (`cok`) or ❌ cancel (`cno`) on the card of `driver`. If that
+/// driver withdrew meanwhile, nothing happens: the request is back in the
+/// channel (or held by another driver, whose own card the client gets).
+pub async fn confirm_or_decline(
+    bot: &Bot,
+    app: &App,
+    by: UserId,
+    lang: Lang,
+    id: &RequestId,
+    driver: UserId,
+    confirmed: bool,
+) -> anyhow::Result<Option<String>> {
+    match db::requests::get(&app.pool, id).await? {
+        Some(r) if r.client == by && r.state != State::Assigned && r.driver != Some(driver) => {
+            Ok(Some(i18n::notice(lang, &Notice::DriverWithdrew { request: id.clone() })))
+        }
+        _ if confirmed => confirm(bot, app, by, lang, id, driver).await,
+        _ => cancel(bot, app, by, lang, id).await,
+    }
+}
+
+async fn confirm(
+    bot: &Bot,
+    app: &App,
+    by: UserId,
+    lang: Lang,
+    id: &RequestId,
+    driver: UserId,
+) -> anyhow::Result<Option<String>> {
+    let Some(mut request) = db::requests::get(&app.pool, id).await? else {
+        return Ok(Some(i18n::text(lang, Text::AlreadyClosed).into()));
+    };
+    let now = now();
+    let effects = match request.confirm(by, now) {
+        Ok(effects) => effects,
+        Err(e) => return Ok(Some(i18n::domain_error(lang, &e))),
+    };
+    // Only the driver on the card the client pressed.
+    if !db::requests::confirm(&app.pool, id, driver, now).await? {
+        return Ok(Some(i18n::text(lang, Text::AlreadyClosed).into()));
     }
     tracing::info!(request = %id, "assigned");
     effects::apply(bot, app, &mut request, effects).await?;
-    Ok(i18n::text(lang, Text::AcceptedAlert).into())
+    Ok(None)
+}
+
+/// 🚪 Withdraw: the reserved driver gives the request back to the channel.
+pub async fn withdraw(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &RequestId) -> anyhow::Result<Option<String>> {
+    let Some(mut request) = db::requests::get(&app.pool, id).await? else {
+        return Ok(Some(i18n::text(lang, Text::AlreadyClosed).into()));
+    };
+    let effects = match request.withdraw(by) {
+        Ok(effects) => effects,
+        Err(e) => return Ok(Some(i18n::domain_error(lang, &e))),
+    };
+    if !db::requests::release(&app.pool, id, by).await? {
+        // The client confirmed or cancelled at the same moment.
+        return Ok(Some(i18n::domain_error(lang, &DomainError::NotOpen)));
+    }
+    tracing::info!(request = %id, "driver withdrew");
+    effects::apply(bot, app, &mut request, effects).await?;
+    bot.send_message(chat(by), i18n::text(lang, Text::Withdrawn)).await?;
+    Ok(None)
 }
 
 /// 🏁 Completed, by the client or the driver.
@@ -53,7 +123,8 @@ pub async fn complete(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &Request
     Ok(None)
 }
 
-/// ❌ Cancel: the client while open or assigned, the driver once assigned.
+/// ❌ Cancel: the client while open, confirming (turning the driver down) or
+/// assigned; the driver once assigned.
 pub async fn cancel(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &RequestId) -> anyhow::Result<Option<String>> {
     let Some(mut request) = db::requests::get(&app.pool, id).await? else {
         return Ok(Some(i18n::text(lang, Text::AlreadyClosed).into()));
@@ -69,6 +140,9 @@ pub async fn cancel(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &RequestId
     }
     tracing::info!(request = %id, "cancelled");
     effects::apply(bot, app, &mut request, effects).await?;
-    bot.send_message(chat(by), i18n::you_cancelled(lang, id)).reply_markup(app.menu(by, lang).await?).await?;
+    // Turning a driver down already told the client (with "Publish again").
+    if before != State::Confirming {
+        bot.send_message(chat(by), i18n::you_cancelled(lang, id)).reply_markup(app.menu(by, lang).await?).await?;
+    }
     Ok(None)
 }

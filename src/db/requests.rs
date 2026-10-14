@@ -1,13 +1,15 @@
 use sqlx::sqlite::SqliteRow;
 use sqlx::{Row, SqlitePool};
 
+use super::counteroffers;
+use crate::domain::fare::Cup;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::request::{PaymentMethod, Point, Request, State, UnixTime};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InsertOutcome {
     Inserted,
-    /// The client already has an open request.
+    /// The client already has a request in the channel.
     ClientHasOpenRequest,
     /// The generated id is in use; generate another and retry.
     IdTaken,
@@ -17,8 +19,8 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     let result = sqlx::query(
         "INSERT INTO requests (id, client_id, client_phone, pickup_lat, pickup_lon,
              dropoff_lat, dropoff_lon, reference, km, price, payment, state, driver_id,
-             channel_msg_id, created_at, assigned_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             channel_msg_id, created_at, assigned_at, check_at, answer_by, confirm_by, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id.as_str())
     .bind(r.client.0)
@@ -36,6 +38,9 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     .bind(r.channel_msg_id)
     .bind(r.created_at)
     .bind(r.assigned_at)
+    .bind(r.check_at)
+    .bind(r.answer_by)
+    .bind(r.confirm_by)
     .bind(r.expires_at)
     .execute(pool)
     .await;
@@ -53,40 +58,145 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     }
 }
 
+/// The request with its active counteroffers.
 pub async fn get(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<Option<Request>> {
-    sqlx::query("SELECT * FROM requests WHERE id = ?")
+    let row = sqlx::query("SELECT * FROM requests WHERE id = ?")
         .bind(id.as_str())
         .fetch_optional(pool)
-        .await?
-        .map(|row| from_row(&row))
-        .transpose()
+        .await?;
+    let Some(row) = row else { return Ok(None) };
+    let mut request = from_row(&row)?;
+    request.counteroffers = counteroffers::for_request(pool, id).await?;
+    Ok(Some(request))
 }
 
-/// Assigns the request to `driver` only if it is still open, not expired, and
-/// the driver has no other assigned trip. Exactly one concurrent caller wins.
-pub async fn try_assign(
+/// The driver's hold on a free driver: reserves the request for them while the
+/// client confirms, only if it is still open and not expired and the driver
+/// holds nothing else. Exactly one concurrent caller wins.
+pub async fn try_reserve(
     pool: &SqlitePool,
     id: &RequestId,
     driver: UserId,
+    confirm_by: UnixTime,
     now: UnixTime,
 ) -> sqlx::Result<bool> {
     let result = sqlx::query(
-        "UPDATE requests SET state = 'assigned', driver_id = ?, assigned_at = ?
+        "UPDATE requests SET state = 'confirming', driver_id = ?, confirm_by = ?, answer_by = NULL
          WHERE id = ? AND state = 'open' AND expires_at > ? AND client_id != ?
-           AND NOT EXISTS (SELECT 1 FROM requests WHERE driver_id = ? AND state = 'assigned')",
+           AND NOT EXISTS (SELECT 1 FROM requests WHERE driver_id = ? AND state IN ('confirming', 'assigned'))",
     )
     .bind(driver.0)
-    .bind(now)
+    .bind(confirm_by)
     .bind(id.as_str())
     .bind(now)
     .bind(driver.0)
     .bind(driver.0)
     .execute(pool)
     .await;
+    affected_one(result)
+}
 
+/// `confirming` → `assigned`, for the driver the client saw and within the deadline.
+pub async fn confirm(pool: &SqlitePool, id: &RequestId, driver: UserId, now: UnixTime) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE requests SET state = 'assigned', assigned_at = ?, confirm_by = NULL
+         WHERE id = ? AND state = 'confirming' AND driver_id = ? AND confirm_by > ?",
+    )
+    .bind(now)
+    .bind(id.as_str())
+    .bind(driver.0)
+    .bind(now)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// `confirming` → `open`: the reserved driver withdraws.
+pub async fn release(pool: &SqlitePool, id: &RequestId, driver: UserId) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE requests SET state = 'open', driver_id = NULL, confirm_by = NULL
+         WHERE id = ? AND state = 'confirming' AND driver_id = ?",
+    )
+    .bind(id.as_str())
+    .bind(driver.0)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// The client takes a counteroffer: assigns at its amount if the offer is
+/// still valid and the driver holds nothing else. Exactly one caller wins.
+pub async fn assign_counteroffer(
+    pool: &SqlitePool,
+    id: &RequestId,
+    driver: UserId,
+    amount: Cup,
+    now: UnixTime,
+) -> sqlx::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE requests SET state = 'assigned', driver_id = ?, price = ?, assigned_at = ?, answer_by = NULL
+         WHERE id = ? AND state = 'open' AND expires_at > ?
+           AND EXISTS (SELECT 1 FROM counteroffers
+                       WHERE request_id = ? AND driver_id = ? AND amount = ? AND expires_at > ?)
+           AND NOT EXISTS (SELECT 1 FROM requests WHERE driver_id = ? AND state IN ('confirming', 'assigned'))",
+    )
+    .bind(driver.0)
+    .bind(amount)
+    .bind(now)
+    .bind(id.as_str())
+    .bind(now)
+    .bind(id.as_str())
+    .bind(driver.0)
+    .bind(amount)
+    .bind(now)
+    .bind(driver.0)
+    .execute(pool)
+    .await;
+    affected_one(result)
+}
+
+/// Raises the price of an open request; also answers "still waiting?".
+pub async fn raise_price(pool: &SqlitePool, id: &RequestId, price: Cup) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE requests SET price = ?, answer_by = NULL WHERE id = ? AND state = 'open' AND price < ?",
+    )
+    .bind(price)
+    .bind(id.as_str())
+    .bind(price)
+    .execute(pool)
+    .await?;
+    if done.rows_affected() == 1 {
+        counteroffers::delete_at_or_below(pool, id, price).await?;
+    }
+    Ok(done.rows_affected() == 1)
+}
+
+/// Saves that "still waiting?" was asked, unless something changed meanwhile.
+pub async fn ask_still_waiting(pool: &SqlitePool, id: &RequestId, answer_by: UnixTime) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE requests SET check_at = NULL, answer_by = ?
+         WHERE id = ? AND state = 'open' AND check_at IS NOT NULL AND answer_by IS NULL",
+    )
+    .bind(answer_by)
+    .bind(id.as_str())
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// The client answered "yes, still waiting".
+pub async fn keep_waiting(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE requests SET answer_by = NULL WHERE id = ? AND state = 'open'")
+        .bind(id.as_str())
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+fn affected_one(result: sqlx::Result<sqlx::sqlite::SqliteQueryResult>) -> sqlx::Result<bool> {
     match result {
         Ok(done) => Ok(done.rows_affected() == 1),
-        // The partial unique index caught a race with another request for the same driver.
+        // A partial unique index caught a race (the same driver holding two requests).
         Err(sqlx::Error::Database(e)) if e.is_unique_violation() => Ok(false),
         Err(e) => Err(e),
     }
@@ -113,30 +223,33 @@ pub async fn close(pool: &SqlitePool, id: &RequestId, expected: State) -> sqlx::
     Ok(done.rows_affected() == 1)
 }
 
-/// The open or assigned request where `user` is the client, or the assigned
-/// trip where `user` is the driver.
+/// The client's request in the channel or on a trip, or the request the
+/// driver holds or drives.
 pub async fn active_for(pool: &SqlitePool, user: UserId) -> sqlx::Result<Option<Request>> {
-    sqlx::query(
-        "SELECT * FROM requests
-         WHERE (client_id = ? AND state IN ('open', 'assigned'))
-            OR (driver_id = ? AND state = 'assigned')
+    let id: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM requests
+         WHERE (client_id = ? AND state IN ('open', 'confirming', 'assigned'))
+            OR (driver_id = ? AND state IN ('confirming', 'assigned'))
          ORDER BY created_at DESC LIMIT 1",
     )
     .bind(user.0)
     .bind(user.0)
     .fetch_optional(pool)
-    .await?
-    .map(|row| from_row(&row))
-    .transpose()
+    .await?;
+    match id.as_deref().and_then(RequestId::parse) {
+        Some(id) => get(pool, &id).await,
+        None => Ok(None),
+    }
 }
 
-/// Whether the driver already holds an assigned trip.
+/// Whether the driver holds a request (waiting for confirmation or on a trip).
 pub async fn driver_busy(pool: &SqlitePool, driver: UserId) -> sqlx::Result<bool> {
-    let found: Option<i64> =
-        sqlx::query_scalar("SELECT 1 FROM requests WHERE driver_id = ? AND state = 'assigned'")
-            .bind(driver.0)
-            .fetch_optional(pool)
-            .await?;
+    let found: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM requests WHERE driver_id = ? AND state IN ('confirming', 'assigned')",
+    )
+    .bind(driver.0)
+    .fetch_optional(pool)
+    .await?;
     Ok(found.is_some())
 }
 
@@ -149,21 +262,30 @@ pub async fn forget(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<()> {
     Ok(())
 }
 
-/// Requests the sweeper must look at: open ones past their round, and assigned
-/// ones old enough to be auto-completed.
+/// Requests with a deadline due: open ones past their 60 minutes, their
+/// "still waiting?" time or its answer deadline; unconfirmed drivers; and
+/// assigned trips old enough to be auto-completed.
 pub async fn due(pool: &SqlitePool, now: UnixTime, auto_complete_secs: i64) -> sqlx::Result<Vec<Request>> {
-    sqlx::query(
-        "SELECT * FROM requests
-         WHERE (state = 'open' AND expires_at <= ?)
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM requests
+         WHERE (state = 'open' AND (expires_at <= ? OR answer_by <= ? OR (check_at <= ? AND answer_by IS NULL)))
+            OR (state = 'confirming' AND confirm_by <= ?)
             OR (state = 'assigned' AND assigned_at <= ?)",
     )
     .bind(now)
+    .bind(now)
+    .bind(now)
+    .bind(now)
     .bind(now - auto_complete_secs)
     .fetch_all(pool)
-    .await?
-    .iter()
-    .map(from_row)
-    .collect()
+    .await?;
+    let mut requests = Vec::new();
+    for id in ids.iter().filter_map(|id| RequestId::parse(id)) {
+        if let Some(request) = get(pool, &id).await? {
+            requests.push(request);
+        }
+    }
+    Ok(requests)
 }
 
 fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
@@ -186,7 +308,11 @@ fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
         channel_msg_id: row.try_get("channel_msg_id")?,
         created_at: row.try_get("created_at")?,
         assigned_at: row.try_get("assigned_at")?,
+        check_at: row.try_get("check_at")?,
+        answer_by: row.try_get("answer_by")?,
+        confirm_by: row.try_get("confirm_by")?,
         expires_at: row.try_get("expires_at")?,
+        counteroffers: Vec::new(),
     })
 }
 
@@ -195,7 +321,7 @@ mod tests {
     use super::*;
     use crate::db::test_pool;
     use crate::domain::fare::Fares;
-    use crate::domain::request::{NewRequest, ROUND_SECS};
+    use crate::domain::request::{CONFIRM_SECS, NewRequest, REQUEST_TTL_SECS, STILL_WAITING_AFTER_SECS};
 
     const T0: UnixTime = 1_000_000;
 
@@ -214,6 +340,10 @@ mod tests {
         Request::open(RequestId::parse(id).unwrap(), new, &fares, T0).unwrap().0
     }
 
+    async fn reserve(pool: &SqlitePool, r: &Request, driver: i64) -> bool {
+        try_reserve(pool, &r.id, UserId(driver), T0 + 1 + CONFIRM_SECS, T0 + 1).await.unwrap()
+    }
+
     #[tokio::test]
     async fn insert_and_get_round_trip() {
         let (pool, _dir) = test_pool().await;
@@ -223,23 +353,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn one_open_request_per_client_and_unique_ids() {
+    async fn one_request_per_client_and_unique_ids() {
         let (pool, _dir) = test_pool().await;
-        insert(&pool, &request("AB7K", 1)).await.unwrap();
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        assert_eq!(insert(&pool, &request("CD8M", 1)).await.unwrap(), InsertOutcome::ClientHasOpenRequest);
+        reserve(&pool, &r, 9).await;
+        // Still one while a driver waits for confirmation.
         assert_eq!(insert(&pool, &request("CD8M", 1)).await.unwrap(), InsertOutcome::ClientHasOpenRequest);
         assert_eq!(insert(&pool, &request("AB7K", 2)).await.unwrap(), InsertOutcome::IdTaken);
     }
 
     #[tokio::test]
-    async fn exactly_one_of_many_concurrent_drivers_wins() {
+    async fn exactly_one_of_many_concurrent_drivers_reserves() {
         let (pool, _dir) = test_pool().await;
         let r = request("AB7K", 1);
         insert(&pool, &r).await.unwrap();
 
         let attempts: Vec<_> = (100..120)
             .map(|driver| {
-                let (pool, id) = (pool.clone(), r.id.clone());
-                tokio::spawn(async move { try_assign(&pool, &id, UserId(driver), T0 + 1).await.unwrap() })
+                let (pool, r) = (pool.clone(), r.clone());
+                tokio::spawn(async move { reserve(&pool, &r, driver).await })
             })
             .collect();
         let mut winners = 0;
@@ -247,26 +381,96 @@ mod tests {
             winners += attempt.await.unwrap() as usize;
         }
         assert_eq!(winners, 1);
-        assert_eq!(get(&pool, &r.id).await.unwrap().unwrap().state, State::Assigned);
+        assert_eq!(get(&pool, &r.id).await.unwrap().unwrap().state, State::Confirming);
     }
 
     #[tokio::test]
-    async fn a_busy_driver_cannot_take_another_trip() {
+    async fn confirm_assigns_only_the_reserved_driver() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        reserve(&pool, &r, 9).await;
+        assert!(!confirm(&pool, &r.id, UserId(8), T0 + 2).await.unwrap());
+        assert!(!confirm(&pool, &r.id, UserId(9), T0 + 1 + CONFIRM_SECS).await.unwrap());
+        assert!(confirm(&pool, &r.id, UserId(9), T0 + 2).await.unwrap());
+        let stored = get(&pool, &r.id).await.unwrap().unwrap();
+        assert_eq!((stored.state, stored.assigned_at, stored.confirm_by), (State::Assigned, Some(T0 + 2), None));
+    }
+
+    #[tokio::test]
+    async fn the_reserved_driver_can_release_the_request() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        reserve(&pool, &r, 9).await;
+        assert!(!release(&pool, &r.id, UserId(8)).await.unwrap());
+        assert!(release(&pool, &r.id, UserId(9)).await.unwrap());
+        let stored = get(&pool, &r.id).await.unwrap().unwrap();
+        assert_eq!((stored.state, stored.driver), (State::Open, None));
+        assert!(!driver_busy(&pool, UserId(9)).await.unwrap());
+        assert!(reserve(&pool, &r, 8).await);
+    }
+
+    #[tokio::test]
+    async fn a_busy_driver_cannot_hold_another_request() {
         let (pool, _dir) = test_pool().await;
         let (a, b) = (request("AB7K", 1), request("CD8M", 2));
         insert(&pool, &a).await.unwrap();
         insert(&pool, &b).await.unwrap();
-        assert!(try_assign(&pool, &a.id, UserId(9), T0 + 1).await.unwrap());
-        assert!(!try_assign(&pool, &b.id, UserId(9), T0 + 1).await.unwrap());
+        assert!(reserve(&pool, &a, 9).await);
+        assert!(driver_busy(&pool, UserId(9)).await.unwrap());
+        assert!(!reserve(&pool, &b, 9).await);
     }
 
     #[tokio::test]
-    async fn cannot_assign_expired_or_own_requests() {
+    async fn cannot_reserve_expired_or_own_requests() {
         let (pool, _dir) = test_pool().await;
         let r = request("AB7K", 1);
         insert(&pool, &r).await.unwrap();
-        assert!(!try_assign(&pool, &r.id, UserId(1), T0 + 1).await.unwrap());
-        assert!(!try_assign(&pool, &r.id, UserId(9), T0 + ROUND_SECS).await.unwrap());
+        assert!(!reserve(&pool, &r, 1).await);
+        let late = T0 + REQUEST_TTL_SECS;
+        assert!(!try_reserve(&pool, &r.id, UserId(9), late + CONFIRM_SECS, late).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn counteroffers_are_assigned_at_their_amount_while_valid() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        counteroffers::upsert(&pool, &r.id, UserId(9), 500, T0 + 300).await.unwrap();
+        // Wrong amount or expired: no.
+        assert!(!assign_counteroffer(&pool, &r.id, UserId(9), 450, T0 + 1).await.unwrap());
+        assert!(!assign_counteroffer(&pool, &r.id, UserId(9), 500, T0 + 300).await.unwrap());
+        assert!(assign_counteroffer(&pool, &r.id, UserId(9), 500, T0 + 1).await.unwrap());
+        let stored = get(&pool, &r.id).await.unwrap().unwrap();
+        assert_eq!((stored.state, stored.price, stored.driver), (State::Assigned, 500, Some(UserId(9))));
+    }
+
+    #[tokio::test]
+    async fn raising_the_price_drops_cheaper_counteroffers() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        counteroffers::upsert(&pool, &r.id, UserId(8), 450, T0 + 300).await.unwrap();
+        counteroffers::upsert(&pool, &r.id, UserId(9), 550, T0 + 300).await.unwrap();
+        assert!(!raise_price(&pool, &r.id, 400).await.unwrap());
+        assert!(raise_price(&pool, &r.id, 500).await.unwrap());
+        let stored = get(&pool, &r.id).await.unwrap().unwrap();
+        assert_eq!(stored.price, 500);
+        assert_eq!(stored.counteroffers.len(), 1);
+        assert_eq!(stored.counteroffers[0].driver, UserId(9));
+    }
+
+    #[tokio::test]
+    async fn still_waiting_is_saved_once_and_answered() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        assert!(ask_still_waiting(&pool, &r.id, T0 + 2400).await.unwrap());
+        assert!(!ask_still_waiting(&pool, &r.id, T0 + 2400).await.unwrap());
+        assert!(keep_waiting(&pool, &r.id).await.unwrap());
+        let stored = get(&pool, &r.id).await.unwrap().unwrap();
+        assert_eq!((stored.check_at, stored.answer_by), (None, None));
     }
 
     #[tokio::test]
@@ -274,10 +478,20 @@ mod tests {
         let (pool, _dir) = test_pool().await;
         let r = request("AB7K", 1);
         insert(&pool, &r).await.unwrap();
-        try_assign(&pool, &r.id, UserId(9), T0 + 1).await.unwrap();
+        reserve(&pool, &r, 9).await;
         assert!(!close(&pool, &r.id, State::Open).await.unwrap());
-        assert!(close(&pool, &r.id, State::Assigned).await.unwrap());
-        assert!(!close(&pool, &r.id, State::Assigned).await.unwrap());
+        assert!(close(&pool, &r.id, State::Confirming).await.unwrap());
+        assert!(!close(&pool, &r.id, State::Confirming).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn closing_deletes_the_counteroffers() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        counteroffers::upsert(&pool, &r.id, UserId(9), 500, T0 + 300).await.unwrap();
+        assert!(close(&pool, &r.id, State::Open).await.unwrap());
+        assert!(counteroffers::for_request(&pool, &r.id).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -287,23 +501,34 @@ mod tests {
         insert(&pool, &r).await.unwrap();
         assert_eq!(active_for(&pool, UserId(1)).await.unwrap().unwrap().id, r.id);
         assert!(active_for(&pool, UserId(9)).await.unwrap().is_none());
-        assert!(!driver_busy(&pool, UserId(9)).await.unwrap());
-        try_assign(&pool, &r.id, UserId(9), T0 + 1).await.unwrap();
+        reserve(&pool, &r, 9).await;
         assert_eq!(active_for(&pool, UserId(9)).await.unwrap().unwrap().id, r.id);
-        assert!(driver_busy(&pool, UserId(9)).await.unwrap());
     }
 
     #[tokio::test]
-    async fn due_finds_expired_and_stale_requests_and_forget_deletes() {
+    async fn due_finds_every_kind_of_deadline() {
         let (pool, _dir) = test_pool().await;
-        let (a, b) = (request("AB7K", 1), request("CD8M", 2));
-        insert(&pool, &a).await.unwrap();
-        insert(&pool, &b).await.unwrap();
-        try_assign(&pool, &b.id, UserId(9), T0 + 1).await.unwrap();
+        let (a, b, c) = (request("AB7K", 1), request("CD8M", 2), request("EF9N", 3));
+        for r in [&a, &b, &c] {
+            insert(&pool, r).await.unwrap();
+        }
+        reserve(&pool, &b, 9).await;
+        reserve(&pool, &c, 10).await;
+        confirm(&pool, &c.id, UserId(10), T0 + 2).await.unwrap();
 
-        assert!(due(&pool, T0 + 10, 7200).await.unwrap().is_empty());
-        let ids: Vec<_> = due(&pool, T0 + 7201, 7200).await.unwrap().into_iter().map(|r| r.id).collect();
-        assert_eq!(ids.len(), 2);
+        let ids = |now| {
+            let pool = pool.clone();
+            async move {
+                let mut ids: Vec<_> =
+                    due(&pool, now, 7200).await.unwrap().into_iter().map(|r| r.id.as_str().to_owned()).collect();
+                ids.sort();
+                ids
+            }
+        };
+        assert!(ids(T0 + 10).await.is_empty());
+        assert_eq!(ids(T0 + 1 + CONFIRM_SECS).await, vec!["CD8M"]);
+        assert_eq!(ids(T0 + STILL_WAITING_AFTER_SECS).await, vec!["AB7K", "CD8M"]);
+        assert_eq!(ids(T0 + 7202).await, vec!["AB7K", "CD8M", "EF9N"]);
 
         forget(&pool, &a.id).await.unwrap();
         assert_eq!(get(&pool, &a.id).await.unwrap(), None);
