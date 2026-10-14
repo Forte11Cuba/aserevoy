@@ -181,7 +181,7 @@ Reglas del flujo:
 - **Contraoferta:** en el chat privado con el bot, con botones de monto (+50, +100, +150 CUP). Vence en 5 minutos. No hay límite de contraofertas: si el cliente rechaza una, el chofer puede hacer otra. La nueva contraoferta de un chofer reemplaza a la anterior en la lista.
 - **El cliente ve las contraofertas en un único mensaje** que se va editando, con la reputación de cada chofer y los botones Aceptar y Rechazar en cada una. Al aceptar, el bot comprueba que siga vigente y, si no, avisa.
 - **Asignación atómica:** gana el primer chofer que acepta (ver [Datos](#datos)).
-- **Conexión:** al asignar, el cliente recibe los datos del chofer (incluido su celular) y el chofer recibe la ubicación exacta (`sendLocation`), la referencia y el contacto del cliente (@usuario y/o teléfono). El chat intermediado por el bot queda para más adelante.
+- **Conexión:** al asignar, el cliente recibe los datos del chofer (incluido su celular) y el chofer recibe la ubicación exacta de la recogida y el destino (`sendVenue`, con título), la referencia y el contacto del cliente (@usuario y/o teléfono). El chat intermediado por el bot queda para más adelante.
 - **Encuentro:** el cliente tiene el botón **Ya voy** y el chofer, **Llegué**. Cada uno avisa al otro y deja registrada la hora en la solicitud, que sirve para atribuir las cancelaciones.
 - **Compartir viaje:** el cliente puede generar un texto con el alias, la moto, la chapa y la hora para reenviárselo a un familiar. No se guarda nada en el servidor.
 
@@ -529,3 +529,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 43 | El código (nombres, tablas, comentarios) va en inglés; el documento de diseño sigue en español | 2026-10-14 |
 | 44 | Bot bilingüe: español por defecto e inglés según el idioma de Telegram, con botón para cambiarlo; textos en `src/i18n.rs` | 2026-10-14 |
 | 45 | Licencia MIT para el código del proyecto | 2026-10-14 |
+| 46 | Al asignar, el chofer recibe la recogida y el destino; en el canal solo la zona aproximada de cada uno | 2026-10-14 |
