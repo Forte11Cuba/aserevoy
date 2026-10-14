@@ -150,10 +150,12 @@ impl Streets {
                 if !corners.is_empty() {
                     corners
                 } else {
-                    // The cross streets first, then the street ("5ta B y
-                    // 5ta C Avenida de los Cocos"); else two parallel streets
-                    // ("21 D y 21 C") mean the block of one crossing both.
-                    let blocks = self.street_last(street, cross);
+                    // The street without "entre" ("Calle L 23 y 21"), or the
+                    // cross streets first ("5ta B y 5ta C Avenida de los
+                    // Cocos"); else two parallel streets ("21 D y 21 C")
+                    // mean the block of one crossing both.
+                    let mut blocks = self.street_first(street, cross);
+                    blocks.extend(self.street_last(street, cross));
                     if blocks.is_empty() { self.crossing_both(street, cross) } else { blocks }
                 }
             }
@@ -227,6 +229,18 @@ impl Streets {
             inferred: false,
             short: String::new(),
         }
+    }
+
+    /// "X A y B": the street, then the cross streets without "entre". Every
+    /// cut of "X A" that names a real block counts ("l 23" → "l" and "23").
+    fn street_first(&self, rest: &str, b: &str) -> Vec<Candidate> {
+        let words: Vec<&str> = rest.split(' ').collect();
+        (1..words.len())
+            .flat_map(|cut| {
+                let (street, a) = (words[..cut].join(" "), words[cut..].join(" "));
+                self.blocks(&street, &a, b)
+            })
+            .collect()
     }
 
     /// "A y B X": the street comes after the cross streets, glued to the
@@ -491,7 +505,13 @@ fn merge_same_label(found: &mut Vec<Candidate>) {
 
 fn place_candidate(p: &Place) -> Candidate {
     Candidate {
-        label: format!("{} ({}) en {}", p.name, kind_label(&p.kind), p.municipality),
+        label: match kind_label(&p.kind) {
+            // "Hospital Ameijeiras (hospital)" says it twice.
+            Some(kind) if !normalize(&p.name).contains(&normalize(kind)) => {
+                format!("{} ({kind}) en {}", p.name, p.municipality)
+            }
+            _ => format!("{} en {}", p.name, p.municipality),
+        },
         point: p.point,
         municipality: p.municipality.clone(),
         inferred: false,
@@ -499,8 +519,70 @@ fn place_candidate(p: &Place) -> Candidate {
     }
 }
 
-fn kind_label(kind: &str) -> String {
-    kind.replace('_', " ")
+/// The OSM kind of place in Spanish, for the common ones; the rest (and
+/// vague ones like "information") are left out of the label.
+fn kind_label(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "guest_house" | "chalet" => "casa de renta",
+        "hostel" => "hostal",
+        "hotel" | "motel" | "resort" | "beach_resort" => "hotel",
+        "restaurant" | "restaurant;fast_food" => "restaurante",
+        "fast_food" | "food_court" => "comida rápida",
+        "cafe" | "internet_cafe" => "cafetería",
+        "bar" | "pub" | "biergarten" => "bar",
+        "nightclub" | "nightclub;bar" => "discoteca",
+        "ice_cream" => "heladería",
+        "bakery" | "pastry" | "confectionery" => "panadería",
+        "school" | "college" | "language_school" | "music_school" => "escuela",
+        "university" => "universidad",
+        "kindergarten" | "childcare" => "círculo infantil",
+        "hospital" => "hospital",
+        "clinic" => "policlínico",
+        "doctors" | "doctor" => "consultorio",
+        "dentist" => "dentista",
+        "pharmacy" | "chemist" => "farmacia",
+        "veterinary" => "veterinaria",
+        "place_of_worship" | "monastery" => "iglesia",
+        "monument" | "memorial" => "monumento",
+        "museum" | "museum;attraction" => "museo",
+        "gallery" | "arts_centre" => "galería",
+        "theatre" => "teatro",
+        "cinema" => "cine",
+        "library" => "biblioteca",
+        "park" | "garden" | "playground" => "parque",
+        "stadium" | "sports_centre" | "pitch" => "instalación deportiva",
+        "fitness_centre" => "gimnasio",
+        "swimming_pool" => "piscina",
+        "attraction" | "viewpoint" | "theme_park" | "castle" | "zoo" | "aquarium" => "lugar turístico",
+        "supermarket" | "department_store" | "mall" => "tienda",
+        "convenience" | "variety_store" | "general" | "kiosk" => "tienda",
+        "marketplace" | "greengrocer" => "mercado",
+        "butcher" => "carnicería",
+        "clothes" | "shoes" => "tienda de ropa",
+        "mobile_phone" | "electronics" | "computer" => "tienda de electrónica",
+        "hardware" => "ferretería",
+        "bank" => "banco",
+        "atm" => "cajero",
+        "bureau_de_change" => "casa de cambio",
+        "post_office" => "correos",
+        "police" => "policía",
+        "fire_station" => "bomberos",
+        "townhall" => "gobierno",
+        "courthouse" => "tribunal",
+        "fuel" => "servicentro",
+        "car_repair" | "motorcycle_repair" | "tyres" => "taller",
+        "car_rental" => "renta de autos",
+        "bus_station" => "terminal de ómnibus",
+        "railway_station" => "estación de trenes",
+        "ferry_terminal" => "terminal de lanchas",
+        "parking" => "parqueo",
+        "travel_agency" => "agencia de viajes",
+        "hairdresser" | "beauty" => "peluquería",
+        "community_centre" | "social_centre" | "social_club" => "casa de cultura",
+        "farm" => "finca",
+        "beach" => "playa",
+        _ => return None,
+    })
 }
 
 /// "Playa · Miramar · 12 entre 3ra y 5ta": the municipality (short name,
@@ -946,6 +1028,12 @@ mod tests {
             assert!(found.len() == 1 && found[0].label.starts_with("Avenida de Los Cocos (164) entre 5ta B y 5ta C"), "{found:?}");
             assert!(found[0].short.starts_with("Alamar · "), "{found:?}");
         }
+        // Found in a live test: no "entre" between the street and the cross streets.
+        let found = s.candidates("calle l 23 y 21");
+        assert!(found.len() == 1 && found[0].label.starts_with("Calle L entre"), "{found:?}");
+        let found = s.candidates("hotel nacional");
+        assert!(found.len() == 1 && found[0].label == "Hotel Nacional en Plaza de la Revolución", "{found:?}");
+        assert!(s.candidates("hospital ameijeiras").iter().any(|c| c.label.starts_with("Hospital Hermanos Ameijeiras en")));
         let found = s.candidates("L y M 23");
         assert!(found.len() == 1 && found[0].municipality == "Plaza de la Revolución", "{found:?}");
 
