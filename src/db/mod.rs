@@ -1,8 +1,12 @@
 //! SQLite persistence. A single file holds both temporary state (open and
 //! assigned requests) and the few permanent tables.
 
+pub mod dialogs;
+pub mod drivers;
 pub mod fares;
+pub mod invitations;
 pub mod requests;
+pub mod users;
 
 use std::str::FromStr;
 use std::time::Duration;
