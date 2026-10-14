@@ -154,6 +154,7 @@ impl Streets {
         if !found.iter().any(|c| c.inferred) {
             dedup_nearby(&mut found);
         }
+        merge_same_label(&mut found);
         found.truncate(MAX_CANDIDATES);
         // When all are in one municipality, it tells nothing apart.
         let one_municipality = found.windows(2).all(|w| w[0].municipality == w[1].municipality);
@@ -418,11 +419,29 @@ fn dedup_nearby(found: &mut Vec<Candidate>) {
     *found = kept;
 }
 
+/// Two blocks with the same name close together are one for the client
+/// (a cross street that meets the street twice, as 24 de Febrero does
+/// Circunvalación around 1ro de Mayo): one option, at their middle.
+fn merge_same_label(found: &mut Vec<Candidate>) {
+    let mut kept: Vec<(Candidate, usize)> = Vec::new();
+    for c in found.drain(..) {
+        match kept.iter_mut().find(|(k, _)| k.label == c.label && km_between(k.point, c.point) <= BLOCK_MAX_KM) {
+            Some((k, n)) => {
+                // Running mean of the merged points.
+                *n += 1;
+                k.point.lat += (c.point.lat - k.point.lat) / *n as f64;
+                k.point.lon += (c.point.lon - k.point.lon) / *n as f64;
+            }
+            None => kept.push((c, 1)),
+        }
+    }
+    *found = kept.into_iter().map(|(c, _)| c).collect();
+}
+
 fn kind_label(kind: &str) -> String {
     kind.replace('_', " ")
 }
 
-/// "Calle 23" → "23", for the short corner shown in the channel.
 /// "Playa · Miramar · 12 entre 3ra y 5ta": the municipality (short name,
 /// left out when `with_municipality` is false), the reparto unless it is
 /// named like the municipality, and the label without "Calle" at the start
@@ -456,6 +475,7 @@ fn short_municipality(name: &str) -> &str {
     }
 }
 
+/// "Calle 23" → "23", for the short corner shown in the channel.
 fn short(name: &str) -> &str {
     name.strip_prefix("Calle ").unwrap_or(name)
 }
@@ -802,6 +822,11 @@ mod tests {
         let found = s.candidates("160e entre 3era ay 3b");
         assert!(!found.is_empty(), "{found:?}");
         assert!(found.iter().all(|c| c.municipality == "Habana del Este"));
+
+        // Found in a live test: 24 de Febrero meets Circunvalación on both
+        // sides of 1ro de Mayo; two identical options are one.
+        let found = s.candidates("circunvalacion entre 1ero de mayo y 24 de febrero");
+        assert_eq!(found.len(), 1, "{found:?}");
 
         // Found in a live test: the cross streets first, then the street.
         for text in ["5ta b y 5ta c avenida de los cocos", "entre 5ta b y 5ta c avenida de los cocos"] {
