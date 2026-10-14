@@ -13,9 +13,6 @@ pub struct Config {
     pub database_url: String,
     pub superadmins: Vec<UserId>,
     pub offers_channel_id: Option<i64>,
-    /// Private channel where staff alerts go; without it, each admin gets
-    /// them in their chat with the bot.
-    pub alerts_channel_id: Option<i64>,
     /// Hex key that encrypts drivers' phones at rest.
     pub phone_key: Option<String>,
     /// Hex key for the fingerprints of client-driver pairs (ratings).
@@ -54,9 +51,6 @@ impl Config {
             superadmins,
             offers_channel_id: optional("OFFERS_CHANNEL_ID")
                 .map(|v| v.parse().context("OFFERS_CHANNEL_ID must be numeric"))
-                .transpose()?,
-            alerts_channel_id: optional("ALERTS_CHANNEL_ID")
-                .map(|v| v.parse().context("ALERTS_CHANNEL_ID must be numeric"))
                 .transpose()?,
             phone_key: optional("PHONE_KEY"),
             pair_key: optional("PAIR_KEY"),

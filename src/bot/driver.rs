@@ -170,7 +170,12 @@ async fn back_to_profile(cx: &Ctx<'_>, note: Text) -> anyhow::Result<()> {
 }
 
 /// `dna:<id>` / `dnr:<id>`: staff approve or reject a new full name.
-pub async fn review_name(cx: &Ctx<'_>, approve: bool, arg: &str) -> anyhow::Result<Option<String>> {
+pub async fn review_name(
+    cx: &Ctx<'_>,
+    approve: bool,
+    arg: &str,
+    pressed: Option<MessageId>,
+) -> anyhow::Result<Option<String>> {
     let app = cx.app;
     if !app.is_staff(cx.user).await? {
         return Ok(Some(i18n::text(cx.lang, Text::NotAllowed).into()));
@@ -178,6 +183,9 @@ pub async fn review_name(cx: &Ctx<'_>, approve: bool, arg: &str) -> anyhow::Resu
     let Ok(driver) = arg.parse().map(UserId) else {
         return Ok(None);
     };
+    if let Some(msg) = pressed {
+        let _ = cx.bot.edit_message_reply_markup(chat(cx.user), msg).await;
+    }
     if !db::drivers::decide_pending_name(&app.pool, driver, approve).await? {
         return Ok(Some(i18n::text(cx.lang, Text::AlreadyDecided).into()));
     }
