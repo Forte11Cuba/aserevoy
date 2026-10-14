@@ -4,6 +4,7 @@
 use teloxide::types::{ButtonRequest, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
 
 use crate::domain::fare::Cup;
+use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::reputation::Tag;
 use crate::domain::request::CancelReason;
@@ -17,15 +18,11 @@ fn inline(lang: Lang, b: Button, data: impl Into<String>) -> InlineKeyboardButto
     InlineKeyboardButton::callback(button(lang, b), data.into())
 }
 
-pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool, is_superadmin: bool) -> KeyboardMarkup {
+pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup {
     let profile = if is_driver { Button::MyProfile } else { Button::ApplyDriver };
     let mut rows = vec![vec![reply(lang, Button::RequestRide)], vec![reply(lang, profile)]];
     if is_staff {
-        let mut row = vec![reply(lang, Button::InviteDriver)];
-        if is_superadmin {
-            row.push(reply(lang, Button::Admins));
-        }
-        rows.push(row);
+        rows.push(vec![reply(lang, Button::AdminPanel)]);
     }
     rows.push(vec![reply(lang, Button::Support), reply(lang, Button::SwitchLang)]);
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
@@ -77,17 +74,12 @@ pub fn price_adjust(lang: Lang, offer: Cup) -> InlineKeyboardMarkup {
     ])
 }
 
+/// One method per row, so the labels read well on a phone.
 pub fn payment(lang: Lang) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![
-        inline(lang, Button::Cash, "pay:cash"),
-        inline(lang, Button::Transfer, "pay:transfer"),
-    ]])
-}
-
-pub fn payment_methods(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
-        vec![inline(lang, Button::Cash, "pm:cash"), inline(lang, Button::Transfer, "pm:transfer")],
-        vec![inline(lang, Button::BothPayments, "pm:both")],
+        vec![inline(lang, Button::Cash, "pay:cash")],
+        vec![inline(lang, Button::Transfer, "pay:transfer")],
+        vec![inline(lang, Button::Bitcoin, "pay:bitcoin")],
     ])
 }
 
@@ -141,11 +133,13 @@ pub fn confirm_driver(lang: Lang, request: &RequestId, driver: UserId) -> Inline
 
 /// Amounts a driver can counteroffer, above the client's price.
 pub fn counteroffer_amounts(request: &RequestId, price: Cup) -> InlineKeyboardMarkup {
-    let row = [50, 100, 150]
-        .into_iter()
-        .map(|step| InlineKeyboardButton::callback(format!("{} CUP", price + step), format!("cof:{request}:{}", price + step)))
-        .collect::<Vec<_>>();
-    InlineKeyboardMarkup::new(vec![row])
+    let step = |delta: Cup| InlineKeyboardButton::callback(format!("+{delta}"), format!("cof:{request}:{}", price + delta));
+    InlineKeyboardMarkup::new(vec![vec![step(50), step(100), step(500), step(1000)]])
+}
+
+/// Only Cancel below, while a driver may type a counteroffer.
+pub fn cancel_only(lang: Lang) -> KeyboardMarkup {
+    KeyboardMarkup::new(vec![vec![reply(lang, Button::Cancel)]]).resize_keyboard()
 }
 
 /// Under one counteroffer: accept it or reject it (the amount is in the message).
@@ -203,14 +197,18 @@ pub fn repartos(lang: Lang, names: &[&str], page: usize) -> InlineKeyboardMarkup
         }
         rows.push(nav);
     }
+    rows.push(vec![inline(lang, Button::StepBack, "dback")]);
     InlineKeyboardMarkup::new(rows)
 }
 
-/// The municipalities, two per row, for a description without a pin.
-pub fn municipalities(names: &[&str]) -> InlineKeyboardMarkup {
+/// The municipalities, two per row, for a description without a pin, and
+/// Back (to the choices, or to typing the address).
+pub fn municipalities(lang: Lang, names: &[&str]) -> InlineKeyboardMarkup {
     let buttons: Vec<_> =
         names.iter().enumerate().map(|(i, n)| InlineKeyboardButton::callback(*n, format!("mun:{i}"))).collect();
-    InlineKeyboardMarkup::new(buttons.chunks(2).map(<[_]>::to_vec).collect::<Vec<_>>())
+    let mut rows: Vec<Vec<_>> = buttons.chunks(2).map(<[_]>::to_vec).collect();
+    rows.push(vec![inline(lang, Button::StepBack, "dback")]);
+    InlineKeyboardMarkup::new(rows)
 }
 
 pub fn republish(lang: Lang) -> InlineKeyboardMarkup {
@@ -298,6 +296,104 @@ pub fn username_set(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::UsernameSet, "unm")]])
 }
 
+/// ⚙️ Administration as the bottom keyboard: drivers and invitations for
+/// every staff member; admins, fares and metrics for superadmins; and back to
+/// the main menu. Each section answers with a message of its own.
+pub fn admin_menu(lang: Lang, superadmin: bool) -> KeyboardMarkup {
+    let mut rows = vec![vec![reply(lang, Button::PanelDrivers), reply(lang, Button::InviteDriver)]];
+    if superadmin {
+        rows.push(vec![reply(lang, Button::PanelAdmins), reply(lang, Button::PanelFares)]);
+        rows.push(vec![reply(lang, Button::PanelMetrics)]);
+    }
+    rows.push(vec![reply(lang, Button::MainMenu)]);
+    KeyboardMarkup::new(rows).resize_keyboard().persistent()
+}
+
+/// The drivers list: one button per driver, the filters and the pages.
+pub fn drivers_list(
+    lang: Lang,
+    drivers: &[crate::db::drivers::Listed],
+    filter: crate::bot::panel::Filter,
+    page: i64,
+    pages: i64,
+) -> InlineKeyboardMarkup {
+    use crate::bot::panel::Filter;
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = drivers
+        .chunks(2)
+        .map(|pair| {
+            pair.iter()
+                .map(|d| {
+                    let label = format!("{} {}", i18n::status_mark(d.status), d.alias);
+                    InlineKeyboardButton::callback(label, format!("ap:d:{}", d.id.0))
+                })
+                .collect()
+        })
+        .collect();
+    let code = filter.code();
+    if pages > 1 {
+        let mut nav = Vec::new();
+        if page > 0 {
+            nav.push(inline(lang, Button::PrevPage, format!("ap:drv:{code}:{}", page - 1)));
+        }
+        nav.push(InlineKeyboardButton::callback(format!("{}/{pages}", page + 1), format!("ap:drv:{code}:{page}")));
+        if page + 1 < pages {
+            nav.push(inline(lang, Button::NextPage, format!("ap:drv:{code}:{}", page + 1)));
+        }
+        rows.push(nav);
+    }
+    let filter_button = |f: Filter, b: Button| {
+        let mark = if f == filter { "• " } else { "" };
+        InlineKeyboardButton::callback(format!("{mark}{}", button(lang, b)), format!("ap:drv:{}:0", f.code()))
+    };
+    rows.push(vec![filter_button(Filter::All, Button::FilterAll), filter_button(Filter::Active, Button::FilterActive)]);
+    rows.push(vec![
+        filter_button(Filter::Pending, Button::FilterPending),
+        filter_button(Filter::Blocked, Button::FilterBlocked),
+    ]);
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// Under a driver's card in the panel: what fits their status, and back.
+pub fn driver_admin(lang: Lang, driver: UserId, status: DriverStatus) -> InlineKeyboardMarkup {
+    let id = driver.0;
+    let mut rows = vec![match status {
+        DriverStatus::Pending => {
+            vec![inline(lang, Button::Approve, format!("dok:{id}")), inline(lang, Button::Reject, format!("dno:{id}"))]
+        }
+        DriverStatus::Active => vec![
+            inline(lang, Button::Block, format!("adm:bl:{id}")),
+            inline(lang, Button::RemoveDriver, format!("adm:rd:{id}")),
+        ],
+        DriverStatus::Blocked => vec![
+            inline(lang, Button::Unblock, format!("adm:ub:{id}")),
+            inline(lang, Button::RemoveDriver, format!("adm:rd:{id}")),
+        ],
+    }];
+    rows.push(vec![inline(lang, Button::ToList, "ap:drv:all:0")]);
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// Steps to change each fare.
+pub fn fares_panel(lang: Lang) -> InlineKeyboardMarkup {
+    let step = |key: &str, delta: i64, unit: &str| {
+        let label = if delta > 0 { format!("+{delta}{unit}") } else { format!("−{}{unit}", -delta) };
+        InlineKeyboardButton::callback(label, format!("ap:fa:{key}:{delta}"))
+    };
+    let title = |text: String| InlineKeyboardButton::callback(text, "ap:fare");
+    let (base, km, min) = match lang {
+        Lang::Es => ("Base", "Por km", "Mínimo"),
+        Lang::En => ("Base", "Per km", "Minimum"),
+    };
+    InlineKeyboardMarkup::new(vec![
+        vec![title(base.into())],
+        vec![step("base", -50, ""), step("base", -10, ""), step("base", 10, ""), step("base", 50, "")],
+        vec![title(km.into())],
+        vec![step("km", -50, ""), step("km", -10, ""), step("km", 10, ""), step("km", 50, "")],
+        vec![title(min.into())],
+        vec![step("minimo", -5, "%"), step("minimo", 5, "%")],
+    ])
+}
+
 pub fn accept_terms(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::AcceptTerms, "terms")]])
 }
@@ -355,8 +451,9 @@ mod tests {
         assert_eq!(last.iter().filter(|c| c.starts_with("zone:")).count(), 5);
         assert!(last.contains(&"zone:64".to_owned()) && last.contains(&"zpg:4".to_owned()));
 
-        // A small municipality: one page, no navigation.
+        // A small municipality: one page, no navigation, and Back.
         let few = callbacks(&repartos(Lang::Es, &names[..6], 0));
-        assert_eq!(few.len(), 6);
+        assert_eq!(few.len(), 7);
+        assert_eq!(few.last().map(String::as_str), Some("dback"));
     }
 }

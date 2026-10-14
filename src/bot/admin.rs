@@ -151,21 +151,29 @@ pub async fn show_admins(cx: &Ctx<'_>) -> anyhow::Result<()> {
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
         return Ok(());
     }
+    // Names are looked up now; we do not store them.
+    let name_of = |id: UserId| async move {
+        match cx.bot.get_chat(chat(id)).await {
+            Ok(c) => {
+                let name = c.first_name().map(str::to_owned).unwrap_or_else(|| id.0.to_string());
+                match c.username() {
+                    Some(u) => format!("{name} (@{u})"),
+                    None => name,
+                }
+            }
+            Err(_) => id.0.to_string(),
+        }
+    };
+    let mut superadmins = Vec::new();
+    for id in cx.app.config.superadmins.clone() {
+        superadmins.push(name_of(id).await);
+    }
     let mut admins = Vec::new();
     for id in db::users::admins(&cx.app.pool).await? {
-        // Names are looked up now; we do not store them.
-        let name = match cx.bot.get_chat(chat(id)).await {
-            Ok(c) => c.first_name().map(str::to_owned).unwrap_or_else(|| id.0.to_string()),
-            Err(_) => id.0.to_string(),
-        };
-        admins.push((id, name));
+        admins.push((id, name_of(id).await));
     }
     let names: Vec<String> = admins.iter().map(|(_, n)| n.clone()).collect();
-    let text = if names.is_empty() {
-        i18n::text(cx.lang, Text::NoAdmins).into()
-    } else {
-        i18n::admins_list(cx.lang, &names)
-    };
+    let text = i18n::admins_list(cx.lang, &superadmins, &names);
     cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::admins(cx.lang, &admins)).await?;
     Ok(())
 }

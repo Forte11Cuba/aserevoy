@@ -12,7 +12,7 @@ use teloxide::types::{ChatJoinRequest, MessageId, User};
 use super::admin::{self, Action};
 use super::client::{self, Ctx};
 use super::dialog::Dialog;
-use super::{AppRef, HandlerResult, auction, chat, driver, keyboards, now, rating, support, trip, user_id};
+use super::{AppRef, HandlerResult, auction, chat, driver, keyboards, now, panel, rating, support, trip, user_id};
 use crate::db;
 use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
@@ -86,6 +86,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
     match db::dialogs::get::<Dialog>(&app.pool, cx.user).await? {
         Some(Dialog::Ride(ride)) => return client::on_message(&cx, ride, &msg).await,
         Some(Dialog::DriverForm(form)) => return driver::on_message(&cx, form, &msg).await,
+        Some(Dialog::Counteroffer { request }) => return auction::counteroffer_typed(&cx, &request, &msg).await,
         // Only their buttons use them; messages work as usual.
         Some(Dialog::Republish(_) | Dialog::Terms { .. }) | None => {}
     }
@@ -95,7 +96,11 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
-        Some(Button::Admins) => admin::show_admins(&cx).await,
+        Some(Button::AdminPanel) => panel::show(&cx).await,
+        Some(b @ (Button::PanelDrivers | Button::PanelAdmins | Button::PanelFares | Button::PanelMetrics)) => {
+            panel::section(&cx, b).await
+        }
+        Some(Button::MainMenu) => menu(&cx, Text::Menu).await,
         Some(Button::SwitchLang) => {
             let lang = cx.lang.other();
             db::users::set_lang(&app.pool, cx.user, lang).await?;
@@ -194,7 +199,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
     let alert = match (kind, id) {
         ("acc", Some(id)) => Some(trip::accept(bot, app, cx.user, cx.lang, &id).await?),
         ("cof", Some(id)) => match number(arg) {
-            Some(amount) => Some(auction::counteroffer(&cx, &id, amount).await?),
+            Some(amount) => auction::counteroffer(&cx, &id, amount).await?,
             None => None,
         },
         ("can", Some(id)) => trip::cancel_pressed(bot, app, cx.user, cx.lang, &id, pressed).await?,
@@ -269,6 +274,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
                 _ => None,
             }
         }
+        ("ap", _) => panel::on_callback(&cx, arg, pressed).await?,
         ("ina", _) => admin::invite_admin(&cx).await?,
         ("rma", _) => match arg.parse().map(UserId) {
             Ok(admin_id) => admin::remove_admin(&cx, admin_id).await?,
@@ -279,15 +285,9 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             driver::edit(&cx).await?;
             None
         }
-        ("pick" | "drop" | "cand" | "mun" | "zone" | "zpg" | "padj" | "pok" | "pay" | "pub" | "sback", _) => {
+        ("pick" | "drop" | "cand" | "mun" | "zone" | "zpg" | "dback" | "padj" | "pok" | "pay" | "pub" | "sback", _) => {
             if let Some(Dialog::Ride(ride)) = db::dialogs::get(&app.pool, cx.user).await? {
                 client::on_callback(&cx, ride, kind, arg, pressed).await?;
-            }
-            None
-        }
-        ("pm", _) => {
-            if let Some(Dialog::DriverForm(form)) = db::dialogs::get(&app.pool, cx.user).await? {
-                driver::on_payment_methods(&cx, form, arg, pressed).await?;
             }
             None
         }

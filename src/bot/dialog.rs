@@ -3,7 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::driver::PaymentMethods;
 use crate::domain::fare::Cup;
 use crate::domain::ids::UserId;
 use crate::domain::request::{PaymentMethod, Point};
@@ -15,6 +14,8 @@ pub enum Dialog {
     /// After a request closed without a trip: what "Publish again" reuses.
     /// Any other message leaves it in place.
     Republish(Republish),
+    /// A driver making a counteroffer: they may type the amount.
+    Counteroffer { request: String },
     /// The @username guide or the terms are shown; `payload` is the `/start`
     /// argument to resume after them (an invitation, a counteroffer link).
     Terms { payload: Option<String> },
@@ -39,15 +40,38 @@ pub enum Ride {
     /// Several places match what the client wrote: they pick one.
     ChoosePickup { text: String, options: Vec<Candidate> },
     /// Nothing matched: the client picks a municipality for their description.
-    DescribePickup { text: String },
+    DescribePickup {
+        text: String,
+        /// The candidates shown before "None of these", to go back to.
+        #[serde(default)]
+        choices: Vec<Candidate>,
+    },
     /// Then the reparto within it: typed, or one of `options` (buttons).
-    RepartoPickup { text: String, municipality: String, options: Vec<Candidate> },
+    RepartoPickup {
+        text: String,
+        municipality: String,
+        options: Vec<Candidate>,
+        #[serde(default)]
+        choices: Vec<Candidate>,
+    },
     ConfirmPickup { pickup: Point, label: Option<String> },
     Reference { pickup: Point },
     Dropoff { pickup: Spot },
     ChooseDropoff { pickup: Spot, text: String, options: Vec<Candidate> },
-    DescribeDropoff { pickup: Spot, text: String },
-    RepartoDropoff { pickup: Spot, text: String, municipality: String, options: Vec<Candidate> },
+    DescribeDropoff {
+        pickup: Spot,
+        text: String,
+        #[serde(default)]
+        choices: Vec<Candidate>,
+    },
+    RepartoDropoff {
+        pickup: Spot,
+        text: String,
+        municipality: String,
+        options: Vec<Candidate>,
+        #[serde(default)]
+        choices: Vec<Candidate>,
+    },
     ConfirmDropoff { pickup: Spot, dropoff: Point, label: Option<String> },
     /// The client adjusts their offer, starting at the suggested price.
     Price { trip: Trip, offer: Cup },
@@ -98,7 +122,6 @@ pub enum FormStep {
     BikeColor,
     Photo,
     BikePhoto,
-    Methods,
 }
 
 /// A driver filling in or editing their profile. When editing, fields start
@@ -115,7 +138,6 @@ pub struct DriverForm {
     pub bike_color: Option<String>,
     pub photo_file_id: Option<String>,
     pub bike_photo_file_id: Option<String>,
-    pub payment_methods: Option<PaymentMethods>,
 }
 
 impl DriverForm {

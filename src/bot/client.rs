@@ -100,11 +100,13 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
     }
 
     match ride {
-        Ride::RepartoPickup { text: description, municipality, .. } if point.is_none() && written.is_some() => {
-            reparto_typed(cx, None, description, municipality, written.unwrap_or_default()).await
+        Ride::RepartoPickup { text: description, municipality, choices, .. } if point.is_none() && written.is_some() => {
+            reparto_typed(cx, None, description, municipality, written.unwrap_or_default(), choices).await
         }
-        Ride::RepartoDropoff { pickup, text: description, municipality, .. } if point.is_none() && written.is_some() => {
-            reparto_typed(cx, Some(pickup), description, municipality, written.unwrap_or_default()).await
+        Ride::RepartoDropoff { pickup, text: description, municipality, choices, .. }
+            if point.is_none() && written.is_some() =>
+        {
+            reparto_typed(cx, Some(pickup), description, municipality, written.unwrap_or_default(), choices).await
         }
         Ride::Pickup | Ride::ChoosePickup { .. } | Ride::DescribePickup { .. } | Ride::RepartoPickup { .. } => {
             if let Some(pickup) = point {
@@ -167,21 +169,26 @@ async fn back(cx: &Ctx<'_>, ride: Ride) -> anyhow::Result<()> {
             let menu = cx.app.menu(cx.user, cx.lang).await?;
             cx.say(Text::Cancelled, menu).await
         }
-        Ride::ChoosePickup { .. }
-        | Ride::DescribePickup { .. }
-        | Ride::RepartoPickup { .. }
-        | Ride::ConfirmPickup { .. }
-        | Ride::Reference { .. } => ask_pickup(cx).await,
+        // From the municipalities: to the choices they came from, if any.
+        Ride::DescribePickup { text, choices } if !choices.is_empty() => show_choices(cx, None, text, choices).await,
+        Ride::DescribeDropoff { pickup, text, choices } if !choices.is_empty() => {
+            show_choices(cx, Some(pickup), text, choices).await
+        }
+        // From the repartos: to the municipalities.
+        Ride::RepartoPickup { text, choices, .. } => ask_description(cx, None, text, choices).await,
+        Ride::RepartoDropoff { pickup, text, choices, .. } => ask_description(cx, Some(pickup), text, choices).await,
+        Ride::ChoosePickup { .. } | Ride::DescribePickup { .. } | Ride::ConfirmPickup { .. } | Ride::Reference { .. } => {
+            ask_pickup(cx).await
+        }
         // A described pickup has no landmark step: back to the pickup itself.
         Ride::Dropoff { pickup } if pickup.approx => ask_pickup(cx).await,
         Ride::Dropoff { pickup } => {
             cx.save(Ride::Reference { pickup: pickup.point }).await?;
             cx.say(Text::AskReference, keyboards::step(cx.lang, &[keyboards::skip(cx.lang)])).await
         }
-        Ride::ChooseDropoff { pickup, .. }
-        | Ride::DescribeDropoff { pickup, .. }
-        | Ride::RepartoDropoff { pickup, .. }
-        | Ride::ConfirmDropoff { pickup, .. } => ask_dropoff(cx, pickup).await,
+        Ride::ChooseDropoff { pickup, .. } | Ride::DescribeDropoff { pickup, .. } | Ride::ConfirmDropoff { pickup, .. } => {
+            ask_dropoff(cx, pickup).await
+        }
         Ride::Price { trip, .. } => ask_dropoff(cx, trip.pickup).await,
         Ride::Payment { trip, price } => show_price(cx, trip, price).await,
         Ride::Summary { trip, price, .. } => ask_payment(cx, trip, price).await,
@@ -259,21 +266,26 @@ async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> an
         Decision::Use(i) => show_found(cx, leg, pickup, found[i].clone()).await,
         Decision::Offer(indices) => {
             let options: Vec<Candidate> = indices.into_iter().map(|i| found[i].clone()).collect();
-            let markup = keyboards::candidates(cx.lang, &options.iter().map(|c| c.short.as_str()).collect::<Vec<_>>());
-            let question = i18n::choose_address(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
-            match pickup {
-                None => cx.save(Ride::ChoosePickup { text, options }).await?,
-                Some(pickup) => cx.save(Ride::ChooseDropoff { pickup, text, options }).await?,
-            }
-            cx.bot.send_message(chat(cx.user), question).reply_markup(markup).await?;
-            Ok(())
+            show_choices(cx, pickup, text, options).await
         }
         Decision::Nothing => match cx.app.streets.reparto_in_text(&text) {
             // The description names a reparto ("…, Alamar"): place it there.
             Some((reparto, _)) => described_at(cx, pickup, text, Candidate { short: reparto.name.clone(), label: reparto.name, point: reparto.point }).await,
-            None => ask_description(cx, pickup, text).await,
+            None => ask_description(cx, pickup, text, Vec::new()).await,
         },
     }
+}
+
+/// The places found for a written address, to pick one.
+async fn show_choices(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, options: Vec<Candidate>) -> anyhow::Result<()> {
+    let markup = keyboards::candidates(cx.lang, &options.iter().map(|c| c.short.as_str()).collect::<Vec<_>>());
+    let question = i18n::choose_address(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
+    match pickup {
+        None => cx.save(Ride::ChoosePickup { text, options }).await?,
+        Some(pickup) => cx.save(Ride::ChooseDropoff { pickup, text, options }).await?,
+    }
+    cx.bot.send_message(chat(cx.user), question).reply_markup(markup).await?;
+    Ok(())
 }
 
 /// Shows the place found on the map and asks "Is it here?".
@@ -294,14 +306,15 @@ async fn show_found(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, found: Candida
     Ok(())
 }
 
-/// Nothing found: send the pin, or keep the description and pick the
-/// municipality (the driver gets the description after confirmation).
-async fn ask_description(cx: &Ctx<'_>, pickup: Option<Spot>, text: String) -> anyhow::Result<()> {
+/// Nothing found (or none of the choices): send the pin, or keep the
+/// description and pick the municipality (the driver gets the description
+/// after confirmation). `choices` are kept to go back to them.
+async fn ask_description(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, choices: Vec<Candidate>) -> anyhow::Result<()> {
     match pickup {
-        None => cx.save(Ride::DescribePickup { text }).await?,
-        Some(pickup) => cx.save(Ride::DescribeDropoff { pickup, text }).await?,
+        None => cx.save(Ride::DescribePickup { text, choices }).await?,
+        Some(pickup) => cx.save(Ride::DescribeDropoff { pickup, text, choices }).await?,
     }
-    cx.say(Text::AddressNotFound, keyboards::municipalities(&cx.app.zones.names())).await
+    cx.say(Text::AddressNotFound, keyboards::municipalities(cx.lang, &cx.app.zones.names())).await
 }
 
 /// An inline button pressed during the ride form. `pressed` is the message
@@ -332,12 +345,12 @@ pub async fn on_callback(
             ask_dropoff(cx, pickup).await?;
             true
         }
-        (Ride::ChoosePickup { text, .. }, "cand", "none") => {
-            ask_description(cx, None, text).await?;
+        (Ride::ChoosePickup { text, options }, "cand", "none") => {
+            ask_description(cx, None, text, options).await?;
             true
         }
-        (Ride::ChooseDropoff { pickup, text, .. }, "cand", "none") => {
-            ask_description(cx, Some(pickup), text).await?;
+        (Ride::ChooseDropoff { pickup, text, options }, "cand", "none") => {
+            ask_description(cx, Some(pickup), text, options).await?;
             true
         }
         (Ride::ChoosePickup { options, .. }, "cand", _) => match index.and_then(|i| options.get(i)) {
@@ -354,8 +367,22 @@ pub async fn on_callback(
             }
             None => false,
         },
-        (Ride::DescribePickup { text }, "mun", _) => ask_reparto(cx, None, text, index).await?,
-        (Ride::DescribeDropoff { pickup, text }, "mun", _) => ask_reparto(cx, Some(pickup), text, index).await?,
+        (Ride::DescribePickup { text, choices }, "mun", _) => ask_reparto(cx, None, text, index, choices).await?,
+        (Ride::DescribeDropoff { pickup, text, choices }, "mun", _) => {
+            ask_reparto(cx, Some(pickup), text, index, choices).await?
+        }
+        // ↩️ Back inside the municipality or reparto message.
+        (
+            ride @ (Ride::DescribePickup { .. }
+            | Ride::DescribeDropoff { .. }
+            | Ride::RepartoPickup { .. }
+            | Ride::RepartoDropoff { .. }),
+            "dback",
+            _,
+        ) => {
+            back(cx, ride).await?;
+            true
+        }
         (Ride::RepartoPickup { ref options, .. } | Ride::RepartoDropoff { ref options, .. }, "zpg", _) => {
             // Another page of repartos, in the same message.
             if let (Some(page), Some(msg)) = (index, pressed) {
@@ -415,7 +442,13 @@ pub async fn on_callback(
 
 /// After the municipality: its repartos as buttons, by pages, or typed.
 /// A municipality is too big to be a point (Habana del Este spans 30 km).
-async fn ask_reparto(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, index: Option<usize>) -> anyhow::Result<bool> {
+async fn ask_reparto(
+    cx: &Ctx<'_>,
+    pickup: Option<Spot>,
+    text: String,
+    index: Option<usize>,
+    choices: Vec<Candidate>,
+) -> anyhow::Result<bool> {
     let names = cx.app.zones.names();
     let Some(municipality) = index.and_then(|i| names.get(i)).map(|m| (*m).to_owned()) else {
         return Ok(false);
@@ -430,8 +463,8 @@ async fn ask_reparto(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, index: Op
     let markup = keyboards::repartos(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), 0);
     let question = Text::AskReparto;
     match pickup {
-        None => cx.save(Ride::RepartoPickup { text, municipality, options }).await?,
-        Some(pickup) => cx.save(Ride::RepartoDropoff { pickup, text, municipality, options }).await?,
+        None => cx.save(Ride::RepartoPickup { text, municipality, options, choices }).await?,
+        Some(pickup) => cx.save(Ride::RepartoDropoff { pickup, text, municipality, options, choices }).await?,
     }
     cx.say(question, markup).await?;
     Ok(true)
@@ -444,6 +477,7 @@ async fn reparto_typed(
     text: String,
     municipality: String,
     typed: &str,
+    choices: Vec<Candidate>,
 ) -> anyhow::Result<()> {
     let found: Vec<Candidate> = cx
         .app
@@ -463,8 +497,10 @@ async fn reparto_typed(
         _ => {
             let markup = keyboards::repartos(cx.lang, &found.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), 0);
             match pickup {
-                None => cx.save(Ride::RepartoPickup { text, municipality, options: found }).await?,
-                Some(pickup) => cx.save(Ride::RepartoDropoff { pickup, text, municipality, options: found }).await?,
+                None => cx.save(Ride::RepartoPickup { text, municipality, options: found, choices }).await?,
+                Some(pickup) => {
+                    cx.save(Ride::RepartoDropoff { pickup, text, municipality, options: found, choices }).await?
+                }
             }
             cx.say(Text::ChooseReparto, markup).await
         }

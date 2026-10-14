@@ -9,6 +9,7 @@ pub mod dispatcher;
 pub mod driver;
 pub mod effects;
 pub mod keyboards;
+pub mod panel;
 pub mod rating;
 pub mod support;
 pub mod trip;
@@ -102,8 +103,7 @@ impl App {
     /// The main menu, with the buttons this user's roles allow.
     pub async fn menu(&self, user: UserId, lang: Lang) -> anyhow::Result<KeyboardMarkup> {
         let is_driver = self.driver_status(user).await?.is_some();
-        let is_superadmin = self.config.is_superadmin(user);
-        Ok(keyboards::main_menu(lang, is_driver, self.is_staff(user).await?, is_superadmin))
+        Ok(keyboards::main_menu(lang, is_driver, self.is_staff(user).await?))
     }
 
     /// True if the user acted less than a second ago (and then this action is
