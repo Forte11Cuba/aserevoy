@@ -24,7 +24,7 @@ Principios de diseño:
 - Todo corre en Telegram: un solo bot con roles (cliente, chofer, admin, superadmin; gestor en la versión 2) y un canal de ofertas para los choferes. WhatsApp está descartado.
 - El estado de los viajes es temporal: cada solicitud vive en SQLite mientras está activa y se borra al cerrarse.
 - Datos mínimos: se guardan de forma permanente el registro de choferes, la reputación agregada, los bloqueos, las cancelaciones recientes y las tarifas. Nunca rutas ni historial de viajes.
-- El bot no maneja dinero ni datos bancarios. El pago (efectivo o transferencia) se arregla entre cliente y chofer.
+- El bot no maneja dinero ni datos bancarios. El pago (efectivo, transferencia o Bitcoin) se arregla entre cliente y chofer.
 - La lógica de viajes no depende de Telegram: devuelve efectos que la capa del bot ejecuta.
 
 **Supuesto del piloto.** La zona es lo bastante pequeña para que cualquier chofer llegue en pocos minutos; por eso gana el primero que acepta y no se usa la ubicación del chofer. Si la zona crece, habrá que añadir ubicación del chofer o dejar que el cliente elija entre varios.
@@ -36,7 +36,7 @@ Hay un solo bot. Lo que cada persona ve depende de su rol, y el rol se comprueba
 | Rol | Cómo se obtiene | Qué hace | Qué se guarda |
 | --- | --- | --- | --- |
 | Cliente | Cualquiera que abra el bot (`t.me/AsereVoyBot` o QR), acepte los términos y pulse Iniciar | Pide viaje, ofrece precio, elige método de pago, acepta o rechaza contraofertas, marca Ya voy y Completado, califica | Su reputación agregada y la fecha de su primer uso; su ID y su teléfono (opcional) mientras dura una solicitud |
-| Chofer | Aplica desde el bot o un admin lo invita; un admin lo aprueba | Además de lo anterior: ve ofertas en el canal, acepta o contraoferta, marca Llegué y Completado, califica al cliente | Registro permanente: alias, celular, chapa, moto, fotos, métodos de pago, estado; reputación agregada |
+| Chofer | Aplica desde el bot o un admin lo invita; un admin lo aprueba | Además de lo anterior: ve ofertas en el canal, acepta o contraoferta, marca Llegué y Completado, califica al cliente | Registro permanente: alias, celular, chapa, moto, fotos, estado; reputación agregada |
 | Gestor *(versión 2)* | Aplica desde el bot o un admin lo invita; un admin lo aprueba | Además de lo que hace un cliente: pide viajes para sus propios clientes, con su propio precio, y puede tener varias solicitudes abiertas (ver [Gestores](#gestores)) | Registro permanente: alias, celular, estado; reputación agregada |
 | Admin | Un superadmin lo nombra y puede quitarlo en cualquier momento | Además de lo anterior: aprueba, invita o quita choferes y gestores, bloquea usuarios, atiende el soporte y recibe alertas | Su ID; quién hizo cada acción administrativa |
 | Superadmin | Definido en `.env`; no se añade ni se quita desde el bot | Además de lo anterior: nombra y quita admins, quita choferes y gestores en cualquier momento, ajusta tarifas | Su ID (en `.env`) |
@@ -48,7 +48,7 @@ Hay un solo bot. Lo que cada persona ve depende de su rol, y el rol se comprueba
 
 En los dos casos:
 
-1. **La ficha del chofer** lleva alias, celular, chapa, modelo y color de la moto, **foto suya** (obligatoria), **foto de la moto** (opcional) y métodos de pago. **La del gestor** lleva alias y celular. Cada uno puede editar su ficha cuando quiera desde su perfil, sin volver a pasar por aprobación.
+1. **La ficha del chofer** lleva alias, celular, chapa, modelo y color de la moto, **foto suya** (obligatoria), **foto de la moto** (opcional). El chofer no declara qué pagos acepta: lo decide oferta a oferta en el canal. **La del gestor** lleva alias y celular. Cada uno puede editar su ficha cuando quiera desde su perfil, sin volver a pasar por aprobación.
 2. Un admin aprueba la ficha y la persona pasa a `activo`.
 3. Si es chofer, el bot le envía el enlace del canal y aprueba su solicitud de unión.
 
@@ -156,7 +156,7 @@ La recogida y el destino pueden llegar como pin de ubicación o como dirección 
 flowchart TD
   A["Cliente: recogida 📍 + destino 📍<br/>(pin o dirección escrita)"] --> A2["Bot confirma pins y calcula ruta y precio sugerido"]
   A2 --> B["Oferta: botones desde el precio sugerido"]
-  B --> C["Método de pago: Efectivo / Transferencia"]
+  B --> C["Método de pago: Efectivo / Transferencia / Bitcoin"]
   C --> D["Bot publica en el canal:<br/>zona, distancia, precio, método,<br/>⭐, viajes y días en el bot del cliente"]
   D --> E{"Abierta hasta 60 min"}
   E -->|"✅ Aceptar en el canal"| P["POR CONFIRMAR: el cliente ve la ficha del chofer"]
@@ -188,7 +188,7 @@ Reglas del flujo:
   - Si los 60 minutos se cumplen durante una confirmación, se espera a que termine.
   - Aceptar una contraoferta no necesita este paso: el cliente ya eligió al chofer.
 - **Oferta inicial** con botones sugeridos, por ejemplo `[sugerido] [+50] [+100]`; no se permite bajar del precio mínimo.
-- **Método de pago:** Efectivo (por defecto) o Transferencia (Transfermóvil, EnZona). Se muestra en el canal para que solo acepte quien pueda cobrarlo. Los datos para transferir los da el chofer al cliente; no pasan por el bot.
+- **Método de pago:** Efectivo (por defecto), Transferencia (Transfermóvil, EnZona) o Bitcoin, un botón debajo del otro. Se muestra en el canal para que solo acepte quien pueda cobrarlo. Los datos para transferir (cuenta o dirección de Bitcoin) los da el chofer al cliente; no pasan por el bot.
 - **@usuario obligatorio:** clientes y choferes necesitan un nombre de usuario de Telegram para usar el bot. Si no lo tienen, el bot explica cómo ponerlo (Ajustes → Nombre de usuario) y ofrece "Ya lo puse". Se comprueba en cada acción, porque se puede quitar. Así chofer y cliente siempre pueden escribirse o llamarse por Telegram, y **no se pide ni se guarda el teléfono del cliente**. El @usuario se consulta a Telegram al asignar el viaje; no se guarda.
 - **Contraoferta:** en el chat privado con el bot, con botones de monto (+50, +100, +150 CUP). Vence en 5 minutos. No hay límite de contraofertas: si el cliente rechaza una, el chofer puede hacer otra. La nueva contraoferta de un chofer reemplaza a la anterior en la lista.
 - **Lluvia de contraofertas:** cada contraoferta le llega al cliente como un mensaje propio, con la foto, la moto y (desde la fase 3) la reputación del chofer, y los botones Aceptar y Rechazar. El mensaje se borra solo cuando la contraoferta vence, se rechaza o se reemplaza por otra del mismo chofer, y todos se borran al asignar o cerrar la solicitud. Al aceptar, el bot comprueba que siga vigente y, si no, avisa.
@@ -252,7 +252,7 @@ Todo vive en un solo archivo SQLite. Lo temporal se borra al cerrar; lo permanen
 
 | Tabla | Tipo | Campos clave |
 | --- | --- | --- |
-| `choferes` | Permanente | `telegram_id`, alias, celular (cifrado), chapa, modelo y color de la moto, `file_id_foto_chofer`, `file_id_foto_moto` (opcional), `metodos_pago`, estado (`pendiente`, `activo`, `bloqueado`), `fecha_alta`, `añadido_por`, `confirmado_por` |
+| `choferes` | Permanente | `telegram_id`, alias, celular (cifrado), chapa, modelo y color de la moto, `file_id_foto_chofer`, `file_id_foto_moto` (opcional), estado (`pendiente`, `activo`, `bloqueado`), `fecha_alta`, `añadido_por`, `confirmado_por` |
 | `admins` | Permanente | `telegram_id`, `nombrado_por`, fecha (los superadmins viven solo en `.env`) |
 | `gestores` *(v2)* | Permanente | `telegram_id`, alias, celular (cifrado), estado (`pendiente`, `activo`, `bloqueado`), `fecha_alta`, `añadido_por`, `confirmado_por` |
 | `invitaciones` | Temporal | código aleatorio (10 caracteres o más), `creado_por`, `vence_en` (48 h), usado |
@@ -580,3 +580,6 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 71 | Si la calle de "X entre A y B" no existe en OSM (un nombre popular como "Doble Vía"), se deducen las calles que cruzan A y B en una misma cuadra y se ofrecen como botones, sin Jev | 2026-10-14 |
 | 72 | Si Jev duda y ninguna opción llega a 0,3, se ofrecen todas las encontradas (hasta 8) ordenadas por su probabilidad; "No encontré" solo si las reglas no hallan nada o Jev dice "ninguna" con confianza ≥ 0,7 | 2026-10-14 |
 | 73 | Panel ⚙️ Administración en el menú de admins y superadmins, como teclado inferior con sus secciones (cada sección responde con un mensaje con botones): choferes (lista por estado y páginas, ficha con Aprobar, Rechazar, Bloquear, Desbloquear y Quitar) e invitar chofer; para superadmins, además, admins, tarifas con botones y métricas. Los superadmins se siguen definiendo solo en `.env` (`SUPERADMIN_IDS`, una lista separada por comas) y el panel los muestra sin poder cambiarlos | 2026-10-14 |
+| 74 | Contraoferta desde el bot con botones +50, +100, +500 y +1000 sobre el precio vigente (en una fila) o un monto escrito, y Cancelar debajo | 2026-10-14 |
+| 75 | Bitcoin como tercer método de pago, directo entre cliente y chofer como los otros; los métodos se muestran uno debajo del otro | 2026-10-14 |
+| 76 | El chofer ya no declara en su ficha qué pagos acepta: el canal muestra el método de cada solicitud y él decide si la toma. La columna `drivers.payment_methods` queda sin uso | 2026-10-14 |

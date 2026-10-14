@@ -74,17 +74,12 @@ pub fn price_adjust(lang: Lang, offer: Cup) -> InlineKeyboardMarkup {
     ])
 }
 
+/// One method per row, so the labels read well on a phone.
 pub fn payment(lang: Lang) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![
-        inline(lang, Button::Cash, "pay:cash"),
-        inline(lang, Button::Transfer, "pay:transfer"),
-    ]])
-}
-
-pub fn payment_methods(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
-        vec![inline(lang, Button::Cash, "pm:cash"), inline(lang, Button::Transfer, "pm:transfer")],
-        vec![inline(lang, Button::BothPayments, "pm:both")],
+        vec![inline(lang, Button::Cash, "pay:cash")],
+        vec![inline(lang, Button::Transfer, "pay:transfer")],
+        vec![inline(lang, Button::Bitcoin, "pay:bitcoin")],
     ])
 }
 

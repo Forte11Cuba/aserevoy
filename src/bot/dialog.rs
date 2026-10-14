@@ -3,7 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::driver::PaymentMethods;
 use crate::domain::fare::Cup;
 use crate::domain::ids::UserId;
 use crate::domain::request::{PaymentMethod, Point};
@@ -123,7 +122,6 @@ pub enum FormStep {
     BikeColor,
     Photo,
     BikePhoto,
-    Methods,
 }
 
 /// A driver filling in or editing their profile. When editing, fields start
@@ -140,7 +138,6 @@ pub struct DriverForm {
     pub bike_color: Option<String>,
     pub photo_file_id: Option<String>,
     pub bike_photo_file_id: Option<String>,
-    pub payment_methods: Option<PaymentMethods>,
 }
 
 impl DriverForm {

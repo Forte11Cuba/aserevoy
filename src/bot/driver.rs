@@ -10,7 +10,7 @@ use super::{App, chat, keyboards, now, support};
 use crate::db;
 use crate::db::invitations::InviteRole;
 use crate::domain::reputation::Role;
-use crate::domain::driver::{self, ALIAS_MAX, DriverStatus, FIELD_MAX, PaymentMethods, Profile};
+use crate::domain::driver::{self, ALIAS_MAX, DriverStatus, FIELD_MAX, Profile};
 use crate::domain::ids::{InviteCode, UserId};
 use crate::domain::phone;
 use crate::i18n::{self, Button, Text, parse_button};
@@ -80,7 +80,6 @@ pub async fn edit(cx: &Ctx<'_>) -> anyhow::Result<()> {
         bike_color: Some(p.bike_color),
         photo_file_id: Some(p.photo_file_id),
         bike_photo_file_id: p.bike_photo_file_id,
-        payment_methods: Some(p.payment_methods),
     };
     start_form(cx, form).await
 }
@@ -101,7 +100,6 @@ async fn ask(cx: &Ctx<'_>, mut form: DriverForm, step: FormStep) -> anyhow::Resu
         FormStep::BikeColor => form.bike_color.is_some(),
         FormStep::Photo => form.photo_file_id.is_some(),
         FormStep::BikePhoto => true,
-        FormStep::Methods => false,
     };
     let mut extra: Vec<KeyboardButton> = Vec::new();
     if step == FormStep::Phone {
@@ -118,28 +116,25 @@ async fn ask(cx: &Ctx<'_>, mut form: DriverForm, step: FormStep) -> anyhow::Resu
         FormStep::BikeColor => Text::AskBikeColor,
         FormStep::Photo => Text::AskPhoto,
         FormStep::BikePhoto => Text::AskBikePhoto,
-        FormStep::Methods => Text::AskPaymentMethods,
     };
     form.step = Some(step);
     db::dialogs::set(&cx.app.pool, cx.user, &Dialog::DriverForm(form), now()).await?;
-    let send = cx.bot.send_message(chat(cx.user), i18n::text(lang, question));
-    if step == FormStep::Methods {
-        send.reply_markup(keyboards::payment_methods(lang)).await?;
-    } else {
-        send.reply_markup(keyboards::step(lang, &extra)).await?;
-    }
+    cx.bot.send_message(chat(cx.user), i18n::text(lang, question)).reply_markup(keyboards::step(lang, &extra)).await?;
     Ok(())
 }
 
-fn next(step: FormStep) -> FormStep {
+/// The next question; `None` after the last one (the bike photo). Payment
+/// methods are not asked: the channel shows how each client pays and the
+/// driver takes the offers that suit them.
+fn next(step: FormStep) -> Option<FormStep> {
     match step {
-        FormStep::Alias => FormStep::Phone,
-        FormStep::Phone => FormStep::Plate,
-        FormStep::Plate => FormStep::BikeModel,
-        FormStep::BikeModel => FormStep::BikeColor,
-        FormStep::BikeColor => FormStep::Photo,
-        FormStep::Photo => FormStep::BikePhoto,
-        FormStep::BikePhoto | FormStep::Methods => FormStep::Methods,
+        FormStep::Alias => Some(FormStep::Phone),
+        FormStep::Phone => Some(FormStep::Plate),
+        FormStep::Plate => Some(FormStep::BikeModel),
+        FormStep::BikeModel => Some(FormStep::BikeColor),
+        FormStep::BikeColor => Some(FormStep::Photo),
+        FormStep::Photo => Some(FormStep::BikePhoto),
+        FormStep::BikePhoto => None,
     }
 }
 
@@ -165,7 +160,6 @@ fn previous(step: FormStep) -> Option<FormStep> {
         FormStep::BikeColor => Some(FormStep::BikeModel),
         FormStep::Photo => Some(FormStep::BikeColor),
         FormStep::BikePhoto => Some(FormStep::Photo),
-        FormStep::Methods => Some(FormStep::BikePhoto),
     }
 }
 
@@ -213,24 +207,19 @@ pub async fn on_message(cx: &Ctx<'_>, mut form: DriverForm, msg: &Message) -> an
         FormStep::Photo => set(&mut form.photo_file_id, photo),
         FormStep::BikePhoto if skipped => true,
         FormStep::BikePhoto => set(&mut form.bike_photo_file_id, photo),
-        // Waits for an inline button.
-        FormStep::Methods => false,
     };
     if accepted {
-        return ask(cx, form, next(step)).await;
+        return match next(step) {
+            Some(next) => ask(cx, form, next).await,
+            None => finish(cx, form).await,
+        };
     }
     let complaint = match step {
         FormStep::Phone => Text::InvalidPhone,
         FormStep::Photo | FormStep::BikePhoto => Text::NeedPhoto,
-        FormStep::Methods => Text::AskPaymentMethods,
         _ => Text::InvalidField,
     };
-    let send = cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, complaint));
-    if step == FormStep::Methods {
-        send.reply_markup(keyboards::payment_methods(cx.lang)).await?;
-    } else {
-        send.await?;
-    }
+    cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, complaint)).await?;
     Ok(())
 }
 
@@ -244,41 +233,13 @@ fn set(slot: &mut Option<String>, value: Option<String>) -> bool {
     }
 }
 
-/// `pm:<cash|transfer|both>`: the last step; saves the profile.
-pub async fn on_payment_methods(
-    cx: &Ctx<'_>,
-    mut form: DriverForm,
-    arg: &str,
-    pressed: Option<MessageId>,
-) -> anyhow::Result<()> {
-    if form.step != Some(FormStep::Methods) {
-        return Ok(());
-    }
-    form.payment_methods = match arg {
-        "cash" => Some(PaymentMethods::CASH),
-        "transfer" => Some(PaymentMethods::TRANSFER),
-        "both" => Some(PaymentMethods::BOTH),
-        _ => return Ok(()),
-    };
-    if let Some(msg) = pressed {
-        let _ = cx.bot.edit_message_reply_markup(chat(cx.user), msg).await;
-    }
-    finish(cx, form).await
-}
-
 async fn finish(cx: &Ctx<'_>, form: DriverForm) -> anyhow::Result<()> {
     let app = cx.app;
     let inviter = form.inviter();
     let invite = form.invite.as_ref().and_then(|(code, _)| InviteCode::parse(code));
-    let (Some(alias), Some(phone), Some(plate), Some(bike_model), Some(bike_color), Some(photo), Some(methods)) = (
-        form.alias,
-        form.phone,
-        form.plate,
-        form.bike_model,
-        form.bike_color,
-        form.photo_file_id,
-        form.payment_methods,
-    ) else {
+    let (Some(alias), Some(phone), Some(plate), Some(bike_model), Some(bike_color), Some(photo)) =
+        (form.alias, form.phone, form.plate, form.bike_model, form.bike_color, form.photo_file_id)
+    else {
         // Cannot happen through the steps; start over rather than save a hole.
         return start_form(cx, DriverForm::default()).await;
     };
@@ -290,7 +251,6 @@ async fn finish(cx: &Ctx<'_>, form: DriverForm) -> anyhow::Result<()> {
         bike_color,
         photo_file_id: photo,
         bike_photo_file_id: form.bike_photo_file_id,
-        payment_methods: methods,
     };
 
     let is_new = app.driver_status(cx.user).await?.is_none();

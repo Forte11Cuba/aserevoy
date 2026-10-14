@@ -2,7 +2,7 @@ use sqlx::sqlite::SqliteRow;
 use sqlx::{Row, SqlitePool};
 
 use crate::crypto::PhoneCipher;
-use crate::domain::driver::{Driver, DriverStatus, PaymentMethods, Profile};
+use crate::domain::driver::{Driver, DriverStatus, Profile};
 use crate::domain::ids::UserId;
 use crate::domain::request::UnixTime;
 
@@ -18,14 +18,13 @@ pub async fn save_profile(
 ) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO drivers (telegram_id, alias, phone_enc, plate, bike_model, bike_color,
-             photo_file_id, bike_photo_file_id, payment_methods, status, created_at, added_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+             photo_file_id, bike_photo_file_id, status, created_at, added_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
          ON CONFLICT (telegram_id) DO UPDATE SET
              alias = excluded.alias, phone_enc = excluded.phone_enc, plate = excluded.plate,
              bike_model = excluded.bike_model, bike_color = excluded.bike_color,
              photo_file_id = excluded.photo_file_id,
-             bike_photo_file_id = excluded.bike_photo_file_id,
-             payment_methods = excluded.payment_methods",
+             bike_photo_file_id = excluded.bike_photo_file_id",
     )
     .bind(id.0)
     .bind(&p.alias)
@@ -35,7 +34,6 @@ pub async fn save_profile(
     .bind(&p.bike_color)
     .bind(&p.photo_file_id)
     .bind(&p.bike_photo_file_id)
-    .bind(p.payment_methods.as_str())
     .bind(now)
     .bind(added_by.map(|u| u.0))
     .execute(pool)
@@ -147,7 +145,6 @@ pub async fn list(
 fn from_row(row: &SqliteRow, cipher: &PhoneCipher) -> anyhow::Result<Driver> {
     let decode_err = |what: &str| anyhow::anyhow!("invalid driver {what}");
     let phone_enc: Vec<u8> = row.try_get("phone_enc")?;
-    let methods: String = row.try_get("payment_methods")?;
     let status: String = row.try_get("status")?;
     Ok(Driver {
         id: UserId(row.try_get("telegram_id")?),
@@ -159,7 +156,6 @@ fn from_row(row: &SqliteRow, cipher: &PhoneCipher) -> anyhow::Result<Driver> {
             bike_color: row.try_get("bike_color")?,
             photo_file_id: row.try_get("photo_file_id")?,
             bike_photo_file_id: row.try_get("bike_photo_file_id")?,
-            payment_methods: PaymentMethods::parse(&methods).ok_or_else(|| decode_err("payment methods"))?,
         },
         status: DriverStatus::parse(&status).ok_or_else(|| decode_err("status"))?,
     })
@@ -183,7 +179,6 @@ mod tests {
             bike_color: "Roja".into(),
             photo_file_id: "photo".into(),
             bike_photo_file_id: None,
-            payment_methods: PaymentMethods::BOTH,
         }
     }
 

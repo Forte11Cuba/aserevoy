@@ -21,36 +21,6 @@ impl DriverStatus {
     }
 }
 
-/// Which payments the driver can take. At least one is always set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PaymentMethods {
-    pub cash: bool,
-    pub transfer: bool,
-}
-
-impl PaymentMethods {
-    pub const CASH: Self = PaymentMethods { cash: true, transfer: false };
-    pub const TRANSFER: Self = PaymentMethods { cash: false, transfer: true };
-    pub const BOTH: Self = PaymentMethods { cash: true, transfer: true };
-
-    pub fn as_str(self) -> &'static str {
-        match (self.cash, self.transfer) {
-            (true, true) => "cash,transfer",
-            (false, true) => "transfer",
-            _ => "cash",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "cash" => Some(Self::CASH),
-            "transfer" => Some(Self::TRANSFER),
-            "cash,transfer" => Some(Self::BOTH),
-            _ => None,
-        }
-    }
-}
-
 /// What the driver fills in. The phone is in clear here; the database layer
 /// encrypts it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -62,7 +32,6 @@ pub struct Profile {
     pub bike_color: String,
     pub photo_file_id: String,
     pub bike_photo_file_id: Option<String>,
-    pub payment_methods: PaymentMethods,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,13 +55,6 @@ pub fn clean_field(input: &str, max_chars: usize) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn payment_methods_round_trip() {
-        for m in [PaymentMethods::CASH, PaymentMethods::TRANSFER, PaymentMethods::BOTH] {
-            assert_eq!(PaymentMethods::parse(m.as_str()), Some(m));
-        }
-    }
 
     #[test]
     fn clean_field_collapses_spaces_and_checks_length() {

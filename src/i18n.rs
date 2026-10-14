@@ -2,7 +2,7 @@
 //! over `Lang`, so the compiler rejects a message missing a translation.
 
 use crate::db::metrics::Day;
-use crate::domain::driver::{DriverStatus, PaymentMethods, Profile};
+use crate::domain::driver::{DriverStatus, Profile};
 use crate::domain::effect::{Notice, Place};
 use crate::domain::fare::{Cup, Fares};
 use crate::domain::ids::RequestId;
@@ -69,7 +69,7 @@ pub enum Button {
     Fix,
     Cash,
     Transfer,
-    BothPayments,
+    Bitcoin,
     Accept,
     Complete,
     CancelTrip,
@@ -164,8 +164,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Cash) => "💵 Cash",
         (Lang::Es, Transfer) => "📲 Transferencia",
         (Lang::En, Transfer) => "📲 Transfer",
-        (Lang::Es, BothPayments) => "💵📲 Los dos",
-        (Lang::En, BothPayments) => "💵📲 Both",
+        (Lang::Es, Bitcoin) => "₿ Bitcoin",
+        (Lang::En, Bitcoin) => "₿ Bitcoin",
         (Lang::Es, Accept) => "✅ Aceptar",
         (Lang::En, Accept) => "✅ Accept",
         (Lang::Es, Complete) => "🏁 Completado",
@@ -326,7 +326,6 @@ pub enum Text {
     AskBikeColor,
     AskPhoto,
     AskBikePhoto,
-    AskPaymentMethods,
     InvalidField,
     NeedPhoto,
     ApplicationSent,
@@ -490,8 +489,6 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AskPhoto) => "🤳 Send a photo of yourself. Clients will see it when you accept their trip.",
         (Lang::Es, AskBikePhoto) => "📷 Envía una foto de la moto, o pulsa Omitir.",
         (Lang::En, AskBikePhoto) => "📷 Send a photo of the motorbike, or tap Skip.",
-        (Lang::Es, AskPaymentMethods) => "💳 ¿Qué pagos aceptas?",
-        (Lang::En, AskPaymentMethods) => "💳 Which payments do you take?",
         (Lang::Es, InvalidField) => "Respuesta vacía o demasiado larga. Inténtalo de nuevo.",
         (Lang::En, InvalidField) => "Empty or too long. Please try again.",
         (Lang::Es, NeedPhoto) => "Necesito una foto.",
@@ -521,14 +518,7 @@ pub fn payment(lang: Lang, p: PaymentMethod) -> &'static str {
     match p {
         PaymentMethod::Cash => button(lang, Button::Cash),
         PaymentMethod::Transfer => button(lang, Button::Transfer),
-    }
-}
-
-fn payment_methods(lang: Lang, m: PaymentMethods) -> &'static str {
-    match (m.cash, m.transfer) {
-        (true, true) => button(lang, Button::BothPayments),
-        (false, true) => button(lang, Button::Transfer),
-        _ => button(lang, Button::Cash),
+        PaymentMethod::Bitcoin => button(lang, Button::Bitcoin),
     }
 }
 
@@ -775,7 +765,6 @@ pub fn you_cancelled(lang: Lang, request: &RequestId) -> String {
 }
 
 pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> String {
-    let methods = payment_methods(lang, p.payment_methods);
     let status = status.map(|s| match (lang, s) {
         (Lang::Es, DriverStatus::Pending) => "⏳ Pendiente de aprobación",
         (Lang::En, DriverStatus::Pending) => "⏳ Waiting for approval",
@@ -786,11 +775,11 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
     });
     let mut card = match lang {
         Lang::Es => format!(
-            "🧑 {}\n📞 {}\n🏍 {}, {}\n🔢 Chapa: {}\n💳 {methods}",
+            "🧑 {}\n📞 {}\n🏍 {}, {}\n🔢 Chapa: {}",
             p.alias, p.phone, p.bike_model, p.bike_color, p.plate
         ),
         Lang::En => format!(
-            "🧑 {}\n📞 {}\n🏍 {}, {}\n🔢 Plate: {}\n💳 {methods}",
+            "🧑 {}\n📞 {}\n🏍 {}, {}\n🔢 Plate: {}",
             p.alias, p.phone, p.bike_model, p.bike_color, p.plate
         ),
     };
@@ -1036,7 +1025,7 @@ pub fn terms(lang: Lang) -> &'static str {
         Lang::Es => {
             "📜 Términos y privacidad de Asere Voy\n\n\
 1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de las motos y no asegura los viajes. El precio y el pago (efectivo o transferencia) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
-2. Qué guardamos: de los choferes, su ficha (alias, celular cifrado, moto, chapa, fotos y métodos de pago). De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste.\n\n\
+2. Qué guardamos: de los choferes, su ficha (alias, celular cifrado, moto, chapa y fotos). De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste.\n\n\
 3. Qué no guardamos: no hay historial de viajes. Cada solicitud (ubicaciones y referencia) se borra al cerrarse, y nunca guardamos el teléfono de los clientes. Las calificaciones son ciegas y solo se suman a los totales.\n\n\
 4. Quién ve qué: en el canal de ofertas los choferes ven el municipio, la distancia, el precio y tu reputación, nunca tu ubicación exacta ni tu contacto. Esos datos solo los recibe el chofer que confirmes.\n\n\
 5. Normas: respeto mutuo y nada ilegal. Tres cancelaciones en 7 días bloquean la cuenta 24 horas. Los admins pueden bloquear cuentas o quitar choferes.\n\n\
@@ -1047,7 +1036,7 @@ Datos del mapa © colaboradores de OpenStreetMap (licencia ODbL)."
         Lang::En => {
             "📜 Asere Voy terms and privacy\n\n\
 1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the motorbikes and does not insure the trips. Price and payment (cash or transfer) are agreed directly between client and driver; the bot handles no money.\n\n\
-2. What we keep: for drivers, their profile (alias, encrypted phone, motorbike, plate, photos and payment methods). For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it.\n\n\
+2. What we keep: for drivers, their profile (alias, encrypted phone, motorbike, plate and photos). For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it.\n\n\
 3. What we don't keep: there is no trip history. Each request (locations and landmark) is deleted when it closes, and we never keep clients' phone numbers. Ratings are blind and only added to the totals.\n\n\
 4. Who sees what: in the offers channel drivers see the municipality, distance, price and your reputation, never your exact location or contact. Only the driver you confirm gets those.\n\n\
 5. Rules: mutual respect and nothing illegal. Three cancellations in 7 days block the account for 24 hours. Admins can block accounts or remove drivers.\n\n\

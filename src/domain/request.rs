@@ -116,6 +116,7 @@ impl State {
 pub enum PaymentMethod {
     Cash,
     Transfer,
+    Bitcoin,
 }
 
 impl PaymentMethod {
@@ -123,6 +124,7 @@ impl PaymentMethod {
         match self {
             PaymentMethod::Cash => "cash",
             PaymentMethod::Transfer => "transfer",
+            PaymentMethod::Bitcoin => "bitcoin",
         }
     }
 
@@ -130,6 +132,7 @@ impl PaymentMethod {
         match s {
             "cash" => Some(PaymentMethod::Cash),
             "transfer" => Some(PaymentMethod::Transfer),
+            "bitcoin" => Some(PaymentMethod::Bitcoin),
             _ => None,
         }
     }

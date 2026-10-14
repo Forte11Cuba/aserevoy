@@ -291,12 +291,6 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             }
             None
         }
-        ("pm", _) => {
-            if let Some(Dialog::DriverForm(form)) = db::dialogs::get(&app.pool, cx.user).await? {
-                driver::on_payment_methods(&cx, form, arg, pressed).await?;
-            }
-            None
-        }
         _ => None,
     };
     Ok(alert)
