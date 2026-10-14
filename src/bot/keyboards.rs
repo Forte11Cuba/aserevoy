@@ -136,9 +136,8 @@ pub fn confirm_driver(lang: Lang, request: &RequestId, driver: UserId) -> Inline
 pub fn counteroffer_steps(request: &RequestId) -> InlineKeyboardMarkup {
     let step = |delta: Cup| InlineKeyboardButton::callback(i18n::amount_step(delta), format!("cad:{request}:{delta}"));
     InlineKeyboardMarkup::new(vec![
-        vec![step(-1000), step(-500), step(-100), step(-50)],
-        vec![step(50), step(100), step(500), step(1000)],
-        vec![step(5000), step(10000)],
+        vec![step(-100), step(-1000), step(-5000), step(-10000)],
+        vec![step(100), step(1000), step(5000), step(10000)],
     ])
 }
 
