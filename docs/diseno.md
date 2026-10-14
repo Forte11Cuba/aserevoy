@@ -366,6 +366,8 @@ aserevoy/
   .env.example            # variables de configuración (el .env real no se sube)
   migrations/             # esquema SQLite
   docs/diseno.md          # este documento
+  docs/docker.md          # arrancar con Docker, volúmenes, copias y actualizar el mapa
+  Dockerfile, docker-compose.yml, docker/osrm-prepare.sh
   data/zones.geojson      # contornos de los municipios de La Habana (zona aproximada, ODbL)
   data/streets.sqlite     # calles, esquinas, repartos y lugares de La Habana (ODbL)
   data/README.md          # origen y atribución de los datos de OpenStreetMap
@@ -570,3 +572,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 63 | Direcciones escritas: reglas sobre `data/streets.sqlite` (calles, esquinas, repartos y lugares de OSM) y Jev elige entre los candidatos con umbral de confianza 0,7; por debajo, o si no reconoce ninguno, se pide el pin o la descripción libre | 2026-10-14 |
 | 64 | Con varios candidatos para una dirección escrita: si Jev elige con confianza ≥ 0,7 se usa esa; si no, se ofrecen como botones las opciones con probabilidad ≥ 0,3 (máximo 4) más "Ninguna de estas"; sin ninguna, se pide el pin o la descripción con municipio | 2026-10-14 |
 | 65 | Los admins invitan choferes solo con enlace de un solo uso; se descarta el selector de contactos | 2026-10-14 |
+| 66 | Despliegue con Docker Compose: el bot y un OSRM propio cuyo mapa de Cuba se descarga y prepara en el primer arranque (volumen `osrm-data`); la base de datos va en el volumen `bot-data`. Igual en local y en el VPS (ver `docs/docker.md`) | 2026-10-14 |
