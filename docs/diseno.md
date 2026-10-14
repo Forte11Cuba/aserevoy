@@ -349,7 +349,8 @@ aserevoy/
   .env.example            # variables de configuración (el .env real no se sube)
   migrations/             # esquema SQLite
   docs/diseno.md          # este documento
-  data/zones.geojson      # contornos de los municipios de La Habana (zona aproximada)
+  data/zones.geojson      # contornos de los municipios de La Habana (zona aproximada, ODbL)
+  data/README.md          # origen y atribución de los datos de OpenStreetMap
   scripts/prepare_osm.py  # genera streets.sqlite a partir del extracto de OSM
   scripts/prepare_zones.py # genera data/zones.geojson a partir del extracto de OSM
   src/
@@ -418,6 +419,7 @@ Sin historial de viajes, el control descansa en pocas reglas simples, la reputac
 **Aspectos legales**
 
 - **Términos y aviso de privacidad** que cada persona acepta la primera vez que inicia el bot. Deben decir que la plataforma solo conecta a cliente y chofer, que no es transportista ni asegura viajes, y qué datos se guardan.
+- **Atribución de OpenStreetMap:** los contornos de los municipios y las rutas (OSRM) salen de datos de OpenStreetMap (licencia ODbL). Los términos del bot (fase 3) deben incluir "Datos del mapa © colaboradores de OpenStreetMap"; en el repositorio, la atribución está en `data/README.md`. El código es MIT, pero `data/zones.geojson` sigue bajo la ODbL.
 - **Soporte** (quejas, accidentes, robos, cobros abusivos, problemas con la comisión de un gestor) con el botón 💬 Soporte; llega a los admins.
 - **Comisión del gestor (v2):** el bot no interviene en el pago entre chofer y gestor ni asume responsabilidad; lo dicen los términos de ambos.
 
@@ -532,3 +534,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 45 | Licencia MIT para el código del proyecto | 2026-10-14 |
 | 46 | Al asignar, el chofer recibe la recogida y el destino; en el canal solo la zona aproximada de cada uno | 2026-10-14 |
 | 47 | Zona aproximada del canal: municipio de La Habana donde cae cada pin (contornos de OSM en `data/zones.geojson`, point-in-polygon); sustituye a la lista de repartos | 2026-10-14 |
+| 48 | Atribución de OpenStreetMap (ODbL) en `data/README.md` y, en la fase 3, en los términos del bot; los datos derivados de OSM no quedan bajo la licencia MIT | 2026-10-14 |
