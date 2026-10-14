@@ -299,25 +299,20 @@ pub fn username_set(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::UsernameSet, "unm")]])
 }
 
-/// ⚙️ Administration: drivers and invitations for every staff member; admins,
-/// fares and metrics for superadmins.
-pub fn panel_home(lang: Lang, superadmin: bool) -> InlineKeyboardMarkup {
-    let mut rows = vec![vec![
-        inline(lang, Button::PanelDrivers, "ap:drv:all:0"),
-        inline(lang, Button::InviteDriver, "ap:inv"),
-    ]];
+/// ⚙️ Administration as the bottom keyboard: drivers and invitations for
+/// every staff member; admins, fares and metrics for superadmins; and back to
+/// the main menu. Each section answers with a message of its own.
+pub fn admin_menu(lang: Lang, superadmin: bool) -> KeyboardMarkup {
+    let mut rows = vec![vec![reply(lang, Button::PanelDrivers), reply(lang, Button::InviteDriver)]];
     if superadmin {
-        rows.push(vec![inline(lang, Button::PanelAdmins, "ap:adm"), inline(lang, Button::PanelFares, "ap:fare")]);
-        rows.push(vec![inline(lang, Button::PanelMetrics, "ap:met")]);
+        rows.push(vec![reply(lang, Button::PanelAdmins), reply(lang, Button::PanelFares)]);
+        rows.push(vec![reply(lang, Button::PanelMetrics)]);
     }
-    InlineKeyboardMarkup::new(rows)
+    rows.push(vec![reply(lang, Button::MainMenu)]);
+    KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
-pub fn back_to_panel(lang: Lang) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::ToPanel, "ap:home")]])
-}
-
-/// The drivers list: one button per driver, the filters, the pages and back.
+/// The drivers list: one button per driver, the filters and the pages.
 pub fn drivers_list(
     lang: Lang,
     drivers: &[crate::db::drivers::Listed],
@@ -358,7 +353,6 @@ pub fn drivers_list(
         filter_button(Filter::Pending, Button::FilterPending),
         filter_button(Filter::Blocked, Button::FilterBlocked),
     ]);
-    rows.push(vec![inline(lang, Button::ToPanel, "ap:home")]);
     InlineKeyboardMarkup::new(rows)
 }
 
@@ -382,7 +376,7 @@ pub fn driver_admin(lang: Lang, driver: UserId, status: DriverStatus) -> InlineK
     InlineKeyboardMarkup::new(rows)
 }
 
-/// Steps to change each fare, and back.
+/// Steps to change each fare.
 pub fn fares_panel(lang: Lang) -> InlineKeyboardMarkup {
     let step = |key: &str, delta: i64, unit: &str| {
         let label = if delta > 0 { format!("+{delta}{unit}") } else { format!("−{}{unit}", -delta) };
@@ -400,7 +394,6 @@ pub fn fares_panel(lang: Lang) -> InlineKeyboardMarkup {
         vec![step("km", -50, ""), step("km", -10, ""), step("km", 10, ""), step("km", 50, "")],
         vec![title(min.into())],
         vec![step("minimo", -5, "%"), step("minimo", 5, "%")],
-        vec![inline(lang, Button::ToPanel, "ap:home")],
     ])
 }
 

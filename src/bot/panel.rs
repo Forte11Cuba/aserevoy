@@ -1,19 +1,21 @@
-//! ⚙️ Administration: one message to manage drivers (admins and
-//! superadmins), admins, fares and metrics (superadmins). Moving around edits
-//! the same message; a driver's card is a photo, so it comes as a new one.
-//! Roles are checked on every press.
+//! ⚙️ Administration: a bottom keyboard with the sections (drivers and
+//! invitations for all staff; admins, fares and metrics for superadmins).
+//! Each section answers with a message whose buttons act on what it shows
+//! (a page of drivers, a driver, the fares); paging edits that message, and a
+//! driver's card, being a photo, comes as a new one. Roles are checked on
+//! every press.
 
 use teloxide::prelude::*;
 use teloxide::types::{FileId, InlineKeyboardMarkup, InputFile, MessageId};
 
 use super::client::Ctx;
-use super::{admin, chat, driver, keyboards, now};
+use super::{admin, chat, keyboards, now};
 use crate::db;
 use crate::domain::driver::DriverStatus;
 use crate::domain::fare::FareKey;
 use crate::domain::ids::UserId;
 use crate::domain::reputation::Role;
-use crate::i18n::{self, Text};
+use crate::i18n::{self, Button, Text};
 
 /// Drivers per page of the list.
 pub const DRIVERS_PER_PAGE: i64 = 10;
@@ -53,7 +55,7 @@ impl Filter {
     }
 }
 
-/// "⚙️ Administration" from the menu.
+/// "⚙️ Administration" from the menu: the administration keyboard below.
 pub async fn show(cx: &Ctx<'_>) -> anyhow::Result<()> {
     if !cx.app.is_staff(cx.user).await? {
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
@@ -62,9 +64,32 @@ pub async fn show(cx: &Ctx<'_>) -> anyhow::Result<()> {
     let superadmin = cx.app.config.is_superadmin(cx.user);
     cx.bot
         .send_message(chat(cx.user), i18n::text(cx.lang, Text::PanelHome))
-        .reply_markup(keyboards::panel_home(cx.lang, superadmin))
+        .reply_markup(keyboards::admin_menu(cx.lang, superadmin))
         .await?;
     Ok(())
+}
+
+/// A section from the administration keyboard.
+pub async fn section(cx: &Ctx<'_>, which: Button) -> anyhow::Result<()> {
+    let allowed = match which {
+        Button::PanelDrivers => cx.app.is_staff(cx.user).await?,
+        _ => cx.app.config.is_superadmin(cx.user),
+    };
+    if !allowed {
+        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
+        return Ok(());
+    }
+    match which {
+        Button::PanelDrivers => drivers(cx, None, Filter::All, 0).await,
+        Button::PanelAdmins => admin::show_admins(cx).await,
+        Button::PanelFares => fares(cx, None).await,
+        Button::PanelMetrics => {
+            let days = db::metrics::last(&cx.app.pool, 7).await?;
+            cx.bot.send_message(chat(cx.user), i18n::metrics(cx.lang, &days)).await?;
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// `ap:<what>[:…]`. Returns the alert to show, if any.
@@ -75,10 +100,6 @@ pub async fn on_callback(cx: &Ctx<'_>, arg: &str, pressed: Option<MessageId>) ->
     let superadmin = cx.app.config.is_superadmin(cx.user);
     let parts: Vec<&str> = arg.split(':').collect();
     match parts[..] {
-        ["home"] => {
-            let markup = keyboards::panel_home(cx.lang, superadmin);
-            edit_or_send(cx, pressed, i18n::text(cx.lang, Text::PanelHome).into(), markup).await?;
-        }
         ["drv", filter, page] => {
             let page = page.parse().unwrap_or(0);
             drivers(cx, pressed, Filter::parse(filter), page).await?;
@@ -88,10 +109,8 @@ pub async fn on_callback(cx: &Ctx<'_>, arg: &str, pressed: Option<MessageId>) ->
                 driver_card(cx, UserId(id)).await?;
             }
         }
-        ["inv"] => driver::invite(cx).await?,
         // Superadmins only from here.
         _ if !superadmin => return Ok(Some(i18n::text(cx.lang, Text::NotAllowed).into())),
-        ["adm"] => admin::show_admins(cx).await?,
         ["fare"] => fares(cx, pressed).await?,
         ["fa", key, delta] => {
             if let (Some(key), Ok(delta)) = (FareKey::parse(key), delta.parse::<i64>()) {
@@ -109,17 +128,13 @@ pub async fn on_callback(cx: &Ctx<'_>, arg: &str, pressed: Option<MessageId>) ->
                 fares(cx, pressed).await?;
             }
         }
-        ["met"] => {
-            let days = db::metrics::last(&cx.app.pool, 7).await?;
-            edit_or_send(cx, pressed, i18n::metrics(cx.lang, &days), keyboards::back_to_panel(cx.lang)).await?;
-        }
         _ => {}
     }
     Ok(None)
 }
 
-/// Edits the panel message in place, or sends it if it cannot be edited
-/// (for example, the pressed message was a photo).
+/// Edits the section's message in place (paging, a fare change), or sends a
+/// new one (from the keyboard, or when the pressed message was a photo).
 async fn edit_or_send(
     cx: &Ctx<'_>,
     pressed: Option<MessageId>,

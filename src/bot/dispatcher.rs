@@ -95,8 +95,11 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
-        Some(Button::Admins) => admin::show_admins(&cx).await,
         Some(Button::AdminPanel) => panel::show(&cx).await,
+        Some(b @ (Button::PanelDrivers | Button::PanelAdmins | Button::PanelFares | Button::PanelMetrics)) => {
+            panel::section(&cx, b).await
+        }
+        Some(Button::MainMenu) => menu(&cx, Text::Menu).await,
         Some(Button::SwitchLang) => {
             let lang = cx.lang.other();
             db::users::set_lang(&app.pool, cx.user, lang).await?;
