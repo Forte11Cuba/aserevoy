@@ -18,27 +18,8 @@ use crate::i18n::{self, Button, Text, parse_button};
 /// "🧑‍✈️ Apply to drive".
 pub async fn apply(cx: &Ctx<'_>) -> anyhow::Result<()> {
     match cx.app.driver_status(cx.user).await? {
-        None => match db::invitations::pending_for(&cx.app.pool, cx.user, now()).await? {
-            // An admin picked this person from their contacts.
-            Some(code) => start_from_invite(cx, code.as_str()).await,
-            None => start_form(cx, DriverForm::default()).await,
-        },
+        None => start_form(cx, DriverForm::default()).await,
         Some(status) => refuse(cx, status).await,
-    }
-}
-
-/// When someone opens the bot: if an admin invited them from their contacts,
-/// their profile form starts right away. Returns whether it did.
-pub async fn start_if_invited(cx: &Ctx<'_>) -> anyhow::Result<bool> {
-    if cx.app.driver_status(cx.user).await?.is_some() {
-        return Ok(false);
-    }
-    match db::invitations::pending_for(&cx.app.pool, cx.user, now()).await? {
-        Some(code) => {
-            start_from_invite(cx, code.as_str()).await?;
-            Ok(true)
-        }
-        None => Ok(false),
     }
 }
 
@@ -48,7 +29,7 @@ pub async fn start_from_invite(cx: &Ctx<'_>, code: &str) -> anyhow::Result<()> {
         return refuse(cx, status).await;
     }
     let inviter = match InviteCode::parse(code) {
-        Some(code) => db::invitations::check(&cx.app.pool, &code, InviteRole::Driver, cx.user, now()).await?,
+        Some(code) => db::invitations::check(&cx.app.pool, &code, InviteRole::Driver, now()).await?,
         None => None,
     };
     let Some(inviter) = inviter else {
@@ -348,49 +329,9 @@ pub async fn invite(cx: &Ctx<'_>) -> anyhow::Result<()> {
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
         return Ok(());
     }
-    let markup = keyboards::invite_how(cx.lang);
-    cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::InviteHow)).reply_markup(markup).await?;
-    Ok(())
-}
-
-/// "👤 Pick from my contacts": the admin shared a contact. Only that person
-/// can use the invitation. A bot cannot write first to someone who never
-/// opened it, so the admin may have to tell them to open the bot.
-pub async fn invite_contact(cx: &Ctx<'_>, target: UserId) -> anyhow::Result<()> {
-    let app = cx.app;
-    if !app.is_staff(cx.user).await? {
-        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
-        return Ok(());
-    }
-    let menu = app.menu(cx.user, cx.lang).await?;
-    if app.driver_status(target).await?.is_some() {
-        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::AlreadyDriverStaff)).reply_markup(menu).await?;
-        return Ok(());
-    }
-    let code = InviteCode::generate(&mut rand::rng());
-    db::invitations::create_for(&app.pool, &code, target, cx.user, now()).await?;
-    tracing::info!("driver invited from contacts");
-    let lang = app.lang_of(target).await;
-    let told = cx.bot.send_message(chat(target), i18n::text(lang, Text::YouAreInvited)).await.is_ok();
-    let to_admin = if told {
-        i18n::text(cx.lang, Text::ContactInvited).to_owned()
-    } else {
-        i18n::contact_must_open_bot(cx.lang, &app.bot_username)
-    };
-    cx.bot.send_message(chat(cx.user), to_admin).reply_markup(menu).await?;
-    Ok(())
-}
-
-/// "🔗 Create a link": a one-use invitation link for anyone, valid for 48 h.
-pub async fn invite_link(cx: &Ctx<'_>) -> anyhow::Result<()> {
-    if !cx.app.is_staff(cx.user).await? {
-        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
-        return Ok(());
-    }
     let code = InviteCode::generate(&mut rand::rng());
     db::invitations::create(&cx.app.pool, &code, InviteRole::Driver, cx.user, now()).await?;
     let link = format!("https://t.me/{}?start=inv_{}", cx.app.bot_username, code.as_str());
-    let menu = cx.app.menu(cx.user, cx.lang).await?;
-    cx.bot.send_message(chat(cx.user), i18n::invite_created(cx.lang, &link)).reply_markup(menu).await?;
+    cx.bot.send_message(chat(cx.user), i18n::invite_created(cx.lang, &link)).await?;
     Ok(())
 }

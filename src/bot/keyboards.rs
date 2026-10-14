@@ -1,10 +1,7 @@
 //! Keyboards. Callback data stays under Telegram's 64-byte limit by using
 //! short prefixes and ids (`acc:AB7K`).
 
-use teloxide::types::{
-    ButtonRequest, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardButtonRequestUsers,
-    KeyboardMarkup,
-};
+use teloxide::types::{ButtonRequest, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
 
 use crate::domain::fare::Cup;
 use crate::domain::ids::{RequestId, UserId};
@@ -43,13 +40,6 @@ pub fn step(lang: Lang, extra: &[KeyboardButton]) -> KeyboardMarkup {
 
 pub fn skip(lang: Lang) -> KeyboardButton {
     reply(lang, Button::Skip)
-}
-
-/// How to invite a driver: pick a contact, or create a link.
-pub fn invite_how(lang: Lang) -> KeyboardMarkup {
-    let pick = KeyboardButtonRequestUsers::new(teloxide::types::RequestId(1)).user_is_bot(false);
-    let contact = reply(lang, Button::PickContact).request(ButtonRequest::RequestUsers(pick));
-    step(lang, &[contact, reply(lang, Button::CreateLink)])
 }
 
 pub fn send_location(lang: Lang) -> KeyboardButton {

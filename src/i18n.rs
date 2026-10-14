@@ -83,8 +83,6 @@ pub enum Button {
     Republish,
     Withdraw,
     NoneOfThese,
-    PickContact,
-    CreateLink,
     Support,
     Admins,
     OnMyWay,
@@ -103,9 +101,7 @@ pub enum Button {
     Back,
 }
 
-const REPLY_BUTTONS: [Button; 13] = [
-    Button::PickContact,
-    Button::CreateLink,
+const REPLY_BUTTONS: [Button; 11] = [
     Button::RequestRide,
     Button::ApplyDriver,
     Button::MyProfile,
@@ -174,10 +170,6 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Republish) => "🔁 Publish again",
         (Lang::Es, Withdraw) => "🚪 Retirarme",
         (Lang::En, Withdraw) => "🚪 Withdraw",
-        (Lang::Es, PickContact) => "👤 Elegir de mis contactos",
-        (Lang::En, PickContact) => "👤 Pick from my contacts",
-        (Lang::Es, CreateLink) => "🔗 Crear enlace",
-        (Lang::En, CreateLink) => "🔗 Create a link",
         (Lang::Es, NoneOfThese) => "❌ Ninguna de estas",
         (Lang::En, NoneOfThese) => "❌ None of these",
         (Lang::Es, Support) => "💬 Soporte",
@@ -253,10 +245,6 @@ pub enum Text {
     AlreadyClosed,
     KeptWaiting,
     Withdrawn,
-    InviteHow,
-    ContactInvited,
-    YouAreInvited,
-    AlreadyDriverStaff,
     FareUsage,
     ChooseCancelReason,
     SupportUnavailable,
@@ -376,16 +364,6 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, KeptWaiting) => "👍 Great, your request stays published.",
         (Lang::Es, FareUsage) => "Uso: /tarifa base 100, /tarifa km 150 o /tarifa minimo 80 (porcentaje del precio sugerido).",
         (Lang::En, FareUsage) => "Usage: /tarifa base 100, /tarifa km 150 or /tarifa minimo 80 (percentage of the suggested price).",
-        (Lang::Es, InviteHow) => "¿A quién invitas? Elige a la persona de tus contactos o crea un enlace de invitación.",
-        (Lang::En, InviteHow) => "Who are you inviting? Pick the person from your contacts or create an invitation link.",
-        (Lang::Es, ContactInvited) => "📨 Le avisé. Cuando abra el bot, empezará su ficha (la invitación vale 48 h).",
-        (Lang::En, ContactInvited) => "📨 I told them. When they open the bot, their profile starts (the invitation lasts 48 h).",
-        (Lang::Es, YouAreInvited) => {
-            "🛵 Te invitaron a ser chofer de Asere Voy. Pulsa 🧑‍✈️ Aplicar a ser chofer para completar tu ficha."
-        }
-        (Lang::En, YouAreInvited) => "🛵 You were invited to drive with Asere Voy. Tap 🧑‍✈️ Apply to drive to fill in your profile.",
-        (Lang::Es, AlreadyDriverStaff) => "Esa persona ya tiene ficha de chofer.",
-        (Lang::En, AlreadyDriverStaff) => "That person already has a driver profile.",
         (Lang::Es, ChooseCancelReason) => "¿Por qué cancelas el viaje?",
         (Lang::En, ChooseCancelReason) => "Why are you cancelling the trip?",
         (Lang::Es, SupportUnavailable) => "El soporte no está disponible ahora mismo. Inténtalo más tarde.",
@@ -1116,18 +1094,6 @@ pub fn fares(lang: Lang, f: &Fares) -> String {
         Lang::En => format!(
             "💰 Fares\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nTo change them (superadmins): /tarifa base|km|minimo <value>",
             f.base, f.per_km, f.min_percent
-        ),
-    }
-}
-
-/// The picked contact never opened the bot: the admin has to tell them.
-pub fn contact_must_open_bot(lang: Lang, bot_username: &str) -> String {
-    match lang {
-        Lang::Es => format!(
-            "Esa persona aún no ha abierto el bot, así que no puedo escribirle. Pídele que abra @{bot_username}: al entrar empezará su ficha (la invitación vale 48 h)."
-        ),
-        Lang::En => format!(
-            "That person hasn't opened the bot yet, so I can't write to them. Ask them to open @{bot_username}: their profile starts when they do (the invitation lasts 48 h)."
         ),
     }
 }

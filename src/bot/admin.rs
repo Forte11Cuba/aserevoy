@@ -186,7 +186,7 @@ pub async fn invite_admin(cx: &Ctx<'_>) -> anyhow::Result<Option<String>> {
 pub async fn redeem_admin_invite(cx: &Ctx<'_>, code: &str) -> anyhow::Result<()> {
     let app = cx.app;
     let redeemed = match InviteCode::parse(code) {
-        Some(code) => match db::invitations::check(&app.pool, &code, InviteRole::Admin, cx.user, now()).await? {
+        Some(code) => match db::invitations::check(&app.pool, &code, InviteRole::Admin, now()).await? {
             Some(by) if db::invitations::redeem(&app.pool, &code, InviteRole::Admin, cx.user, now()).await? => Some(by),
             _ => None,
         },

@@ -1,8 +1,4 @@
--- Phase 4: driver invitations for a contact the admin picked, and daily
--- metrics (aggregates only, no ids).
-
--- The Telegram user a contact invitation is for (NULL for link invitations).
-ALTER TABLE invitations ADD COLUMN for_user INTEGER;
+-- Phase 4: daily metrics (aggregates only, no ids).
 
 -- One row per day (Cuban date, YYYY-MM-DD). Sums, so averages are sum / count.
 CREATE TABLE daily_metrics (

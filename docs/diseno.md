@@ -44,11 +44,7 @@ Hay un solo bot. Lo que cada persona ve depende de su rol, y el rol se comprueba
 **Alta de choferes y gestores.** Hay dos caminos:
 
 - **Aplicar desde el bot:** en el menú de cualquier usuario están los botones **"Aplicar a ser chofer"** y, en la versión 2, **"Aplicar a ser gestor"**. La persona completa su ficha y los admins reciben la solicitud con los botones Aprobar y Rechazar.
-- **Invitación de un admin:** el admin pulsa "Añadir chofer" o "Añadir gestor" y elige a la persona:
-  - con el **selector de contactos** de Telegram (`KeyboardButtonRequestUsers`), y el bot recibe su ID directamente; o
-  - con un **enlace de invitación de un solo uso** (`t.me/AsereVoyBot?start=inv_X7K2`).
-
-  La persona abre la invitación y completa su ficha.
+- **Invitación de un admin:** el admin pulsa "Invitar chofer" (o "Añadir gestor" en la v2) y recibe un **enlace de invitación de un solo uso** (`t.me/AsereVoyBot?start=inv_X7K2`), que le pasa a la persona. Es la única forma de invitar (decisión 65). La persona abre el enlace y completa su ficha.
 
 En los dos casos:
 
@@ -361,7 +357,6 @@ pub fn accept(&mut self, driver: UserId, now: UnixTime) -> Result<Vec<Effect>, D
 - Jev (TypeSafe) opcional por HTTP, con la API key en `.env`. No hace falta un modelo local ni RAM extra en el servidor.
 - El token y la configuración en `.env`; long polling, sin dominio ni webhook.
 
-Hay que verificar que la versión de `teloxide` elegida soporte `KeyboardButtonRequestUsers`.
 
 **Estructura del proyecto:**
 
@@ -455,7 +450,7 @@ El desarrollo va por fases; cada una deja algo que funciona de principio a fin. 
 | **1. Núcleo** | Proyecto, migraciones de SQLite y superadmin desde `.env`. Alta de choferes por enlace de invitación y por "Aplicar a ser chofer", con ficha editable desde el bot. Solicitud solo con pin, OSRM y tarifa fija. Publicación en el canal y aceptación atómica. Intercambio de contacto. Completado, Cancelar y barrido | Un viaje real de principio a fin |
 | **2. Subasta** | Solicitud abierta hasta 60 min con "¿Sigues esperando?" a los 30 min, confirmación del chofer por el cliente, subir el precio, Republicar, contraofertas con enlace al bot, lista editable con Aceptar y Rechazar | La experiencia tipo inDrive |
 | **3. Confianza** | Ya voy y Llegué, cancelaciones del cliente según el motivo, bloqueos, reputación ciega (estrellas, viajes y días en el bot), botón 💬 Soporte, Compartir viaje, rol de admin, términos y aviso de privacidad, anti-flood | Listo para usuarios que no conoces |
-| **4. Comodidad** | Direcciones escritas (reglas y `data/streets.sqlite`), descripción libre como último recurso con municipio elegido y distancia aproximada (×1,5), esquina más cercana en el canal, Jev para elegir entre candidatos (umbral 0,7), lugares de referencia de OSM, selector de contactos para el alta de choferes, `metricas_diarias`, `/tarifa` | Menos fricción |
+| **4. Comodidad** | Direcciones escritas (reglas y `data/streets.sqlite`), descripción libre como último recurso con municipio elegido y distancia aproximada (×1,5), esquina más cercana en el canal, Jev para elegir entre candidatos (umbral 0,7), lugares de referencia de OSM, `metricas_diarias`, `/tarifa` | Menos fricción |
 | **5. Piloto** | Una zona, pocos choferes de confianza, despliegue en producción, copias de seguridad cifradas diarias, alertas de error a los superadmins | Datos reales |
 | **Versión 2** | Gestores: rol, "Aplicar a ser gestor", solicitudes con precio para el chofer y para el cliente, varias solicitudes abiertas, oferta marcada "Vía gestor" en el canal | Después de validar el piloto |
 
@@ -534,7 +529,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 22 | Superadmins solo en `.env`; nombran y quitan admins y pueden quitar choferes en cualquier momento; cada acción guarda quién la hizo | 2026-10-14 |
 | 23 | Botón 💬 Soporte para todos los usuarios; los admins responden desde el bot. *Mecanismo fijado en la decisión 60* | 2026-10-14 |
 | 24 | Reputación de nivel A (solo agregados), calificación ciega en ambas direcciones, sin historial de viajes | 2026-10-13 |
-| 25 | Alta de choferes por selector de contactos o por enlace de invitación de un solo uso | 2026-10-13 |
+| 25 | Alta de choferes por selector de contactos o por enlace de invitación de un solo uso. *Sustituida por la decisión 65* | 2026-10-13 |
 | 26 | Canal de ofertas con ✅ Aceptar (callback) y 💬 Contraofertar (enlace al bot) | 2026-10-13 |
 | 27 | Tarifas: valores iniciales en `.env`, después editables desde el bot; `tarifa_km` en modo fijo para el MVP, con un modo basado en combustible por definir. *El modo combustible se descarta (decisión 62)* | 2026-10-13 |
 | 28 | En el canal se muestran del cliente sus estrellas, viajes completados y días usando el bot | 2026-10-14 |
@@ -574,3 +569,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 62 | Precio por km fijo, editable por los superadmins con `/tarifa`; se descartan el modo combustible y la tasa de elTOQUE | 2026-10-14 |
 | 63 | Direcciones escritas: reglas sobre `data/streets.sqlite` (calles, esquinas, repartos y lugares de OSM) y Jev elige entre los candidatos con umbral de confianza 0,7; por debajo, o si no reconoce ninguno, se pide el pin o la descripción libre | 2026-10-14 |
 | 64 | Con varios candidatos para una dirección escrita: si Jev elige con confianza ≥ 0,7 se usa esa; si no, se ofrecen como botones las opciones con probabilidad ≥ 0,3 (máximo 4) más "Ninguna de estas"; sin ninguna, se pide el pin o la descripción con municipio | 2026-10-14 |
+| 65 | Los admins invitan choferes solo con enlace de un solo uso; se descarta el selector de contactos | 2026-10-14 |
