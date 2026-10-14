@@ -15,6 +15,8 @@ pub enum Dialog {
     /// After a request closed without a trip: what "Publish again" reuses.
     /// Any other message leaves it in place.
     Republish(Republish),
+    /// A driver making a counteroffer: they may type the amount.
+    Counteroffer { request: String },
     /// The @username guide or the terms are shown; `payload` is the `/start`
     /// argument to resume after them (an invitation, a counteroffer link).
     Terms { payload: Option<String> },

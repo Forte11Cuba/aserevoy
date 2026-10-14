@@ -5,6 +5,7 @@
 use teloxide::prelude::*;
 
 use super::client::Ctx;
+use super::dialog::Dialog;
 use super::{chat, effects, keyboards, now};
 use crate::db;
 use crate::domain::driver::DriverStatus;
@@ -98,6 +99,13 @@ pub async fn start_counteroffer(cx: &Ctx<'_>, id: &str) -> anyhow::Result<()> {
     if request.client == cx.user {
         return say(i18n::domain_error(cx.lang, &DomainError::OwnRequest)).await;
     }
+    // The driver may also type their price: wait for it, with Cancel below.
+    let dialog = Dialog::Counteroffer { request: request.id.as_str().to_owned() };
+    db::dialogs::set(&cx.app.pool, cx.user, &dialog, now()).await?;
+    cx.bot
+        .send_message(chat(cx.user), i18n::text(cx.lang, Text::CounterofferHow))
+        .reply_markup(keyboards::cancel_only(cx.lang))
+        .await?;
     let prompt = i18n::counteroffer_prompt(cx.lang, &effects::post_of(cx.app, &request).await?);
     cx.bot
         .send_message(chat(cx.user), prompt)
@@ -106,26 +114,45 @@ pub async fn start_counteroffer(cx: &Ctx<'_>, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `cof:<id>:<amount>`: the driver sends a counteroffer.
-pub async fn counteroffer(cx: &Ctx<'_>, id: &RequestId, amount: Cup) -> anyhow::Result<String> {
+/// A message while making a counteroffer: the amount, typed.
+pub async fn counteroffer_typed(cx: &Ctx<'_>, request: &str, msg: &Message) -> anyhow::Result<()> {
+    let amount = msg.text().map(|t| t.trim().trim_end_matches("CUP").trim().parse::<Cup>());
+    let (Some(id), Some(Ok(amount))) = (RequestId::parse(request), amount) else {
+        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::AmountNotNumber)).await?;
+        return Ok(());
+    };
+    if let Some(problem) = counteroffer(cx, &id, amount).await? {
+        cx.bot.send_message(chat(cx.user), problem).await?;
+    }
+    Ok(())
+}
+
+/// The driver sends a counteroffer (`cof:<id>:<amount>`, or typed). On
+/// success the confirmation comes with the menu back; otherwise the problem
+/// is returned (an alert, or a message for a typed amount).
+pub async fn counteroffer(cx: &Ctx<'_>, id: &RequestId, amount: Cup) -> anyhow::Result<Option<String>> {
     if let Some(alert) = driver_can_bid(cx).await? {
-        return Ok(alert);
+        return Ok(Some(alert));
     }
     let Some(mut request) = db::requests::get(&cx.app.pool, id).await? else {
-        return Ok(i18n::domain_error(cx.lang, &DomainError::NotOpen));
+        return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
     };
     let now = now();
     let effects = match request.counteroffer(cx.user, amount, now) {
         Ok(effects) => effects,
-        Err(e) => return Ok(i18n::domain_error(cx.lang, &e)),
+        Err(e) => return Ok(Some(i18n::domain_error(cx.lang, &e))),
     };
     let expires_at = now + COUNTEROFFER_SECS;
     if !db::counteroffers::upsert(&cx.app.pool, id, cx.user, amount, expires_at).await? {
-        return Ok(i18n::domain_error(cx.lang, &DomainError::NotOpen));
+        return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
     }
     tracing::info!(request = %id, "counteroffer");
     effects::apply(cx.bot, cx.app, &mut request, effects).await?;
-    Ok(i18n::text(cx.lang, Text::CounterofferSent).into())
+    db::dialogs::clear(&cx.app.pool, cx.user).await?;
+    let menu = cx.app.menu(cx.user, cx.lang).await?;
+    let sent = i18n::counteroffer_sent(cx.lang, amount);
+    cx.bot.send_message(chat(cx.user), sent).reply_markup(menu).await?;
+    Ok(None)
 }
 
 /// `coa:<id>:<driver>`: the client accepts a counteroffer.

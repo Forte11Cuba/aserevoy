@@ -86,6 +86,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
     match db::dialogs::get::<Dialog>(&app.pool, cx.user).await? {
         Some(Dialog::Ride(ride)) => return client::on_message(&cx, ride, &msg).await,
         Some(Dialog::DriverForm(form)) => return driver::on_message(&cx, form, &msg).await,
+        Some(Dialog::Counteroffer { request }) => return auction::counteroffer_typed(&cx, &request, &msg).await,
         // Only their buttons use them; messages work as usual.
         Some(Dialog::Republish(_) | Dialog::Terms { .. }) | None => {}
     }
@@ -198,7 +199,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
     let alert = match (kind, id) {
         ("acc", Some(id)) => Some(trip::accept(bot, app, cx.user, cx.lang, &id).await?),
         ("cof", Some(id)) => match number(arg) {
-            Some(amount) => Some(auction::counteroffer(&cx, &id, amount).await?),
+            Some(amount) => auction::counteroffer(&cx, &id, amount).await?,
             None => None,
         },
         ("can", Some(id)) => trip::cancel_pressed(bot, app, cx.user, cx.lang, &id, pressed).await?,

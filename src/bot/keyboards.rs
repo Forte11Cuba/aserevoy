@@ -138,11 +138,13 @@ pub fn confirm_driver(lang: Lang, request: &RequestId, driver: UserId) -> Inline
 
 /// Amounts a driver can counteroffer, above the client's price.
 pub fn counteroffer_amounts(request: &RequestId, price: Cup) -> InlineKeyboardMarkup {
-    let row = [50, 100, 150]
-        .into_iter()
-        .map(|step| InlineKeyboardButton::callback(format!("{} CUP", price + step), format!("cof:{request}:{}", price + step)))
-        .collect::<Vec<_>>();
-    InlineKeyboardMarkup::new(vec![row])
+    let step = |delta: Cup| InlineKeyboardButton::callback(format!("+{delta}"), format!("cof:{request}:{}", price + delta));
+    InlineKeyboardMarkup::new(vec![vec![step(50), step(100), step(500), step(1000)]])
+}
+
+/// Only Cancel below, while a driver may type a counteroffer.
+pub fn cancel_only(lang: Lang) -> KeyboardMarkup {
+    KeyboardMarkup::new(vec![vec![reply(lang, Button::Cancel)]]).resize_keyboard()
 }
 
 /// Under one counteroffer: accept it or reject it (the amount is in the message).

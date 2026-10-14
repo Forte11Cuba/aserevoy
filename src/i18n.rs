@@ -297,6 +297,7 @@ pub enum Text {
     AlreadyClosed,
     KeptWaiting,
     Withdrawn,
+    CounterofferHow,
     PanelHome,
     FareOutOfRange,
     FareUsage,
@@ -316,7 +317,6 @@ pub enum Text {
     DriverRemoved,
     YouWereRemoved,
     YouWereUnblocked,
-    CounterofferSent,
     NoActiveRequest,
     // Driver profile.
     AskAlias,
@@ -433,6 +433,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, PanelHome) => "⚙️ Administration: pick below what you want to manage.",
         (Lang::Es, FareOutOfRange) => "Ese valor no es válido (el mínimo va de 0 a 100 %, los precios deben ser mayores que 0).",
         (Lang::En, FareOutOfRange) => "That value isn't valid (the minimum goes from 0 to 100 %, prices must be above 0).",
+        (Lang::Es, CounterofferHow) => "💬 Contraoferta: elige un aumento abajo o escribe tu precio. Pulsa ❌ Cancelar para salir.",
+        (Lang::En, CounterofferHow) => "💬 Counteroffer: pick a raise below or type your price. Tap ❌ Cancel to leave.",
         (Lang::Es, ChooseCancelReason) => "¿Por qué cancelas el viaje?",
         (Lang::En, ChooseCancelReason) => "Why are you cancelling the trip?",
         (Lang::Es, SupportUnavailable) => "El soporte no está disponible ahora mismo. Inténtalo más tarde.",
@@ -471,8 +473,6 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, YouWereUnblocked) => "✅ Your account was unblocked.",
         (Lang::Es, Withdrawn) => "🚪 Te retiraste. La solicitud volvió al canal.",
         (Lang::En, Withdrawn) => "🚪 You withdrew. The request is back in the channel.",
-        (Lang::Es, CounterofferSent) => "💬 Contraoferta enviada. Vale 5 min; te aviso si el cliente la acepta.",
-        (Lang::En, CounterofferSent) => "💬 Counteroffer sent. It's valid for 5 min; I'll tell you if the client accepts.",
         (Lang::Es, NoActiveRequest) => "No tienes ninguna solicitud abierta.",
         (Lang::En, NoActiveRequest) => "You have no open request.",
 
@@ -1003,10 +1003,20 @@ pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup, dri
 
 /// To a driver who opened "Counteroffer" from the channel.
 pub fn counteroffer_prompt(lang: Lang, post: &Post) -> String {
+    let price = post.price;
     let post = channel_post(lang, post);
     match lang {
-        Lang::Es => format!("{post}\n\n¿Por cuánto lo harías?"),
-        Lang::En => format!("{post}\n\nWhat would you do it for?"),
+        Lang::Es => format!(
+            "{post}\n\n¿Por cuánto lo harías? Elige un aumento o escribe tu precio (más de {price} CUP)."
+        ),
+        Lang::En => format!("{post}\n\nWhat would you do it for? Pick a raise or type your price (above {price} CUP)."),
+    }
+}
+
+pub fn counteroffer_sent(lang: Lang, amount: Cup) -> String {
+    match lang {
+        Lang::Es => format!("💬 Contraoferta de {amount} CUP enviada. Vale 5 min; te aviso si el cliente la acepta."),
+        Lang::En => format!("💬 Counteroffer of {amount} CUP sent. It's valid for 5 min; I'll tell you if the client accepts."),
     }
 }
 
