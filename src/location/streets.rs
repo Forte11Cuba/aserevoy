@@ -127,16 +127,20 @@ impl Streets {
         let address = parse(text);
         let area = self.area_hint(&address.hints);
         let mut found = match &address.kind {
+            // "entre 5ta B y 5ta C Avenida de los Cocos": no street before.
+            AddressKind::Between { street, a, b } if street.is_empty() => self.street_last(a, b),
             AddressKind::Between { street, a, b } => self.between(street, a, b),
             AddressKind::Corner { street, cross } => {
                 let corners: Vec<Candidate> =
                     self.corners_of(street, cross).into_iter().map(|c| self.corner_candidate(c)).collect();
-                if corners.is_empty() {
-                    // No such corner: two parallel streets ("21 D y 21 C")
-                    // mean the block of a street crossing both.
-                    self.crossing_both(street, cross)
-                } else {
+                if !corners.is_empty() {
                     corners
+                } else {
+                    // The cross streets first, then the street ("5ta B y
+                    // 5ta C Avenida de los Cocos"); else two parallel streets
+                    // ("21 D y 21 C") mean the block of one crossing both.
+                    let blocks = self.street_last(street, cross);
+                    if blocks.is_empty() { self.crossing_both(street, cross) } else { blocks }
                 }
             }
             AddressKind::Place(name) => self.places_named(name),
@@ -196,9 +200,21 @@ impl Streets {
         }
     }
 
-    /// The middle of the block between the two corners, or one of the corners
-    /// if only one is known.
-    fn between(&self, street: &str, a: &str, b: &str) -> Vec<Candidate> {
+    /// "A y B X": the street comes after the cross streets, glued to the
+    /// second one. Every way of cutting "B X" that names a real block counts
+    /// ("5 c cocos" → "5 c" and "cocos"); several are offered as choices.
+    fn street_last(&self, a: &str, rest: &str) -> Vec<Candidate> {
+        let words: Vec<&str> = rest.split(' ').collect();
+        (1..words.len())
+            .flat_map(|cut| {
+                let (b, street) = (words[..cut].join(" "), words[cut..].join(" "));
+                self.blocks(&street, a, &b)
+            })
+            .collect()
+    }
+
+    /// The middle of each block of `street` between its corners with `a` and `b`.
+    fn blocks(&self, street: &str, a: &str, b: &str) -> Vec<Candidate> {
         let (first, second) = (self.corners_of(street, a), self.corners_of(street, b));
         let mut found = Vec::new();
         for x in &first {
@@ -216,6 +232,14 @@ impl Streets {
                 }
             }
         }
+        found
+    }
+
+    /// The middle of the block between the two corners, or one of the corners
+    /// if only one is known.
+    fn between(&self, street: &str, a: &str, b: &str) -> Vec<Candidate> {
+        let (first, second) = (self.corners_of(street, a), self.corners_of(street, b));
+        let mut found = self.blocks(street, a, b);
         if found.is_empty() && first.is_empty() && second.is_empty() {
             // The street's name is unknown (a popular one, like "Doble Vía"):
             // it must be one that crosses both cross streets on one block.
@@ -778,6 +802,15 @@ mod tests {
         let found = s.candidates("160e entre 3era ay 3b");
         assert!(!found.is_empty(), "{found:?}");
         assert!(found.iter().all(|c| c.municipality == "Habana del Este"));
+
+        // Found in a live test: the cross streets first, then the street.
+        for text in ["5ta b y 5ta c avenida de los cocos", "entre 5ta b y 5ta c avenida de los cocos"] {
+            let found = s.candidates(text);
+            assert!(found.len() == 1 && found[0].label.starts_with("Avenida de Los Cocos (164) entre 5ta B y 5ta C"), "{found:?}");
+            assert!(found[0].short.starts_with("Alamar · "), "{found:?}");
+        }
+        let found = s.candidates("L y M 23");
+        assert!(found.len() == 1 && found[0].municipality == "Plaza de la Revolución", "{found:?}");
 
         // Found in a live test: Alamar's streets are written "160 C" or "160C".
         let found = s.candidates("7ma entre 160c y 160d, Alamar");
