@@ -1,0 +1,79 @@
+# Asere Voy: the bot plus its own OSRM (routing for prices).
+#
+#   cp .env.example .env    # then fill it in
+#   docker compose up -d --build
+#
+# The first start downloads the Cuba map and prepares it (a few minutes);
+# later starts reuse it. See docs/docker.md.
+
+x-osrm-image: &osrm-image ghcr.io/project-osrm/osrm-backend:v26.10.0-debian
+
+services:
+  # Downloads the Cuba extract from Geofabrik once.
+  osrm-download:
+    image: curlimages/curl:8.16.0
+    user: "0"
+    volumes:
+      - osrm-data:/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        if [ -f /data/cuba-latest.osm.pbf ]; then
+          echo "map already downloaded"
+        else
+          curl -fL --retry 3 -o /data/cuba-latest.osm.pbf.part \
+            https://download.geofabrik.de/central-america/cuba-latest.osm.pbf
+          mv /data/cuba-latest.osm.pbf.part /data/cuba-latest.osm.pbf
+        fi
+    restart: "no"
+
+  # Turns the extract into routing data once.
+  osrm-prepare:
+    image: *osrm-image
+    volumes:
+      - osrm-data:/data
+      - ./docker/osrm-prepare.sh:/prepare.sh:ro
+    entrypoint: ["/bin/sh", "/prepare.sh"]
+    depends_on:
+      osrm-download:
+        condition: service_completed_successfully
+    restart: "no"
+
+  osrm:
+    image: *osrm-image
+    command: ["osrm-routed", "--algorithm", "mld", "/data/cuba-latest.osrm"]
+    volumes:
+      - osrm-data:/data
+    # Only reachable from this machine (handy for testing); the bot uses the
+    # internal network.
+    ports:
+      - "127.0.0.1:5000:5000"
+    depends_on:
+      osrm-prepare:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  bot:
+    build: .
+    # Your settings (copied from .env.example). Without it the bot stops at
+    # start with a message saying what is missing.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OSRM_URL: http://osrm:5000
+      DATABASE_URL: sqlite:///var/lib/aserevoy/aserevoy.db
+      STREETS_DB: /app/data/streets.sqlite
+    volumes:
+      - bot-data:/var/lib/aserevoy
+    depends_on:
+      - osrm
+    restart: unless-stopped
+
+volumes:
+  # The prepared map (about 370 MB; preparing it peaks at ~1 GB of RAM).
+  # Rebuilt from scratch if deleted.
+  osrm-data:
+  # The bot's SQLite database: back this one up.
+  bot-data:

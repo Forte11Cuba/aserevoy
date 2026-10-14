@@ -1,0 +1,7 @@
+target
+osrm-data
+.env
+*.db
+*.db-*
+.git
+CLAUDE.md
