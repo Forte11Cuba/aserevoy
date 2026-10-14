@@ -360,10 +360,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, NotAllowed) => "You are not allowed to do this.",
 
         (Lang::Es, AskPickup) => {
-            "📍 ¿Dónde te recogemos? Pulsa «Enviar mi ubicación», adjunta 📎 → Ubicación para marcar otro punto, o escribe la dirección (por ejemplo: 23 e/ L y M, Vedado)."
+            "📍 ¿Dónde te recogemos? Pulsa «Enviar mi ubicación», adjunta 📎 → Ubicación para marcar otro punto, o escribe la dirección o un lugar conocido (por ejemplo: 23 e/ L y M, Vedado, o Hotel Nacional)."
         }
         (Lang::En, AskPickup) => {
-            "📍 Where should we pick you up? Tap \"Send my location\", attach 📎 → Location to mark another point, or type the address (for example: 23 e/ L y M, Vedado)."
+            "📍 Where should we pick you up? Tap \"Send my location\", attach 📎 → Location to mark another point, or type the address or a known place (for example: 23 e/ L y M, Vedado, or Hotel Nacional)."
         }
         (Lang::Es, ConfirmPickup) => "¿Es aquí la recogida?",
         (Lang::En, ConfirmPickup) => "Is this the pickup point?",
@@ -374,10 +374,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
             "✍️ Write a landmark for the driver (for example: in front of the corner store) or tap Skip."
         }
         (Lang::Es, AskDropoff) => {
-            "🏁 ¿A dónde vas? Adjunta 📎 → Ubicación y marca el destino, o escribe la dirección o un lugar conocido (por ejemplo: Hospital Ameijeiras)."
+            "🏁 ¿A dónde vas? Adjunta 📎 → Ubicación y marca el destino, o escribe la dirección o un lugar conocido (por ejemplo: 23 e/ L y M, Vedado, o Hotel Nacional)."
         }
         (Lang::En, AskDropoff) => {
-            "🏁 Where are you going? Attach 📎 → Location and mark the destination, or type the address or a known place (for example: Hospital Ameijeiras)."
+            "🏁 Where are you going? Attach 📎 → Location and mark the destination, or type the address or a known place (for example: 23 e/ L y M, Vedado, or Hotel Nacional)."
         }
         (Lang::Es, ConfirmDropoff) => "¿Es aquí el destino?",
         (Lang::En, ConfirmDropoff) => "Is this the destination?",
