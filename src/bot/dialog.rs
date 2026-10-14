@@ -40,14 +40,20 @@ pub enum Ride {
     ChoosePickup { text: String, options: Vec<Candidate> },
     /// Nothing matched: the client picks a municipality for their description.
     DescribePickup { text: String },
+    /// Then the reparto within it: typed, or one of `options` (buttons).
+    RepartoPickup { text: String, municipality: String, options: Vec<Candidate> },
     ConfirmPickup { pickup: Point, label: Option<String> },
     Reference { pickup: Point },
     Dropoff { pickup: Spot },
     ChooseDropoff { pickup: Spot, text: String, options: Vec<Candidate> },
     DescribeDropoff { pickup: Spot, text: String },
+    RepartoDropoff { pickup: Spot, text: String, municipality: String, options: Vec<Candidate> },
     ConfirmDropoff { pickup: Spot, dropoff: Point, label: Option<String> },
-    Price { trip: Trip },
+    /// The client adjusts their offer, starting at the suggested price.
+    Price { trip: Trip, offer: Cup },
     Payment { trip: Trip, price: Cup },
+    /// The last look: publish or go back.
+    Summary { trip: Trip, price: Cup, payment: PaymentMethod },
 }
 
 /// A place the bot found for a written address.
@@ -55,6 +61,9 @@ pub enum Ride {
 pub struct Candidate {
     pub label: String,
     pub point: Point,
+    /// What the button shows: the reparto, then the label ("Miramar · Calle 12 entre …").
+    #[serde(default)]
+    pub short: String,
 }
 
 /// Pickup or destination.
@@ -74,6 +83,8 @@ pub struct Trip {
     pub dropoff: Spot,
     /// Already increased if a point is approximate.
     pub km: f64,
+    #[serde(default)]
+    pub minutes: f64,
     pub suggested: Cup,
     pub minimum: Cup,
 }

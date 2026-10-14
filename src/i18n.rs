@@ -99,9 +99,14 @@ pub enum Button {
     AcceptTerms,
     RatingDone,
     Back,
+    StepBack,
+    Publish,
+    PrevPage,
+    NextPage,
 }
 
-const REPLY_BUTTONS: [Button; 11] = [
+const REPLY_BUTTONS: [Button; 12] = [
+    Button::StepBack,
     Button::RequestRide,
     Button::ApplyDriver,
     Button::MyProfile,
@@ -204,6 +209,14 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, RatingDone) => "✅ Done",
         (Lang::Es, Back) => "↩️ Volver",
         (Lang::En, Back) => "↩️ Back",
+        (Lang::Es, StepBack) => "↩️ Atrás",
+        (Lang::En, StepBack) => "↩️ Back",
+        (Lang::Es, PrevPage) => "◀ Anterior",
+        (Lang::En, PrevPage) => "◀ Previous",
+        (Lang::Es, NextPage) => "Siguiente ▶",
+        (Lang::En, NextPage) => "Next ▶",
+        (Lang::Es, Publish) => "✅ Publicar",
+        (Lang::En, Publish) => "✅ Publish",
     }
 }
 
@@ -230,8 +243,12 @@ pub enum Text {
     AskDropoff,
     ConfirmDropoff,
     NeedLocation,
-    ChooseAddress,
     AddressNotFound,
+    AskReparto,
+    ChooseReparto,
+    MapPoint,
+    MapLinkFailed,
+    OutsideHavana,
     RouteFailed,
     AmountNotNumber,
     AskPayment,
@@ -329,14 +346,26 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         }
         (Lang::Es, ConfirmDropoff) => "¿Es aquí el destino?",
         (Lang::En, ConfirmDropoff) => "Is this the destination?",
-        (Lang::Es, ChooseAddress) => "Encontré varios lugares con ese nombre. ¿Cuál es?",
-        (Lang::En, ChooseAddress) => "I found several places by that name. Which one is it?",
         (Lang::Es, AddressNotFound) => {
             "No encontré esa dirección en el mapa. Envía tu ubicación 📍, o elige tu municipio y le daré tu descripción al chofer cuando lo confirmes (el precio se calcula aproximado)."
         }
         (Lang::En, AddressNotFound) => {
             "I couldn't find that address on the map. Send your location 📍, or pick your municipality and I'll give your description to the driver once you confirm them (the price is estimated)."
         }
+        (Lang::Es, AskReparto) => {
+            "¿En qué reparto o zona? Elígelo o escríbelo (por ejemplo: Alamar zona 6). También puedes enviar tu ubicación 📍."
+        }
+        (Lang::En, AskReparto) => {
+            "Which neighborhood (reparto) or zone? Pick it or type it (for example: Alamar zona 6). You can also send your location 📍."
+        }
+        (Lang::Es, MapPoint) => "El punto del enlace o de las coordenadas",
+        (Lang::En, MapPoint) => "The point of the link or coordinates",
+        (Lang::Es, MapLinkFailed) => "No pude abrir ese enlace. Envía tu ubicación 📍 o escribe la dirección.",
+        (Lang::En, MapLinkFailed) => "I couldn't open that link. Send your location 📍 or type the address.",
+        (Lang::Es, OutsideHavana) => "Ese punto está fuera de La Habana. Revisa el enlace o las coordenadas, o envía tu ubicación 📍.",
+        (Lang::En, OutsideHavana) => "That point is outside Havana. Check the link or coordinates, or send your location 📍.",
+        (Lang::Es, ChooseReparto) => "¿En qué reparto?",
+        (Lang::En, ChooseReparto) => "Which neighborhood?",
         (Lang::Es, NeedLocation) => "Necesito un pin de ubicación 📍 o una dirección escrita.",
         (Lang::En, NeedLocation) => "I need a location pin 📍 or a written address.",
         (Lang::Es, RouteFailed) => "No pude calcular la ruta ahora mismo. Inténtalo de nuevo en unos minutos.",
@@ -472,17 +501,79 @@ pub fn already_active(lang: Lang, request: &RequestId) -> String {
     }
 }
 
-pub fn price_prompt(lang: Lang, km: f64, minutes: f64, suggested: Cup, minimum: Cup, approx: bool) -> String {
-    let minutes = minutes.round().max(1.0);
+/// The offer being adjusted, with the trip, the suggested price and the minimum.
+pub fn price_prompt(
+    lang: Lang,
+    km: f64,
+    minutes: f64,
+    suggested: Cup,
+    minimum: Cup,
+    offer: Cup,
+    approx: bool,
+) -> String {
     let about = if approx { "≈" } else { "" };
+    // The whole offer over the km (the base fare included): easy to compare.
+    let per_km = if km > 0.0 { (offer as f64 / km).round() as Cup } else { offer };
+    let time = match (lang, minutes > 0.0) {
+        (Lang::Es, true) => format!(" (unos {} min)", minutes.round().max(1.0)),
+        (Lang::En, true) => format!(" (about {} min)", minutes.round().max(1.0)),
+        (_, false) => String::new(),
+    };
     match lang {
         Lang::Es => format!(
-            "📏 {about}{km:.1} km (unos {minutes} min)\n💰 Precio sugerido: {suggested} CUP\n\nElige tu oferta o escribe un monto (mínimo {minimum} CUP)."
+            "📏 {about}{km:.1} km{time}\n💰 Tu oferta: {offer} CUP (≈{per_km} CUP por km)\n(sugerido {suggested} CUP · mínimo {minimum} CUP)\n\nAjústala con los botones o escribe un monto."
         ),
         Lang::En => format!(
-            "📏 {about}{km:.1} km (about {minutes} min)\n💰 Suggested price: {suggested} CUP\n\nPick your offer or type an amount (minimum {minimum} CUP)."
+            "📏 {about}{km:.1} km{time}\n💰 Your offer: {offer} CUP (≈{per_km} CUP per km)\n(suggested {suggested} CUP · minimum {minimum} CUP)\n\nAdjust it with the buttons or type an amount."
         ),
     }
+}
+
+pub fn offer_button(lang: Lang, offer: Cup) -> String {
+    match lang {
+        Lang::Es => format!("✅ Ofrecer {offer} CUP"),
+        Lang::En => format!("✅ Offer {offer} CUP"),
+    }
+}
+
+pub fn reparto_not_found(lang: Lang, municipality: &str) -> String {
+    match lang {
+        Lang::Es => format!("No encontré ese reparto en {municipality}. Escríbelo de otra forma o envía tu ubicación 📍."),
+        Lang::En => format!("I couldn't find that neighborhood in {municipality}. Type it another way or send your location 📍."),
+    }
+}
+
+/// The last look before publishing.
+pub fn ride_summary(
+    lang: Lang,
+    from: &str,
+    to: &str,
+    km: f64,
+    approx: bool,
+    price: Cup,
+    pay: PaymentMethod,
+) -> String {
+    let about = if approx { "≈" } else { "" };
+    let per_km = if km > 0.0 { (price as f64 / km).round() as Cup } else { price };
+    let pay = payment(lang, pay);
+    match lang {
+        Lang::Es => format!(
+            "📋 Revisa tu solicitud\n\n📍 Recogida: {from}\n🏁 Destino: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP por km) · {pay}\n\nSi está bien, publícala; si no, vuelve atrás."
+        ),
+        Lang::En => format!(
+            "📋 Check your request\n\n📍 Pickup: {from}\n🏁 Destination: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP per km) · {pay}\n\nIf it's right, publish it; if not, go back."
+        ),
+    }
+}
+
+/// Several places for a written address, numbered like their buttons.
+pub fn choose_address(lang: Lang, labels: &[&str]) -> String {
+    let head = match lang {
+        Lang::Es => "Encontré varios lugares con ese nombre. ¿Cuál es?",
+        Lang::En => "I found several places by that name. Which one is it?",
+    };
+    let list: Vec<String> = labels.iter().enumerate().map(|(i, l)| format!("{}. {l}", i + 1)).collect();
+    format!("{head}\n\n{}", list.join("\n"))
 }
 
 /// "Is it here?" under the place found for a written address.
@@ -1146,6 +1237,26 @@ pub fn admins_list(lang: Lang, names: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn candidates_are_listed_in_full_and_numbered() {
+        let text = choose_address(Lang::Es, &["Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este", "78 en Habana del Este"]);
+        assert!(text.contains("\n1. Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este\n2. 78"), "{text}");
+    }
+
+    #[test]
+    fn the_summary_shows_everything_before_publishing() {
+        let text = ride_summary(Lang::Es, "Plaza (23 y L)", "Centro Habana", 3.5, false, 600, PaymentMethod::Cash);
+        assert!(text.contains("Recogida: Plaza (23 y L)") && text.contains("Destino: Centro Habana"), "{text}");
+        assert!(text.contains("3.5 km · 💰 600 CUP (≈171 CUP por km)"), "{text}");
+    }
+
+    #[test]
+    fn the_offer_shows_its_price_per_km() {
+        let text = price_prompt(Lang::Es, 52.8, 68.0, 8010, 6410, 8010, true);
+        assert!(text.contains("8010 CUP (≈152 CUP por km)"), "{text}");
+        assert!(text.contains("≈52.8 km (unos 68 min)"), "{text}");
+    }
 
     #[test]
     fn spanish_is_the_default() {

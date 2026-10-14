@@ -36,7 +36,10 @@ POI_KEYS = ("amenity", "shop", "tourism", "leisure", "historic", "healthcare")
 
 
 def place_kind(tags):
-    """'neighborhood' for a reparto, the POI type for a landmark, else None."""
+    """'suburb' for a big reparto (Vedado, Miramar, Alamar), 'neighborhood' for
+    a smaller one, the POI type for a landmark, else None."""
+    if tags.get("place") == "suburb":
+        return "suburb"
     if tags.get("place") in PLACE_TYPES:
         return "neighborhood"
     return next((tags.get(k) for k in POI_KEYS if tags.get(k)), None)

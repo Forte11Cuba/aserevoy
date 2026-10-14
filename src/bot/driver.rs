@@ -143,14 +143,56 @@ fn next(step: FormStep) -> FormStep {
     }
 }
 
+/// Photos are stored as Telegram's `file_id` and sent by it: no copy on our
+/// server. Telegram keeps several sizes of each; the largest side up to this
+/// is enough on a phone and much lighter to download (data is expensive).
+const PHOTO_MAX_SIDE: u32 = 640;
+
+/// Of Telegram's sizes of a photo, the biggest one up to `PHOTO_MAX_SIDE`,
+/// or the smallest if all are bigger.
+fn medium_size(dims: &[(u32, u32)]) -> Option<usize> {
+    let side = |i: usize| dims[i].0.max(dims[i].1);
+    let fitting = (0..dims.len()).filter(|&i| side(i) <= PHOTO_MAX_SIDE).max_by_key(|&i| side(i));
+    fitting.or_else(|| (0..dims.len()).min_by_key(|&i| side(i)))
+}
+
+fn previous(step: FormStep) -> Option<FormStep> {
+    match step {
+        FormStep::Alias => None,
+        FormStep::Phone => Some(FormStep::Alias),
+        FormStep::Plate => Some(FormStep::Phone),
+        FormStep::BikeModel => Some(FormStep::Plate),
+        FormStep::BikeColor => Some(FormStep::BikeModel),
+        FormStep::Photo => Some(FormStep::BikeColor),
+        FormStep::BikePhoto => Some(FormStep::Photo),
+        FormStep::Methods => Some(FormStep::BikePhoto),
+    }
+}
+
 /// A message while the form is open.
 pub async fn on_message(cx: &Ctx<'_>, mut form: DriverForm, msg: &Message) -> anyhow::Result<()> {
     let Some(step) = form.step else {
         return start_form(cx, form).await;
     };
     let text = msg.text().map(str::trim);
+    if text.and_then(parse_button) == Some(Button::StepBack) {
+        // Back to the previous question, keeping the answers; from the
+        // first one, out of the form.
+        return match previous(step) {
+            Some(prev) => ask(cx, form, prev).await,
+            None => {
+                db::dialogs::clear(&cx.app.pool, cx.user).await?;
+                let menu = cx.app.menu(cx.user, cx.lang).await?;
+                cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::Cancelled)).reply_markup(menu).await?;
+                Ok(())
+            }
+        };
+    }
     let skipped = text.and_then(parse_button) == Some(Button::Skip);
-    let photo = msg.photo().and_then(|sizes| sizes.last()).map(|p| p.file.id.0.clone());
+    let photo = msg.photo().and_then(|sizes| {
+        let dims: Vec<(u32, u32)> = sizes.iter().map(|p| (p.width, p.height)).collect();
+        medium_size(&dims).map(|i| sizes[i].file.id.0.clone())
+    });
 
     let field = |max| text.and_then(|t| driver::clean_field(t, max));
     let accepted = match step {
@@ -334,4 +376,21 @@ pub async fn invite(cx: &Ctx<'_>) -> anyhow::Result<()> {
     let link = format!("https://t.me/{}?start=inv_{}", cx.app.bot_username, code.as_str());
     cx.bot.send_message(chat(cx.user), i18n::invite_created(cx.lang, &link)).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn photos_use_a_medium_size() {
+        // What Telegram usually sends: thumbnail, small, medium, large.
+        assert_eq!(medium_size(&[(90, 67), (320, 240), (800, 600), (1280, 960)]), Some(1));
+        assert_eq!(medium_size(&[(90, 67), (320, 240), (640, 480), (1280, 960)]), Some(2));
+        // Portrait photos count their longest side.
+        assert_eq!(medium_size(&[(240, 320), (480, 640), (960, 1280)]), Some(1));
+        // All bigger: the smallest.
+        assert_eq!(medium_size(&[(1280, 960), (800, 600)]), Some(1));
+        assert_eq!(medium_size(&[]), None);
+    }
 }

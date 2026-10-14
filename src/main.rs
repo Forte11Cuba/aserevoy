@@ -17,6 +17,7 @@ use crate::bot::App;
 use crate::crypto::{PairKey, PhoneCipher};
 use crate::location::routing::Osrm;
 use crate::location::jev::Jev;
+use crate::location::maplink::MapLinks;
 use crate::location::streets::Streets;
 use crate::location::zones::Zones;
 
@@ -69,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
         zones,
         streets,
         jev,
+        map_links: MapLinks::new()?,
         channel,
         channel_link,
         bot_username: me.username().to_owned(),

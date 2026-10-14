@@ -30,6 +30,7 @@ use crate::domain::request::UnixTime;
 use crate::i18n::{self, Lang, TERMS_VERSION};
 use crate::location::routing::Osrm;
 use crate::location::jev::Jev;
+use crate::location::maplink::MapLinks;
 use crate::location::streets::Streets;
 use crate::location::zones::Zones;
 
@@ -46,6 +47,8 @@ pub struct App {
     pub streets: Streets,
     /// Picks among candidate places; `None` when disabled (`JEV_ENABLED`).
     pub jev: Option<Jev>,
+    /// Coordinates and map links sent instead of a pin.
+    pub map_links: MapLinks,
     /// The offers channel.
     pub channel: ChatId,
     /// Join-request link to the channel, sent to approved drivers.

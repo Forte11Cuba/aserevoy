@@ -31,11 +31,17 @@ pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool, is_superadmin: boo
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
-/// While a conversation runs: optional extra buttons plus Cancel.
+/// While a form runs: optional extra buttons, then Back (to the previous
+/// step) on the left and Cancel (the whole form) on the right.
 pub fn step(lang: Lang, extra: &[KeyboardButton]) -> KeyboardMarkup {
     let mut rows: Vec<Vec<KeyboardButton>> = extra.iter().cloned().map(|b| vec![b]).collect();
-    rows.push(vec![reply(lang, Button::Cancel)]);
+    rows.push(vec![reply(lang, Button::StepBack), reply(lang, Button::Cancel)]);
     KeyboardMarkup::new(rows).resize_keyboard()
+}
+
+/// Under the summary: Back on the left, Publish on the right.
+pub fn summary(lang: Lang) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::StepBack, "sback"), inline(lang, Button::Publish, "pub")]])
 }
 
 pub fn skip(lang: Lang) -> KeyboardButton {
@@ -58,13 +64,17 @@ pub fn confirm_point(lang: Lang, which: &str) -> InlineKeyboardMarkup {
     ]])
 }
 
-/// The suggested price and two higher ones.
-pub fn prices(suggested: Cup) -> InlineKeyboardMarkup {
-    let row = [suggested, suggested + 50, suggested + 100]
-        .into_iter()
-        .map(|p| InlineKeyboardButton::callback(format!("{p} CUP"), format!("price:{p}")))
-        .collect::<Vec<_>>();
-    InlineKeyboardMarkup::new(vec![row])
+/// Steps to adjust the offer, and the button to make it.
+pub fn price_adjust(lang: Lang, offer: Cup) -> InlineKeyboardMarkup {
+    let step = |delta: Cup| {
+        let label = if delta > 0 { format!("+{delta}") } else { format!("−{}", -delta) };
+        InlineKeyboardButton::callback(label, format!("padj:{delta}"))
+    };
+    InlineKeyboardMarkup::new(vec![
+        vec![step(-1000), step(-500), step(-100)],
+        vec![step(100), step(500), step(1000)],
+        vec![InlineKeyboardButton::callback(i18n::offer_button(lang, offer), "pok")],
+    ])
 }
 
 pub fn payment(lang: Lang) -> InlineKeyboardMarkup {
@@ -152,13 +162,47 @@ pub fn awaiting_client(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup 
 }
 
 /// The places found for a written address, and "none of these".
-pub fn candidates(lang: Lang, labels: &[&str]) -> InlineKeyboardMarkup {
-    let mut rows: Vec<_> = labels
+/// One button per place: its number, the reparto first and then the address
+/// ("1 · Miramar · Calle 12 entre …"). Telegram shows a single line and cuts
+/// the end, so the reparto stays visible; the message lists them in full.
+pub fn candidates(lang: Lang, shorts: &[&str]) -> InlineKeyboardMarkup {
+    let mut rows: Vec<Vec<_>> = shorts
         .iter()
         .enumerate()
-        .map(|(i, label)| vec![InlineKeyboardButton::callback(*label, format!("cand:{i}"))])
+        .map(|(i, short)| vec![InlineKeyboardButton::callback(format!("{} · {short}", i + 1), format!("cand:{i}"))])
         .collect();
     rows.push(vec![inline(lang, Button::NoneOfThese, "cand:none")]);
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// Repartos per page of the list (two per row).
+pub const REPARTOS_PER_PAGE: usize = 12;
+
+/// One page of repartos to choose from, two per row, with ◀ / ▶ when there
+/// are more pages. Buttons carry the index in the whole list.
+pub fn repartos(lang: Lang, names: &[&str], page: usize) -> InlineKeyboardMarkup {
+    let pages = names.len().div_ceil(REPARTOS_PER_PAGE).max(1);
+    let page = page.min(pages - 1);
+    let start = page * REPARTOS_PER_PAGE;
+    let buttons: Vec<_> = names
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(REPARTOS_PER_PAGE)
+        .map(|(i, n)| InlineKeyboardButton::callback(*n, format!("zone:{i}")))
+        .collect();
+    let mut rows: Vec<Vec<_>> = buttons.chunks(2).map(<[_]>::to_vec).collect();
+    if pages > 1 {
+        let mut nav = Vec::new();
+        if page > 0 {
+            nav.push(inline(lang, Button::PrevPage, format!("zpg:{}", page - 1)));
+        }
+        nav.push(InlineKeyboardButton::callback(format!("{}/{pages}", page + 1), format!("zpg:{page}")));
+        if page + 1 < pages {
+            nav.push(inline(lang, Button::NextPage, format!("zpg:{}", page + 1)));
+        }
+        rows.push(nav);
+    }
     InlineKeyboardMarkup::new(rows)
 }
 
@@ -279,4 +323,40 @@ pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {
 
 pub fn edit_profile(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::EditProfile, "dedit")]])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn callbacks(markup: &InlineKeyboardMarkup) -> Vec<String> {
+        markup
+            .inline_keyboard
+            .iter()
+            .flatten()
+            .filter_map(|b| match &b.kind {
+                teloxide::types::InlineKeyboardButtonKind::CallbackData(data) => Some(data.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn repartos_come_in_pages_of_twelve() {
+        let names: Vec<String> = (0..65).map(|i| format!("Reparto {i}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+
+        let first = callbacks(&repartos(Lang::Es, &names, 0));
+        assert_eq!(first.iter().filter(|c| c.starts_with("zone:")).count(), 12);
+        assert!(first.contains(&"zpg:1".to_owned()) && !first.iter().any(|c| c == "zpg:-1"));
+
+        // The last page has the remaining 5, and points back.
+        let last = callbacks(&repartos(Lang::Es, &names, 5));
+        assert_eq!(last.iter().filter(|c| c.starts_with("zone:")).count(), 5);
+        assert!(last.contains(&"zone:64".to_owned()) && last.contains(&"zpg:4".to_owned()));
+
+        // A small municipality: one page, no navigation.
+        let few = callbacks(&repartos(Lang::Es, &names[..6], 0));
+        assert_eq!(few.len(), 6);
+    }
 }

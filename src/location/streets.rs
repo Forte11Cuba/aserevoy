@@ -43,9 +43,16 @@ struct Corner {
 struct Place {
     name: String,
     norm: String,
+    /// "suburb" (a big reparto), "neighborhood" (a smaller one) or a landmark type.
     kind: String,
     point: Point,
     municipality: String,
+}
+
+impl Place {
+    fn is_reparto(&self) -> bool {
+        self.kind == "suburb" || self.kind == "neighborhood"
+    }
 }
 
 /// A point the text may refer to, with a description for Jev and the client.
@@ -54,6 +61,12 @@ pub struct Candidate {
     pub label: String,
     pub point: Point,
     pub municipality: String,
+    /// Deduced from the cross streets: the written street name is unknown
+    /// ("doble vía e/ 160c y 160d"), so the client must pick it.
+    pub inferred: bool,
+    /// The label with the reparto first ("Miramar · Calle 12 entre …"): a
+    /// button cut at the end still shows what tells the options apart.
+    pub short: String,
 }
 
 #[derive(Debug, Default)]
@@ -115,7 +128,15 @@ impl Streets {
         let mut found = match &address.kind {
             AddressKind::Between { street, a, b } => self.between(street, a, b),
             AddressKind::Corner { street, cross } => {
-                self.corners_of(street, cross).into_iter().map(|c| self.corner_candidate(c)).collect()
+                let corners: Vec<Candidate> =
+                    self.corners_of(street, cross).into_iter().map(|c| self.corner_candidate(c)).collect();
+                if corners.is_empty() {
+                    // No such corner: two parallel streets ("21 D y 21 C")
+                    // mean the block of a street crossing both.
+                    self.crossing_both(street, cross)
+                } else {
+                    corners
+                }
             }
             AddressKind::Place(name) => self.places_named(name),
         };
@@ -124,9 +145,32 @@ impl Streets {
         if let Some(area) = &area {
             found.retain(|c| area.contains(c));
         }
-        dedup_nearby(&mut found);
+        // Parallel streets deduced from cross streets are close but distinct.
+        if !found.iter().any(|c| c.inferred) {
+            dedup_nearby(&mut found);
+        }
         found.truncate(MAX_CANDIDATES);
+        for c in &mut found {
+            let area = self.nearest_reparto(c.point, &c.municipality).unwrap_or_else(|| c.municipality.clone());
+            c.short = format!("{area} · {}", c.label);
+        }
         found
+    }
+
+    /// The reparto people would name: the nearest big one (Vedado, Miramar,
+    /// Alamar) in the same municipality within 3.5 km, else the nearest small
+    /// one. OSM has a point per reparto, not its limits.
+    fn nearest_reparto(&self, p: Point, municipality: &str) -> Option<String> {
+        let nearest = |big: bool| {
+            self.places
+                .iter()
+                .filter(|r| r.is_reparto() && (r.kind == "suburb") == big && r.municipality == municipality)
+                .map(|r| (km_between(p, r.point), r))
+                .filter(|(km, _)| *km <= NEAR_REPARTO_KM)
+                .min_by(|x, y| x.0.total_cmp(&y.0))
+                .map(|(_, r)| r.name.clone())
+        };
+        nearest(true).or_else(|| nearest(false))
     }
 
     fn corners_of(&self, street: &str, cross: &str) -> Vec<&Corner> {
@@ -144,6 +188,8 @@ impl Streets {
             label: format!("Esquina de {} y {} en {}", c.a, c.b, c.municipality),
             point: c.point,
             municipality: c.municipality.clone(),
+            inferred: false,
+            short: String::new(),
         }
     }
 
@@ -161,12 +207,57 @@ impl Streets {
                         label: format!("{street_name} entre {cross_a} y {cross_b} en {}", x.municipality),
                         point: Point { lat: (x.point.lat + y.point.lat) / 2.0, lon: (x.point.lon + y.point.lon) / 2.0 },
                         municipality: x.municipality.clone(),
+                        inferred: false,
+                        short: String::new(),
                     });
                 }
             }
         }
+        if found.is_empty() && first.is_empty() && second.is_empty() {
+            // The street's name is unknown (a popular one, like "Doble Vía"):
+            // it must be one that crosses both cross streets on one block.
+            return self.crossing_both(a, b);
+        }
         if found.is_empty() {
             found = first.into_iter().chain(second).map(|c| self.corner_candidate(c)).collect();
+        }
+        found
+    }
+
+    /// The blocks of every street that crosses both `a` and `b` close together.
+    fn crossing_both(&self, a: &str, b: &str) -> Vec<Candidate> {
+        let side = |c: &Corner, name: &str| -> Option<(String, String)> {
+            if name_matches(&c.a_norm, name) {
+                Some((c.b.clone(), c.b_norm.clone()))
+            } else if name_matches(&c.b_norm, name) {
+                Some((c.a.clone(), c.a_norm.clone()))
+            } else {
+                None
+            }
+        };
+        let mut found: Vec<Candidate> = Vec::new();
+        let mut seen: Vec<(String, String)> = Vec::new();
+        for x in &self.corners {
+            let Some((street, street_norm)) = side(x, a) else { continue };
+            if name_matches(&street_norm, b) || seen.contains(&(street_norm.clone(), x.municipality.clone())) {
+                continue;
+            }
+            let other_end = self.corners.iter().find(|y| {
+                y.municipality == x.municipality
+                    && km_between(x.point, y.point) <= BLOCK_MAX_KM
+                    && side(y, b).is_some_and(|(_, norm)| norm == street_norm)
+            });
+            if let Some(y) = other_end {
+                let label = format!("{street} entre {} y {} en {}", other(x, &street_norm), other(y, &street_norm), x.municipality);
+                seen.push((street_norm, x.municipality.clone()));
+                found.push(Candidate {
+                    label,
+                    point: Point { lat: (x.point.lat + y.point.lat) / 2.0, lon: (x.point.lon + y.point.lon) / 2.0 },
+                    municipality: x.municipality.clone(),
+                    inferred: true,
+                    short: String::new(),
+                });
+            }
         }
         found
     }
@@ -176,7 +267,7 @@ impl Streets {
             return Vec::new();
         }
         let mut found: Vec<&Place> =
-            self.places.iter().filter(|p| p.kind != "neighborhood" && name_matches(&p.norm, name)).collect();
+            self.places.iter().filter(|p| !p.is_reparto() && name_matches(&p.norm, name)).collect();
         // Exact names first, then shorter ones (closer to what was written).
         found.sort_by_key(|p| (p.norm != name, p.norm.len()));
         found
@@ -185,8 +276,49 @@ impl Streets {
                 label: format!("{} ({}) en {}", p.name, kind_label(&p.kind), p.municipality),
                 point: p.point,
                 municipality: p.municipality.clone(),
+                inferred: false,
+                short: String::new(),
             })
             .collect()
+    }
+
+    /// The repartos of a municipality, by name (one point per name).
+    pub fn repartos_in(&self, municipality: &str) -> Vec<Reparto> {
+        let mut found: Vec<Reparto> = Vec::new();
+        for p in self.places.iter().filter(|p| p.is_reparto() && p.municipality == municipality) {
+            if !found.iter().any(|r| r.name == p.name) {
+                found.push(Reparto { name: p.name.clone(), point: p.point });
+            }
+        }
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        found
+    }
+
+    /// The repartos of `municipality` the client's words name, best first:
+    /// "alamar zona 6" names both "Alamar" and "Zona 6", and the longer name
+    /// is more precise, so only "Zona 6" is kept.
+    pub fn find_repartos(&self, municipality: &str, text: &str) -> Vec<Reparto> {
+        let repartos = self.repartos_in(municipality);
+        best_named(&repartos, &normalize(text), |r| normalize(&r.name))
+    }
+
+    /// A reparto named in a free description, anywhere in Havana, if exactly
+    /// one name stands out ("doble vía e/ 160c y 160d, Alamar").
+    pub fn reparto_in_text(&self, text: &str) -> Option<(Reparto, String)> {
+        let written = normalize(text);
+        let repartos: Vec<(Reparto, String)> = self
+            .places
+            .iter()
+            .filter(|p| p.is_reparto())
+            .map(|p| (Reparto { name: p.name.clone(), point: p.point }, p.municipality.clone()))
+            .collect();
+        let best = best_named(&repartos, &written, |(r, _)| normalize(&r.name));
+        let mut names: Vec<&str> = best.iter().map(|(r, _)| r.name.as_str()).collect();
+        names.dedup();
+        match (best.first(), names.len()) {
+            (Some(found), 1) => Some(found.clone()),
+            _ => None,
+        }
     }
 
     /// A municipality or reparto named in the text.
@@ -195,12 +327,38 @@ impl Streets {
             if let Some((_, m)) = self.municipalities.iter().find(|(norm, _)| norm == hint) {
                 return Some(Area::Municipality(m.clone()));
             }
-            if let Some(p) = self.places.iter().find(|p| p.kind == "neighborhood" && &p.norm == hint) {
+            if let Some(p) = self.places.iter().find(|p| p.is_reparto() && &p.norm == hint) {
                 return Some(Area::Near(p.point, p.municipality.clone()));
             }
         }
         None
     }
+}
+
+/// A neighborhood: where a free description is placed when there is no pin.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reparto {
+    pub name: String,
+    pub point: Point,
+}
+
+/// The items whose whole name appears among the written words, keeping only
+/// those with the most words (the most precise). Names without a word of
+/// three letters or more are ignored, so "6" alone never picks "Zona 6".
+fn best_named<T: Clone>(items: &[T], written: &str, name: impl Fn(&T) -> String) -> Vec<T> {
+    let words: Vec<&str> = written.split(' ').filter(|w| !w.is_empty()).collect();
+    let mut scored: Vec<(usize, T)> = items
+        .iter()
+        .filter_map(|item| {
+            let n = name(item);
+            let name_words: Vec<&str> = n.split(' ').filter(|w| !w.is_empty()).collect();
+            let meaningful = name_words.iter().any(|w| w.len() > 2 && w.chars().any(char::is_alphabetic));
+            (meaningful && name_words.iter().all(|w| words.contains(w))).then(|| (name_words.len(), item.clone()))
+        })
+        .collect();
+    let most = scored.iter().map(|(n, _)| *n).max().unwrap_or(0);
+    scored.retain(|(n, _)| *n == most);
+    scored.into_iter().map(|(_, item)| item).collect()
 }
 
 enum Area {
@@ -259,43 +417,105 @@ struct Address {
 /// Splits a written address into its parts, all normalized.
 fn parse(text: &str) -> Address {
     let lowered = text.to_lowercase();
-    let mut parts = lowered.split([',', ';', '\n']);
+    // The address is the first part with something useful once cleaned
+    // ("edif 12 apto 4, 23 e/ L y M"); the parts after it may be hints.
+    let mut parts = lowered.split([',', ';', '\n']).map(clean_words).skip_while(|p| p.trim().is_empty());
     let main = parts.next().unwrap_or_default();
-    let hints: Vec<String> = parts.map(normalize).filter(|h| !h.is_empty()).collect();
+    let hints: Vec<String> = parts.map(|p| normalize(&p)).filter(|h| !h.is_empty()).collect();
 
-    // Drop house numbers: "#123", "no. 123", "número 123".
-    let main = HOUSE_NUMBER.iter().fold(main.to_owned(), |acc, marker| match acc.find(marker) {
-        Some(at) => {
-            let rest = &acc[at + marker.len()..];
-            let end = rest.find(|ch: char| ch.is_alphabetic() && !ch.is_ascii_digit()).unwrap_or(rest.len());
-            format!("{} {}", &acc[..at], &rest[end..])
-        }
-        None => acc,
-    });
-    let main = format!(" {} ", main.replace('/', "/ ").replace('.', ". "));
+    // Streets, without a trailing landmark ("23 e/ L y M por la cafetería");
+    // if there are no streets, the whole text may name a place.
+    let kind = streets_in(&without_landmark(&main)).unwrap_or_else(|| AddressKind::Place(normalize(&main)));
+    Address { kind, hints }
+}
 
+/// "X entre A y B" or "X esquina A" in the (cleaned) text, if any.
+fn streets_in(text: &str) -> Option<AddressKind> {
+    let main = format!(" {} ", unglue_y(text));
     for marker in [" e/ ", " entre ", " e ", " e. "] {
         if let Some((street, rest)) = main.split_once(marker)
             && let Some((a, b)) = rest.split_once(" y ")
         {
-            return Address {
-                kind: AddressKind::Between { street: normalize(street), a: normalize(a), b: normalize(b) },
-                hints,
-            };
+            return Some(AddressKind::Between { street: normalize(street), a: normalize(a), b: normalize(b) });
         }
     }
     for marker in [" esquina a ", " esquina ", " esq. ", " esq ", " y "] {
         if let Some((street, cross)) = main.split_once(marker) {
             let (street, cross) = (normalize(street), normalize(cross));
             if !street.is_empty() && !cross.is_empty() {
-                return Address { kind: AddressKind::Corner { street, cross }, hints };
+                return Some(AddressKind::Corner { street, cross });
             }
         }
     }
-    Address { kind: AddressKind::Place(normalize(&main)), hints }
+    None
 }
 
-const HOUSE_NUMBER: [&str; 4] = ["#", "no. ", "número ", "numero "];
+/// Phrases that start a landmark ("por la cafetería el Riki", "frente al
+/// parque"): what follows describes the surroundings, not the streets.
+const LANDMARK_STARTS: [&str; 12] = [
+    " por la ", " por el ", " por los ", " por las ", " frente a", " cerca de", " cerca del", " al lado de",
+    " al lado del", " detras de", " detrás de", " junto a",
+];
+
+/// The address without a trailing landmark. A text that is only a landmark
+/// ("frente al Coppelia") is kept: then the landmark is the place.
+fn without_landmark(main: &str) -> String {
+    let padded = format!(" {main} ");
+    let cut = LANDMARK_STARTS.iter().filter_map(|m| padded.find(m)).filter(|&at| at > 0).min();
+    match cut {
+        Some(at) => padded[..at].trim().to_owned(),
+        None => main.to_owned(),
+    }
+}
+
+/// "3ra ay 3b": a street letter typed together with "y" ("ay" for "a y").
+/// Only single letters a to h, the ones Cuban streets use ("3ra A").
+fn unglue_y(text: &str) -> String {
+    text.split(' ')
+        .map(|w| match w.as_bytes() {
+            [l @ b'a'..=b'h', b'y'] => format!("{} y", *l as char),
+            _ => w.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Words that bring the next one with them and say nothing about where:
+/// house numbers, apartments, floors, buildings ("#1052", "apto 4", "piso 2").
+const DROP_WITH_NEXT: [&str; 20] = [
+    "#", "no", "no.", "nro", "nro.", "num", "num.", "número", "numero", "apto", "apto.", "apt", "apt.",
+    "apartamento", "piso", "edif", "edif.", "edificio", "local", "interior",
+];
+/// Words that say nothing about where, on their own.
+const DROP_ALONE: [&str; 2] = ["altos", "bajos"];
+
+/// Normalizes the separators and drops what does not locate the place:
+/// "%" and "e/" mean "entre", "&" means "y", "esq/" means "esquina", and
+/// house numbers, apartments and floors go.
+fn clean_words(text: &str) -> String {
+    let spaced = text
+        .replace('%', " entre ")
+        .replace('&', " y ")
+        .replace("esq/", " esq ")
+        .replace("e/", " e/ ")
+        .replace(['°', 'º'], " ")
+        .replace('.', ". ");
+    let mut words = spaced.split_whitespace().peekable();
+    let mut kept = Vec::new();
+    while let Some(word) = words.next() {
+        if DROP_WITH_NEXT.contains(&word) {
+            // The number (or "4b") that goes with it.
+            if words.peek().is_some_and(|next| next.chars().next().is_some_and(|c| c.is_ascii_digit())) {
+                words.next();
+            }
+        } else if word.starts_with('#') || DROP_ALONE.contains(&word) {
+            continue;
+        } else {
+            kept.push(word);
+        }
+    }
+    kept.join(" ")
+}
 
 /// Words that do not tell streets apart.
 const GENERIC: [&str; 18] = [
@@ -321,13 +541,27 @@ pub fn normalize(text: &str) -> String {
             _ => ' ',
         })
         .collect();
-    let words: Vec<String> = plain.split_whitespace().map(ordinal).collect();
+    let words = join_letter_suffixes(plain.split_whitespace().map(ordinal).collect());
     let meaningful: Vec<&String> = words.iter().filter(|w| !GENERIC.contains(&w.as_str())).collect();
     // "Paseo" or "La Rampa" alone are names: keep the words if all are generic.
     if meaningful.is_empty() {
         return words.join(" ");
     }
     meaningful.iter().map(|w| w.as_str()).collect::<Vec<_>>().join(" ")
+}
+
+/// A number followed by a single letter is one name, however it is written:
+/// "160 C" and "160C" → "160c"; "7ma C" → "7c".
+fn join_letter_suffixes(words: Vec<String>) -> Vec<String> {
+    let mut joined: Vec<String> = Vec::with_capacity(words.len());
+    for word in words {
+        let is_letter = word.len() == 1 && word.chars().all(|c| c.is_ascii_lowercase());
+        match joined.last_mut() {
+            Some(prev) if is_letter && prev.chars().all(|c| c.is_ascii_digit()) => prev.push_str(&word),
+            _ => joined.push(word),
+        }
+    }
+    joined
 }
 
 /// "5ta" → "5", "1ra" → "1", "quinta" → "5".
@@ -349,7 +583,10 @@ fn ordinal(word: &str) -> String {
     }
     let digits: String = word.chars().take_while(char::is_ascii_digit).collect();
     let suffix = &word[digits.len()..];
-    if !digits.is_empty() && ["ra", "da", "ta", "na", "ma", "va", "o", "a", "er"].contains(&suffix) {
+    // "3ra", "3era", "1ro", "1ero", "2do", "5ta", "9na"… (and "3a", "1o" for 3ª, 1º).
+    const SUFFIXES: [&str; 17] =
+        ["ra", "da", "ta", "na", "ma", "va", "o", "a", "er", "era", "ero", "ro", "do", "to", "no", "mo", "vo"];
+    if !digits.is_empty() && SUFFIXES.contains(&suffix) {
         return digits;
     }
     word.to_owned()
@@ -400,6 +637,13 @@ mod tests {
         assert_eq!(normalize("Paseo"), "paseo");
         assert_eq!(normalize("Calle L"), "l");
         assert_eq!(normalize("1ra"), "1");
+        assert_eq!(normalize("3era"), "3");
+        assert_eq!(normalize("1ero"), "1");
+        assert_eq!(normalize("2do"), "2");
+        assert_eq!(normalize("160 C"), "160c");
+        assert_eq!(normalize("160C"), "160c");
+        assert_eq!(normalize("7ma C"), "7c");
+        assert_eq!(normalize("Avenida Séptima"), "7");
     }
 
     #[test]
@@ -413,6 +657,21 @@ mod tests {
         assert_eq!(parse("Infanta esq. San Lázaro").kind, corner);
         assert_eq!(parse("infanta y san lazaro").kind, corner);
         assert_eq!(parse("frente al Coppelia").kind, AddressKind::Place("coppelia".into()));
+        // Cuban shorthands: "%" for "entre", "e/" glued, "&" for "y", "esq/".
+        assert_eq!(parse("23 % L y M").kind, between);
+        assert_eq!(parse("23e/L y M").kind, between);
+        assert_eq!(parse("Infanta esq/ San Lázaro").kind, corner);
+        assert_eq!(parse("infanta & san lazaro").kind, corner);
+        // House numbers, apartments and floors say nothing about where.
+        assert_eq!(parse("Calle 23 #1052 apto 4 e/ L y M").kind, between);
+        assert_eq!(parse("23 nro 1052 piso 2 altos e/ L y M").kind, between);
+        assert_eq!(parse("edif 12 apt 4b, 23 e/ L y M").kind, between);
+        // A landmark after the streets is not part of them.
+        assert_eq!(parse("23 e/ L y M por la cafeteria el riki").kind, between);
+        assert_eq!(parse("infanta y san lazaro frente al parque").kind, corner);
+        assert_eq!(parse("frente al Coppelia").kind, AddressKind::Place("coppelia".into()));
+        let glued = AddressKind::Between { street: "160e".into(), a: "3a".into(), b: "3b".into() };
+        assert_eq!(parse("160e entre 3era ay 3b").kind, glued);
     }
 
     #[test]
@@ -455,6 +714,51 @@ mod tests {
         assert!(found.iter().any(|c| c.label.contains("Hermanos Ameijeiras") && c.municipality == "Centro Habana"));
 
         assert!(s.candidates("la casa azul detrás del policlínico").is_empty());
+
+        // Found in a live test: 21 D and 21 C are parallel (no corner), and a
+        // landmark followed them. The streets crossing both are offered.
+        let found = s.candidates("21 d y 21 c por la cafeteria el riki");
+        assert!(!found.is_empty() && found.iter().all(|c| c.inferred), "{found:?}");
+        assert!(found.iter().any(|c| c.label.contains("Avenida Cuarta")), "{found:?}");
+
+        // Found in a live test: "Doble Vía" is not in OSM, but the streets
+        // crossing both 160C and 160D are, Avenida Séptima among them.
+        let found = s.candidates("doble via entre 160c y 160d");
+        assert!(found.iter().all(|c| c.inferred && c.municipality == "Habana del Este"), "{found:?}");
+        assert!(found.iter().any(|c| c.label.contains("Séptima")), "{found:?}");
+
+        // Buttons say the reparto first: the two "12 e/ 3ra y 5ta" of Miramar
+        // and the Vedado are told apart at a glance.
+        let found = s.candidates("12 entre 3era y 5ta");
+        let short = |m: &str| found.iter().find(|c| c.municipality == m).map(|c| c.short.clone()).unwrap_or_default();
+        assert!(short("Playa").starts_with("Miramar · Calle 12 entre"), "{found:?}");
+        assert!(short("Plaza de la Revolución").starts_with("Vedado · Calle 12 entre"), "{found:?}");
+
+        // Found in a live test: "3era" and "a y" typed as "ay".
+        let found = s.candidates("160e entre 3era ay 3b");
+        assert!(!found.is_empty(), "{found:?}");
+        assert!(found.iter().all(|c| c.municipality == "Habana del Este"));
+
+        // Found in a live test: Alamar's streets are written "160 C" or "160C".
+        let found = s.candidates("7ma entre 160c y 160d, Alamar");
+        assert!(!found.is_empty(), "{found:?}");
+        assert!(found.iter().all(|c| c.municipality == "Habana del Este"));
+    }
+
+    #[tokio::test]
+    async fn repartos_for_free_descriptions() {
+        let s = havana().await;
+        let names = |found: Vec<Reparto>| found.into_iter().map(|r| r.name).collect::<Vec<_>>();
+        // The more precise name wins: Alamar's zone 6, not all of Alamar.
+        assert_eq!(names(s.find_repartos("Habana del Este", "alamar zona 6")), ["Zona 6"]);
+        assert_eq!(names(s.find_repartos("Habana del Este", "en cojimar")), ["Cojímar"]);
+        assert!(s.find_repartos("Habana del Este", "vedado").is_empty());
+        // Small municipalities have few repartos (shown as buttons).
+        assert!(s.repartos_in("Centro Habana").len() <= 10);
+        // Named in the description itself.
+        let (reparto, municipality) = s.reparto_in_text("doble via e/ 160c y 160d, Alamar").unwrap();
+        assert_eq!((reparto.name.as_str(), municipality.as_str()), ("Alamar", "Habana del Este"));
+        assert!(s.reparto_in_text("la casa azul detrás del policlínico").is_none());
     }
 
     #[tokio::test]

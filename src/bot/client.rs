@@ -1,7 +1,8 @@
 //! A client requesting a ride: pickup → confirm → landmark → destination →
 //! confirm → route and price → payment → publish. Each point is a pin, a
 //! written address (rules over OSM streets, Jev when there are several
-//! candidates), or a free description placed in a chosen municipality.
+//! candidates), coordinates or a map link, or a free description placed in
+//! its reparto.
 //! Everyone has a @username, so no phone is asked for.
 
 use teloxide::prelude::*;
@@ -94,9 +95,18 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
     let skipped = text.and_then(parse_button) == Some(Button::Skip);
     // Free text that is not one of our buttons: maybe a written address.
     let written = text.filter(|t| parse_button(t).is_none());
+    if text.and_then(parse_button) == Some(Button::StepBack) {
+        return back(cx, ride).await;
+    }
 
     match ride {
-        Ride::Pickup | Ride::ChoosePickup { .. } | Ride::DescribePickup { .. } => {
+        Ride::RepartoPickup { text: description, municipality, .. } if point.is_none() && written.is_some() => {
+            reparto_typed(cx, None, description, municipality, written.unwrap_or_default()).await
+        }
+        Ride::RepartoDropoff { pickup, text: description, municipality, .. } if point.is_none() && written.is_some() => {
+            reparto_typed(cx, Some(pickup), description, municipality, written.unwrap_or_default()).await
+        }
+        Ride::Pickup | Ride::ChoosePickup { .. } | Ride::DescribePickup { .. } | Ride::RepartoPickup { .. } => {
             if let Some(pickup) = point {
                 cx.save(Ride::ConfirmPickup { pickup, label: None }).await?;
                 return cx.say(Text::ConfirmPickup, keyboards::confirm_point(cx.lang, "pick")).await;
@@ -106,7 +116,10 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
                 None => cx.say_plain(Text::NeedLocation).await,
             }
         }
-        Ride::Dropoff { pickup } | Ride::ChooseDropoff { pickup, .. } | Ride::DescribeDropoff { pickup, .. } => {
+        Ride::Dropoff { pickup }
+        | Ride::ChooseDropoff { pickup, .. }
+        | Ride::DescribeDropoff { pickup, .. }
+        | Ride::RepartoDropoff { pickup, .. } => {
             if let Some(dropoff) = point {
                 cx.save(Ride::ConfirmDropoff { pickup, dropoff, label: None }).await?;
                 return cx.say(Text::ConfirmDropoff, keyboards::confirm_point(cx.lang, "drop")).await;
@@ -126,7 +139,7 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
                 None => cx.say_plain(Text::InvalidField).await,
             }
         }
-        Ride::Price { trip } => match text.map(|t| t.parse::<Cup>()) {
+        Ride::Price { trip, .. } => match text.map(|t| t.parse::<Cup>()) {
             Some(Ok(price)) if price >= trip.minimum => ask_payment(cx, trip, price).await,
             Some(Ok(offered)) => {
                 let error = DomainError::PriceBelowMinimum { offered, minimum: trip.minimum };
@@ -141,25 +154,91 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
             cx.say(Text::ConfirmDropoff, keyboards::confirm_point(cx.lang, "drop")).await
         }
         Ride::Payment { .. } => cx.say(Text::AskPayment, keyboards::payment(cx.lang)).await,
+        Ride::Summary { trip, price, payment } => show_summary(cx, trip, price, payment).await,
     }
+}
+
+/// ↩️ Back: the previous step, keeping what was already chosen. From the
+/// first step it leaves the form.
+async fn back(cx: &Ctx<'_>, ride: Ride) -> anyhow::Result<()> {
+    match ride {
+        Ride::Pickup => {
+            db::dialogs::clear(&cx.app.pool, cx.user).await?;
+            let menu = cx.app.menu(cx.user, cx.lang).await?;
+            cx.say(Text::Cancelled, menu).await
+        }
+        Ride::ChoosePickup { .. }
+        | Ride::DescribePickup { .. }
+        | Ride::RepartoPickup { .. }
+        | Ride::ConfirmPickup { .. }
+        | Ride::Reference { .. } => ask_pickup(cx).await,
+        // A described pickup has no landmark step: back to the pickup itself.
+        Ride::Dropoff { pickup } if pickup.approx => ask_pickup(cx).await,
+        Ride::Dropoff { pickup } => {
+            cx.save(Ride::Reference { pickup: pickup.point }).await?;
+            cx.say(Text::AskReference, keyboards::step(cx.lang, &[keyboards::skip(cx.lang)])).await
+        }
+        Ride::ChooseDropoff { pickup, .. }
+        | Ride::DescribeDropoff { pickup, .. }
+        | Ride::RepartoDropoff { pickup, .. }
+        | Ride::ConfirmDropoff { pickup, .. } => ask_dropoff(cx, pickup).await,
+        Ride::Price { trip, .. } => ask_dropoff(cx, trip.pickup).await,
+        Ride::Payment { trip, price } => show_price(cx, trip, price).await,
+        Ride::Summary { trip, price, .. } => ask_payment(cx, trip, price).await,
+    }
+}
+
+/// The last look before publishing: both points, distance, price and payment.
+async fn show_summary(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -> anyhow::Result<()> {
+    let place = |spot: &Spot| {
+        let municipality = cx.app.zones.municipality(spot.point).unwrap_or("?");
+        match (&spot.note, spot.approx) {
+            (Some(note), true) => note.clone(),
+            _ => match cx.app.streets.nearest_corner(spot.point) {
+                Some(corner) => format!("{municipality} ({corner})"),
+                None => municipality.to_owned(),
+            },
+        }
+    };
+    let approx = trip.pickup.approx || trip.dropoff.approx;
+    let text = i18n::ride_summary(cx.lang, &place(&trip.pickup), &place(&trip.dropoff), trip.km, approx, price, payment);
+    cx.save(Ride::Summary { trip, price, payment }).await?;
+    cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::summary(cx.lang)).await?;
+    Ok(())
 }
 
 /// A written address: the rules find the candidates; with one, it is used;
 /// with several, Jev picks (≥ 0.7) or the client chooses among the likely
 /// ones; with none, the client may describe it and pick the municipality.
 async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> anyhow::Result<()> {
+    // Coordinates or a map link: a point, confirmed like any other.
+    match cx.app.map_links.point(text).await {
+        Ok(Some(point)) if cx.app.zones.municipality(point).is_none() => {
+            return cx.say_plain(Text::OutsideHavana).await;
+        }
+        Ok(Some(point)) => {
+            let label = i18n::text(cx.lang, Text::MapPoint).to_owned();
+            return show_found(cx, leg, pickup, Candidate { short: label.clone(), label, point }).await;
+        }
+        Ok(None) => {}
+        Err(e) => {
+            // Never log the link: it is a location.
+            tracing::warn!(error = %e, "map link failed");
+            return cx.say_plain(Text::MapLinkFailed).await;
+        }
+    }
     let Some(text) = driver::clean_field(text, ADDRESS_MAX) else {
         return cx.say_plain(Text::InvalidField).await;
     };
-    let found: Vec<Candidate> = cx
-        .app
-        .streets
-        .candidates(&text)
-        .into_iter()
-        .map(|c| Candidate { label: c.label, point: c.point })
-        .collect();
+    let candidates = cx.app.streets.candidates(&text);
+    let inferred_any = candidates.iter().any(|c| c.inferred);
+    let found: Vec<Candidate> =
+        candidates.into_iter().map(|c| Candidate { label: c.label, point: c.point, short: c.short }).collect();
     let decision = match found.len() {
         0 => Decision::Nothing,
+        // Deduced from the cross streets: the client knows which street it is
+        // and Jev has no name to go by.
+        n if inferred_any => Decision::Offer((0..n).collect()),
         1 => Decision::Use(0),
         _ => match &cx.app.jev {
             Some(jev) => {
@@ -180,14 +259,20 @@ async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> an
         Decision::Use(i) => show_found(cx, leg, pickup, found[i].clone()).await,
         Decision::Offer(indices) => {
             let options: Vec<Candidate> = indices.into_iter().map(|i| found[i].clone()).collect();
-            let markup = keyboards::candidates(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
+            let markup = keyboards::candidates(cx.lang, &options.iter().map(|c| c.short.as_str()).collect::<Vec<_>>());
+            let question = i18n::choose_address(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
             match pickup {
                 None => cx.save(Ride::ChoosePickup { text, options }).await?,
                 Some(pickup) => cx.save(Ride::ChooseDropoff { pickup, text, options }).await?,
             }
-            cx.say(Text::ChooseAddress, markup).await
+            cx.bot.send_message(chat(cx.user), question).reply_markup(markup).await?;
+            Ok(())
         }
-        Decision::Nothing => ask_description(cx, pickup, text).await,
+        Decision::Nothing => match cx.app.streets.reparto_in_text(&text) {
+            // The description names a reparto ("…, Alamar"): place it there.
+            Some((reparto, _)) => described_at(cx, pickup, text, Candidate { short: reparto.name.clone(), label: reparto.name, point: reparto.point }).await,
+            None => ask_description(cx, pickup, text).await,
+        },
     }
 }
 
@@ -269,32 +354,56 @@ pub async fn on_callback(
             }
             None => false,
         },
-        (Ride::DescribePickup { text }, "mun", _) => match described(cx, index, text) {
-            // A description is its own landmark: straight to the destination.
-            Some(pickup) => {
-                ask_dropoff(cx, pickup).await?;
-                true
+        (Ride::DescribePickup { text }, "mun", _) => ask_reparto(cx, None, text, index).await?,
+        (Ride::DescribeDropoff { pickup, text }, "mun", _) => ask_reparto(cx, Some(pickup), text, index).await?,
+        (Ride::RepartoPickup { ref options, .. } | Ride::RepartoDropoff { ref options, .. }, "zpg", _) => {
+            // Another page of repartos, in the same message.
+            if let (Some(page), Some(msg)) = (index, pressed) {
+                let labels: Vec<&str> = options.iter().map(|c| c.label.as_str()).collect();
+                let markup = keyboards::repartos(cx.lang, &labels, page);
+                let _ = cx.bot.edit_message_reply_markup(chat(cx.user), msg).reply_markup(markup).await;
             }
+            false
+        }
+        (Ride::RepartoPickup { text, options, .. }, "zone", _) => match index.and_then(|i| options.get(i)) {
+            Some(reparto) => described_at(cx, None, text, reparto.clone()).await.map(|_| true)?,
             None => false,
         },
-        (Ride::DescribeDropoff { pickup, text }, "mun", _) => match described(cx, index, text) {
-            Some(dropoff) => confirm_route(cx, pickup, dropoff).await?,
+        (Ride::RepartoDropoff { pickup, text, options, .. }, "zone", _) => match index.and_then(|i| options.get(i)) {
+            Some(reparto) => described_at(cx, Some(pickup), text, reparto.clone()).await.map(|_| true)?,
             None => false,
         },
-        (Ride::Price { trip }, "price", amount) => match amount.parse::<Cup>() {
-            Ok(price) if price >= trip.minimum => {
-                ask_payment(cx, trip, price).await?;
-                true
+        (Ride::Price { trip, offer }, "padj", delta) => {
+            // Never below the minimum; the message shows it.
+            if let Ok(delta) = delta.parse::<Cup>() {
+                let offer = (offer + delta).max(trip.minimum);
+                if let Some(msg) = pressed {
+                    let (text, markup) = (price_text(cx, &trip, offer), keyboards::price_adjust(cx.lang, offer));
+                    let _ = cx.bot.edit_message_text(chat(cx.user), msg, text).reply_markup(markup).await;
+                }
+                cx.save(Ride::Price { trip, offer }).await?;
             }
-            _ => false,
-        },
+            false
+        }
+        (Ride::Price { trip, offer }, "pok", _) => {
+            ask_payment(cx, trip, offer).await?;
+            true
+        }
         (Ride::Payment { trip, price }, "pay", method) => match PaymentMethod::parse(method) {
             Some(payment) => {
-                publish(cx, trip, price, payment).await?;
+                show_summary(cx, trip, price, payment).await?;
                 true
             }
             None => false,
         },
+        (Ride::Summary { trip, price, payment }, "pub", _) => {
+            publish(cx, trip, price, payment).await?;
+            true
+        }
+        (Ride::Summary { trip, price, .. }, "sback", _) => {
+            ask_payment(cx, trip, price).await?;
+            true
+        }
         // A button from an earlier step: ignore it.
         _ => false,
     };
@@ -304,11 +413,72 @@ pub async fn on_callback(
     Ok(())
 }
 
-/// The description placed at the chosen municipality's centre.
-fn described(cx: &Ctx<'_>, municipality: Option<usize>, text: String) -> Option<Spot> {
+/// After the municipality: its repartos as buttons, by pages, or typed.
+/// A municipality is too big to be a point (Habana del Este spans 30 km).
+async fn ask_reparto(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, index: Option<usize>) -> anyhow::Result<bool> {
     let names = cx.app.zones.names();
-    let point = cx.app.zones.centre(names.get(municipality?)?)?;
-    Some(Spot { point, approx: true, note: Some(text) })
+    let Some(municipality) = index.and_then(|i| names.get(i)).map(|m| (*m).to_owned()) else {
+        return Ok(false);
+    };
+    let options: Vec<Candidate> = cx
+        .app
+        .streets
+        .repartos_in(&municipality)
+        .into_iter()
+        .map(|r| Candidate { short: r.name.clone(), label: r.name, point: r.point })
+        .collect();
+    let markup = keyboards::repartos(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), 0);
+    let question = Text::AskReparto;
+    match pickup {
+        None => cx.save(Ride::RepartoPickup { text, municipality, options }).await?,
+        Some(pickup) => cx.save(Ride::RepartoDropoff { pickup, text, municipality, options }).await?,
+    }
+    cx.say(question, markup).await?;
+    Ok(true)
+}
+
+/// The client typed the reparto: one match is used, several become buttons.
+async fn reparto_typed(
+    cx: &Ctx<'_>,
+    pickup: Option<Spot>,
+    text: String,
+    municipality: String,
+    typed: &str,
+) -> anyhow::Result<()> {
+    let found: Vec<Candidate> = cx
+        .app
+        .streets
+        .find_repartos(&municipality, typed)
+        .into_iter()
+        .take(8)
+        .map(|r| Candidate { short: r.name.clone(), label: r.name, point: r.point })
+        .collect();
+    match found.len() {
+        0 => {
+            let message = i18n::reparto_not_found(cx.lang, &municipality);
+            cx.bot.send_message(chat(cx.user), message).await?;
+            Ok(())
+        }
+        1 => described_at(cx, pickup, text, found[0].clone()).await,
+        _ => {
+            let markup = keyboards::repartos(cx.lang, &found.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), 0);
+            match pickup {
+                None => cx.save(Ride::RepartoPickup { text, municipality, options: found }).await?,
+                Some(pickup) => cx.save(Ride::RepartoDropoff { pickup, text, municipality, options: found }).await?,
+            }
+            cx.say(Text::ChooseReparto, markup).await
+        }
+    }
+}
+
+/// The description placed at the reparto's point: the next step for a pickup
+/// (a description is its own landmark), or the route for a destination.
+async fn described_at(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, reparto: Candidate) -> anyhow::Result<()> {
+    let spot = Spot { point: reparto.point, approx: true, note: Some(format!("{text} ({})", reparto.label)) };
+    match pickup {
+        None => ask_dropoff(cx, spot).await,
+        Some(pickup) => confirm_route(cx, pickup, spot).await.map(|_| ()),
+    }
 }
 
 /// Returns false (and keeps the step) if the route could not be computed.
@@ -321,21 +491,28 @@ async fn confirm_route(cx: &Ctx<'_>, pickup: Spot, dropoff: Spot) -> anyhow::Res
             return Ok(false);
         }
     };
-    // Without an exact point the route is a guess: the driver is paid for it.
-    let approx = pickup.approx || dropoff.approx;
-    let (km, minutes) = if approx {
-        (fare::approximate_km(route.km), fare::approximate_km(route.minutes))
-    } else {
-        (route.km, route.minutes)
-    };
+    // From a reparto's point the route is an estimate, used as is: the
+    // auction (the client's buttons, counteroffers) corrects the price.
+    let (km, minutes) = (route.km, route.minutes);
     let fares = db::fares::load(&cx.app.pool).await?;
     let suggested = fare::suggested_price(km, &fares);
     let minimum = fare::minimum_price(suggested, &fares);
-    let trip = Trip { pickup, dropoff, km, suggested, minimum };
-    cx.save(Ride::Price { trip }).await?;
-    let prompt = i18n::price_prompt(cx.lang, km, minutes, suggested, minimum, approx);
-    cx.bot.send_message(chat(cx.user), prompt).reply_markup(keyboards::prices(suggested)).await?;
+    let trip = Trip { pickup, dropoff, km, minutes, suggested, minimum };
+    show_price(cx, trip, suggested).await?;
     Ok(true)
+}
+
+/// The offer step, with `offer` as the current amount.
+async fn show_price(cx: &Ctx<'_>, trip: Trip, offer: Cup) -> anyhow::Result<()> {
+    let text = price_text(cx, &trip, offer);
+    cx.save(Ride::Price { trip, offer }).await?;
+    cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::price_adjust(cx.lang, offer)).await?;
+    Ok(())
+}
+
+fn price_text(cx: &Ctx<'_>, trip: &Trip, offer: Cup) -> String {
+    let approx = trip.pickup.approx || trip.dropoff.approx;
+    i18n::price_prompt(cx.lang, trip.km, trip.minutes, trip.suggested, trip.minimum, offer, approx)
 }
 
 /// 🔁 Publish again: the same trip and price as the request that closed.
@@ -349,6 +526,7 @@ pub async fn republish(cx: &Ctx<'_>, again: Republish) -> anyhow::Result<()> {
         pickup: again.pickup,
         dropoff: again.dropoff,
         km: again.km,
+        minutes: 0.0,
         suggested,
         minimum: fare::minimum_price(suggested, &fares),
     };
