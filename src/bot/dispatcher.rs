@@ -83,10 +83,26 @@ async fn menu(cx: &Ctx<'_>, t: Text) -> HandlerResult {
     Ok(())
 }
 
+/// Always answers the press, even on error, so the button stops spinning.
 async fn on_callback(bot: Bot, app: AppRef, q: CallbackQuery) -> HandlerResult {
+    let result = handle_callback(&bot, &app, &q).await;
+    let answer = bot.answer_callback_query(q.id.clone());
+    match &result {
+        Ok(Some(text)) => answer.text(text).show_alert(true).await?,
+        Ok(None) => answer.await?,
+        Err(_) => {
+            let lang = app.lang_for(&q.from).await.unwrap_or_default();
+            answer.text(i18n::text(lang, Text::SomethingFailed)).show_alert(true).await?
+        }
+    };
+    result.map(|_| ())
+}
+
+/// Returns the alert to show, if any.
+async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::Result<Option<String>> {
     let cx = Ctx {
-        bot: &bot,
-        app: &app,
+        bot,
+        app,
         user: user_id(&q.from),
         lang: app.lang_for(&q.from).await?,
         has_username: q.from.username.is_some(),
@@ -97,15 +113,15 @@ async fn on_callback(bot: Bot, app: AppRef, q: CallbackQuery) -> HandlerResult {
 
     let alert = match kind {
         "acc" => match RequestId::parse(arg) {
-            Some(id) => Some(trip::accept(&bot, &app, cx.user, cx.lang, &id).await?),
+            Some(id) => Some(trip::accept(bot, app, cx.user, cx.lang, &id).await?),
             None => None,
         },
         "fin" | "can" => match RequestId::parse(arg) {
             Some(id) => {
                 let result = if kind == "fin" {
-                    trip::complete(&bot, &app, cx.user, cx.lang, &id).await?
+                    trip::complete(bot, app, cx.user, cx.lang, &id).await?
                 } else {
-                    trip::cancel(&bot, &app, cx.user, cx.lang, &id).await?
+                    trip::cancel(bot, app, cx.user, cx.lang, &id).await?
                 };
                 if result.is_none()
                     && let Some(msg) = pressed
@@ -135,13 +151,7 @@ async fn on_callback(bot: Bot, app: AppRef, q: CallbackQuery) -> HandlerResult {
         }
         _ => None,
     };
-
-    let answer = bot.answer_callback_query(q.id.clone());
-    match alert {
-        Some(text) => answer.text(text).show_alert(true).await?,
-        None => answer.await?,
-    };
-    Ok(())
+    Ok(alert)
 }
 
 /// Only active drivers get into the offers channel.
