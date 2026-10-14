@@ -324,21 +324,13 @@ struct Address {
 /// Splits a written address into its parts, all normalized.
 fn parse(text: &str) -> Address {
     let lowered = text.to_lowercase();
-    let mut parts = lowered.split([',', ';', '\n']);
+    // The address is the first part with something useful once cleaned
+    // ("edif 12 apto 4, 23 e/ L y M"); the parts after it may be hints.
+    let mut parts = lowered.split([',', ';', '\n']).map(clean_words).skip_while(|p| p.trim().is_empty());
     let main = parts.next().unwrap_or_default();
-    let hints: Vec<String> = parts.map(normalize).filter(|h| !h.is_empty()).collect();
+    let hints: Vec<String> = parts.map(|p| normalize(&p)).filter(|h| !h.is_empty()).collect();
 
-    // Drop house numbers: "#123", "no. 123", "número 123".
-    let main = HOUSE_NUMBER.iter().fold(main.to_owned(), |acc, marker| match acc.find(marker) {
-        Some(at) => {
-            let rest = &acc[at + marker.len()..];
-            let end = rest.find(|ch: char| ch.is_alphabetic() && !ch.is_ascii_digit()).unwrap_or(rest.len());
-            format!("{} {}", &acc[..at], &rest[end..])
-        }
-        None => acc,
-    });
-    let main = format!(" {} ", main.replace('/', "/ ").replace('.', ". "));
-    let main = unglue_y(&main);
+    let main = format!(" {} ", unglue_y(&main));
 
     for marker in [" e/ ", " entre ", " e ", " e. "] {
         if let Some((street, rest)) = main.split_once(marker)
@@ -373,7 +365,42 @@ fn unglue_y(text: &str) -> String {
         .join(" ")
 }
 
-const HOUSE_NUMBER: [&str; 4] = ["#", "no. ", "número ", "numero "];
+/// Words that bring the next one with them and say nothing about where:
+/// house numbers, apartments, floors, buildings ("#1052", "apto 4", "piso 2").
+const DROP_WITH_NEXT: [&str; 20] = [
+    "#", "no", "no.", "nro", "nro.", "num", "num.", "número", "numero", "apto", "apto.", "apt", "apt.",
+    "apartamento", "piso", "edif", "edif.", "edificio", "local", "interior",
+];
+/// Words that say nothing about where, on their own.
+const DROP_ALONE: [&str; 2] = ["altos", "bajos"];
+
+/// Normalizes the separators and drops what does not locate the place:
+/// "%" and "e/" mean "entre", "&" means "y", "esq/" means "esquina", and
+/// house numbers, apartments and floors go.
+fn clean_words(text: &str) -> String {
+    let spaced = text
+        .replace('%', " entre ")
+        .replace('&', " y ")
+        .replace("esq/", " esq ")
+        .replace("e/", " e/ ")
+        .replace(['°', 'º'], " ")
+        .replace('.', ". ");
+    let mut words = spaced.split_whitespace().peekable();
+    let mut kept = Vec::new();
+    while let Some(word) = words.next() {
+        if DROP_WITH_NEXT.contains(&word) {
+            // The number (or "4b") that goes with it.
+            if words.peek().is_some_and(|next| next.chars().next().is_some_and(|c| c.is_ascii_digit())) {
+                words.next();
+            }
+        } else if word.starts_with('#') || DROP_ALONE.contains(&word) {
+            continue;
+        } else {
+            kept.push(word);
+        }
+    }
+    kept.join(" ")
+}
 
 /// Words that do not tell streets apart.
 const GENERIC: [&str; 18] = [
@@ -515,6 +542,15 @@ mod tests {
         assert_eq!(parse("Infanta esq. San Lázaro").kind, corner);
         assert_eq!(parse("infanta y san lazaro").kind, corner);
         assert_eq!(parse("frente al Coppelia").kind, AddressKind::Place("coppelia".into()));
+        // Cuban shorthands: "%" for "entre", "e/" glued, "&" for "y", "esq/".
+        assert_eq!(parse("23 % L y M").kind, between);
+        assert_eq!(parse("23e/L y M").kind, between);
+        assert_eq!(parse("Infanta esq/ San Lázaro").kind, corner);
+        assert_eq!(parse("infanta & san lazaro").kind, corner);
+        // House numbers, apartments and floors say nothing about where.
+        assert_eq!(parse("Calle 23 #1052 apto 4 e/ L y M").kind, between);
+        assert_eq!(parse("23 nro 1052 piso 2 altos e/ L y M").kind, between);
+        assert_eq!(parse("edif 12 apt 4b, 23 e/ L y M").kind, between);
         let glued = AddressKind::Between { street: "160e".into(), a: "3a".into(), b: "3b".into() };
         assert_eq!(parse("160e entre 3era ay 3b").kind, glued);
     }
