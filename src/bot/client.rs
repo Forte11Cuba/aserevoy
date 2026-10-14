@@ -1,7 +1,8 @@
 //! A client requesting a ride: pickup → confirm → landmark → destination →
 //! confirm → route and price → payment → publish. Each point is a pin, a
 //! written address (rules over OSM streets, Jev when there are several
-//! candidates), or a free description placed in a chosen municipality.
+//! candidates), coordinates or a map link, or a free description placed in
+//! its reparto.
 //! Everyone has a @username, so no phone is asked for.
 
 use teloxide::prelude::*;
@@ -210,6 +211,22 @@ async fn show_summary(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMeth
 /// with several, Jev picks (≥ 0.7) or the client chooses among the likely
 /// ones; with none, the client may describe it and pick the municipality.
 async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> anyhow::Result<()> {
+    // Coordinates or a map link: a point, confirmed like any other.
+    match cx.app.map_links.point(text).await {
+        Ok(Some(point)) if cx.app.zones.municipality(point).is_none() => {
+            return cx.say_plain(Text::OutsideHavana).await;
+        }
+        Ok(Some(point)) => {
+            let label = i18n::text(cx.lang, Text::MapPoint).to_owned();
+            return show_found(cx, leg, pickup, Candidate { label, point }).await;
+        }
+        Ok(None) => {}
+        Err(e) => {
+            // Never log the link: it is a location.
+            tracing::warn!(error = %e, "map link failed");
+            return cx.say_plain(Text::MapLinkFailed).await;
+        }
+    }
     let Some(text) = driver::clean_field(text, ADDRESS_MAX) else {
         return cx.say_plain(Text::InvalidField).await;
     };
