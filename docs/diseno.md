@@ -75,7 +75,13 @@ En los dos casos:
 
 - Al pulsarlo, la persona escribe su mensaje (texto o foto) y puede indicar el ID corto de un viaje. Esto sustituye a `/reportar`: quejas, accidentes, robos, cobros abusivos o problemas entre chofer y gestor.
 - Los admins reciben el mensaje y responden desde el bot; la respuesta le llega a la persona en su chat con el bot.
-- Mecanismo propuesto (por confirmar): un grupo privado de admins con **un tema por usuario**. Así todos los admins ven cada conversación y quién respondió, y el bot reenvía las respuestas. El historial de soporte queda en Telegram, no en la base de datos.
+- **Mecanismo:** un supergrupo privado de admins con temas (`SUPPORT_GROUP_ID`), administrado por el bot y sin enlace de invitación.
+  - **Un tema por usuario** como máximo, con un código de caso ("Caso K7P2 · Cliente"), nunca el nombre ni el teléfono. Si la persona vuelve a escribir con el caso abierto, va al mismo tema.
+  - **El admin responde escribiendo en el tema** y el bot lo envía a la persona como "💬 Soporte Asere Voy", sin revelar qué admin respondió. Los mensajes que empiezan por `//` son notas internas y no se envían. El bot marca con ✅ lo entregado y avisa en el tema si no pudo entregarlo.
+  - **Cerrar caso** borra el tema con todos sus mensajes y la relación usuario-tema de la base de datos. El barrido cierra igual los casos sin mensajes en 7 días.
+  - **Alertas automáticas** en un tema semanal ("Alertas · semana 42"); el bot borra el de hace dos semanas.
+  - **Membresía:** al nombrar a un admin, el bot le envía una invitación de un solo uso al grupo; al quitarlo, lo expulsa.
+  - El historial de soporte queda en Telegram solo mientras el caso está abierto, nunca en la base de datos.
 
 **Alertas automáticas** (bloqueos temporales, reputación baja, cancelaciones por inseguridad, solicitudes de alta): llegan a los admins por el mismo canal de soporte. Cada acción administrativa guarda quién la hizo (`añadido_por`, `confirmado_por`, `bloqueado_por`).
 
@@ -493,7 +499,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 - [x] ¿Conexión por @usuario y teléfono, o chat intermediado por el bot? → En el MVP, intercambio directo: el celular del chofer y el @usuario y/o teléfono opcional del cliente. El chat intermediado queda para más adelante.
 - [ ] ¿Cómo se cobra el servicio: comisión por viaje, suscripción de choferes o gratis al inicio?
 - [x] ¿Se permiten varias solicitudes abiertas para quien pide viajes para otros? → Sí, con el rol de gestor (ver [Gestores](#gestores)).
-- [ ] ¿El soporte funciona con un grupo privado de admins con un tema por usuario, o con mensajes privados a cada admin?
+- [x] ¿El soporte funciona con un grupo privado de admins con un tema por usuario, o con mensajes privados a cada admin? → Grupo privado con un tema por caso, que se borra al cerrarlo (decisión 58).
 - [ ] (v2) Gestores: ¿el chofer debe ver en el canal el precio para el cliente y la comisión, o solo su propio precio?
 - [x] ¿Qué puede hacer exactamente un admin frente a un superadmin? → El admin gestiona choferes, bloqueos y reportes; el superadmin, además, gestiona admins y tarifas.
 - [x] ¿Se añade `/emergencia` con los números de Cuba? → No por ahora.
@@ -534,7 +540,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 20 | Jev (TypeSafe) opcional para interpretar direcciones, activado con un interruptor; sustituye a Ollama | 2026-10-14 |
 | 21 | Rust (`teloxide`, `tokio`, `sqlx`); el script de OSM puede quedarse en Python | 2026-10-13 |
 | 22 | Superadmins solo en `.env`; nombran y quitan admins y pueden quitar choferes en cualquier momento; cada acción guarda quién la hizo | 2026-10-14 |
-| 23 | Botón 💬 Soporte para todos los usuarios; los admins responden desde el bot (mecanismo por confirmar) | 2026-10-14 |
+| 23 | Botón 💬 Soporte para todos los usuarios; los admins responden desde el bot. *Mecanismo fijado en la decisión 58* | 2026-10-14 |
 | 24 | Reputación de nivel A (solo agregados), calificación ciega en ambas direcciones, sin historial de viajes | 2026-10-13 |
 | 25 | Alta de choferes por selector de contactos o por enlace de invitación de un solo uso | 2026-10-13 |
 | 26 | Canal de ofertas con ✅ Aceptar (callback) y 💬 Contraofertar (enlace al bot) | 2026-10-13 |
@@ -569,3 +575,5 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 55 | Descripción libre como último recurso: municipio elegido con botones, contacto obligatorio, marcada en el canal; el texto solo llega al chofer al confirmar (fase 4) | 2026-10-14 |
 | 56 | Sin coordenadas exactas, la distancia se estima desde el centro del municipio con OSRM y se multiplica por 1,5; el canal la muestra como aproximada (fase 4) | 2026-10-14 |
 | 57 | El canal muestra, junto al municipio, la esquina más cercana de origen y destino; nunca enlaces de ubicación ni la dirección completa (fase 4) | 2026-10-14 |
+| 58 | Soporte en un supergrupo privado de admins con un tema por caso: respuestas anónimas como "Soporte", notas internas con `//`, Cerrar caso borra el tema, cierre automático a los 7 días sin mensajes, alertas en un tema semanal, el bot invita y expulsa a los admins | 2026-10-14 |
+| 59 | Los admins actúan con botones en los mensajes de soporte, las alertas y las fichas (Bloquear 24 h, Bloquear, Desbloquear, Quitar chofer), sin escribir IDs de Telegram | 2026-10-14 |
