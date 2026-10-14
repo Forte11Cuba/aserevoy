@@ -21,8 +21,10 @@ const URL: &str = "https://api.typesafe.ai/v1/systemone";
 pub const MIN_CONFIDENCE: f64 = 0.7;
 /// Below that, options with at least this probability are offered as buttons.
 pub const MIN_PROBABILITY: f64 = 0.3;
-/// At most this many buttons.
+/// At most this many buttons for the likely options.
 pub const MAX_OFFERED: usize = 4;
+/// When none is likely, all candidates are offered, up to this many.
+pub const MAX_ALL: usize = 8;
 const NONE: &str = "none";
 
 #[derive(Clone)]
@@ -65,16 +67,24 @@ pub enum Decision {
     Nothing,
 }
 
-/// ≥ 0.7 confidence: Jev's choice (or "nothing" if it chose "none");
-/// otherwise the options with probability ≥ 0.3, at most 4, best first.
+/// ≥ 0.7 confidence: Jev's choice (or "nothing" if it chose "none").
+/// Otherwise the options with probability ≥ 0.3, at most 4, best first; if
+/// none is that likely, all of them (up to 8), best first: the rules found
+/// real places and the text just doesn't say which ("12 entre 3ra y 5ta"
+/// exists in six municipalities), so the client picks.
 pub fn decide(v: &Verdict) -> Decision {
     if v.confidence >= MIN_CONFIDENCE {
         return v.choice.map_or(Decision::Nothing, Decision::Use);
     }
-    let mut likely: Vec<usize> = (0..v.probabilities.len()).filter(|&i| v.probabilities[i] >= MIN_PROBABILITY).collect();
-    likely.sort_by(|&a, &b| v.probabilities[b].total_cmp(&v.probabilities[a]));
-    likely.truncate(MAX_OFFERED);
-    if likely.is_empty() { Decision::Nothing } else { Decision::Offer(likely) }
+    let mut by_probability: Vec<usize> = (0..v.probabilities.len()).collect();
+    by_probability.sort_by(|&a, &b| v.probabilities[b].total_cmp(&v.probabilities[a]));
+    let likely: Vec<usize> =
+        by_probability.iter().copied().filter(|&i| v.probabilities[i] >= MIN_PROBABILITY).take(MAX_OFFERED).collect();
+    if !likely.is_empty() {
+        return Decision::Offer(likely);
+    }
+    by_probability.truncate(MAX_ALL);
+    if by_probability.is_empty() { Decision::Nothing } else { Decision::Offer(by_probability) }
 }
 
 impl Jev {
@@ -152,8 +162,12 @@ mod tests {
         assert_eq!(decide(&v), Decision::Offer(vec![0, 1]));
         let v = verdict(Some(2), 0.5, &[0.3, 0.05, 0.6]);
         assert_eq!(decide(&v), Decision::Offer(vec![2, 0]));
-        // Spread thin: nothing is likely enough.
-        assert_eq!(decide(&verdict(Some(0), 0.1, &[0.2, 0.2, 0.2, 0.2])), Decision::Nothing);
+        // Spread thin: all of them, best first (found in the live test with
+        // "12 entre 3era y 5ta": six real places, Jev unsure, "none" at 0.5).
+        let v = verdict(None, 0.44, &[0.08, 0.17, 0.02, 0.02, 0.15, 0.04]);
+        assert_eq!(decide(&v), Decision::Offer(vec![1, 4, 0, 5, 2, 3]));
+        // But a confident "none" is nothing.
+        assert_eq!(decide(&verdict(None, 0.9, &[0.02, 0.03])), Decision::Nothing);
     }
 
     /// Calls the real API: `TYPESAFE_API_KEY=… cargo test jev -- --ignored`.
