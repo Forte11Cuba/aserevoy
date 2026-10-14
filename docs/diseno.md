@@ -73,15 +73,14 @@ En los dos casos:
 
 **Soporte.** Todos los usuarios tienen un botón **💬 Soporte** en el menú.
 
-- Al pulsarlo, la persona escribe su mensaje (texto o foto) y puede indicar el ID corto de un viaje. Esto sustituye a `/reportar`: quejas, accidentes, robos, cobros abusivos o problemas entre chofer y gestor.
-- Los admins reciben el mensaje y responden desde el bot; la respuesta le llega a la persona en su chat con el bot.
+- Sirve para quejas, accidentes, robos, cobros abusivos o problemas entre chofer y gestor, y sustituye a `/reportar`. La persona puede indicar el ID corto de un viaje.
 - **Mecanismo:** una cuenta de Telegram atendida por personas (`SUPPORT_USERNAME`). El botón 💬 Soporte abre el chat con ella y muestra un **código de soporte** de 4 caracteres (renovado cada 30 días), que la persona incluye en su mensaje.
   - Con el código, un admin escribe `/caso K7P2` en el bot y ve el rol, la reputación y los bloqueos de esa persona, con los botones Bloquear 24 h, Bloquear, Desbloquear y Quitar chofer. Nadie necesita su ID de Telegram.
   - La cuenta de soporte tiene activado el **borrado automático** de mensajes para los chats nuevos (por ejemplo, a 1 semana), y la usa una sola persona en el piloto; si cambia, se cierran sus sesiones.
   - Al escribir a soporte, la cuenta ve el perfil de Telegram de la persona; los términos lo dicen.
   - Las **alertas automáticas** llegan a cada superadmin y admin en su chat con el bot, en su idioma y con sus botones.
 
-**Alertas automáticas** (bloqueos temporales, reputación baja, cancelaciones por inseguridad, solicitudes de alta): llegan a los admins por el mismo canal de soporte. Cada acción administrativa guarda quién la hizo (`añadido_por`, `confirmado_por`, `bloqueado_por`).
+**Alertas automáticas** (bloqueos temporales, reputación baja, cancelaciones por inseguridad, solicitudes de alta): llegan por privado a cada admin en su chat con el bot (decisión 60). Cada acción administrativa guarda quién la hizo (`añadido_por`, `confirmado_por`, `bloqueado_por`).
 
 **Una persona con varios roles.** Un chofer puede pedir viajes como cliente desde el mismo chat, pero el bot le impide aceptar su propia solicitud. Lo mismo vale para un chofer que también sea gestor.
 
@@ -385,7 +384,7 @@ aserevoy/
     main.rs               # arranca el bot y el barrido
     config.rs             # lectura del .env
     i18n.rs               # textos en español (por defecto) e inglés
-    bot/                  # teloxide: client.rs, driver.rs, admin.rs, support.rs, channel.rs, dispatcher.rs
+    bot/                  # teloxide: dispatcher.rs, effects.rs, client.rs, trip.rs, auction.rs, driver.rs, rating.rs, admin.rs, support.rs
     domain/               # sin teloxide: request.rs, effect.rs, fare.rs, ids.rs, reputation.rs
     location/             # parser.rs, jev.rs, geocoder.rs, routing.rs
     db/                   # mod.rs (conexión y migraciones), requests.rs, fares.rs, …
@@ -537,7 +536,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 20 | Jev (TypeSafe) opcional para interpretar direcciones, activado con un interruptor; sustituye a Ollama | 2026-10-14 |
 | 21 | Rust (`teloxide`, `tokio`, `sqlx`); el script de OSM puede quedarse en Python | 2026-10-13 |
 | 22 | Superadmins solo en `.env`; nombran y quitan admins y pueden quitar choferes en cualquier momento; cada acción guarda quién la hizo | 2026-10-14 |
-| 23 | Botón 💬 Soporte para todos los usuarios; los admins responden desde el bot. *Mecanismo fijado en la decisión 58* | 2026-10-14 |
+| 23 | Botón 💬 Soporte para todos los usuarios; los admins responden desde el bot. *Mecanismo fijado en la decisión 60* | 2026-10-14 |
 | 24 | Reputación de nivel A (solo agregados), calificación ciega en ambas direcciones, sin historial de viajes | 2026-10-13 |
 | 25 | Alta de choferes por selector de contactos o por enlace de invitación de un solo uso | 2026-10-13 |
 | 26 | Canal de ofertas con ✅ Aceptar (callback) y 💬 Contraofertar (enlace al bot) | 2026-10-13 |

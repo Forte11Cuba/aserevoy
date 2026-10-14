@@ -33,7 +33,7 @@ pub enum Effect {
     Forget { request: RequestId },
 }
 
-/// Alerts to the admins (in the support group's alerts topic).
+/// Alerts to the admins (sent to each one's chat with the bot).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Alert {
     /// A driver cancelled because they felt unsafe.
