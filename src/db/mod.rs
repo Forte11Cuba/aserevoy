@@ -6,8 +6,11 @@ pub mod dialogs;
 pub mod drivers;
 pub mod fares;
 pub mod invitations;
+pub mod moderation;
+pub mod reputation;
 pub mod requests;
 pub mod settings;
+pub mod support;
 pub mod users;
 
 use std::str::FromStr;

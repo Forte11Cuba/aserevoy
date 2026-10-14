@@ -1,17 +1,24 @@
 //! Routes updates: private messages, button presses (in private chats and in
 //! the channel) and requests to join the offers channel.
+//!
+//! Before anything else, every private message and button press goes through
+//! three gates: the anti-flood (1 action per second), a Telegram @username
+//! (so both sides of a trip can reach each other), and the accepted terms.
 
 use teloxide::dispatching::UpdateHandler;
 use teloxide::prelude::*;
-use teloxide::types::{ChatJoinRequest, MessageId};
+use teloxide::types::{ChatJoinRequest, MessageId, User};
 
+use super::admin::{self, Action};
 use super::client::{self, Ctx};
 use super::dialog::Dialog;
-use super::{AppRef, auction, HandlerResult, chat, driver, trip, user_id};
+use super::{AppRef, HandlerResult, auction, chat, driver, keyboards, now, rating, support, trip, user_id};
 use crate::db;
 use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
-use crate::i18n::{self, Button, Text, parse_button};
+use crate::domain::reputation::Role;
+use crate::domain::request::CancelReason;
+use crate::i18n::{self, Button, TERMS_VERSION, Text, parse_button};
 
 pub async fn run(bot: Bot, app: AppRef) {
     Dispatcher::builder(bot, schema())
@@ -29,50 +36,57 @@ fn schema() -> UpdateHandler<anyhow::Error> {
         .branch(Update::filter_chat_join_request().endpoint(on_join_request))
 }
 
+async fn ctx<'a>(bot: &'a Bot, app: &'a AppRef, from: &User) -> anyhow::Result<Ctx<'a>> {
+    Ok(Ctx { bot, app, user: user_id(from), lang: app.lang_for(from).await? })
+}
+
 async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
     let Some(from) = msg.from.as_ref() else {
         return Ok(());
     };
-    let cx = Ctx {
-        bot: &bot,
-        app: &app,
-        user: user_id(from),
-        lang: app.lang_for(from).await?,
-        has_username: from.username.is_some(),
-    };
+    let cx = ctx(&bot, &app, from).await?;
+    if app.too_fast(cx.user) {
+        return Ok(());
+    }
     let text = msg.text().map(str::trim);
-    let pressed = text.and_then(parse_button);
+    let start_payload = text.and_then(|t| t.strip_prefix("/start")).map(|rest| rest.trim().to_owned());
 
+    // Gates: a @username, then the terms. A /start link is kept to resume later.
+    if from.username.is_none() || !app.accepted_terms(cx.user).await? {
+        if let Some(payload) = &start_payload {
+            let payload = (!payload.is_empty()).then(|| payload.clone());
+            db::dialogs::set(&app.pool, cx.user, &Dialog::Terms { payload }, now()).await?;
+        }
+        return if from.username.is_none() { ask_username(&cx).await } else { show_terms(&cx).await };
+    }
+
+    let pressed = text.and_then(parse_button);
     if pressed == Some(Button::Cancel) {
         let had_dialog = db::dialogs::get::<Dialog>(&app.pool, cx.user).await?.is_some();
         db::dialogs::clear(&app.pool, cx.user).await?;
         let t = if had_dialog { Text::Cancelled } else { Text::Menu };
         return menu(&cx, t).await;
     }
-    if let Some(t) = text
-        && let Some(rest) = t.strip_prefix("/start")
-    {
+    if let Some(payload) = start_payload {
         db::dialogs::clear(&app.pool, cx.user).await?;
-        let payload = rest.trim();
-        if let Some(code) = payload.strip_prefix("inv_") {
-            return driver::start_from_invite(&cx, code).await;
-        }
-        if let Some(id) = payload.strip_prefix("co_") {
-            return auction::start_counteroffer(&cx, id).await;
-        }
-        return menu(&cx, Text::Welcome).await;
+        return resume_start(&cx, Some(payload)).await;
+    }
+    if let Some(code) = text.and_then(|t| t.strip_prefix("/caso")) {
+        return support::lookup(&cx, code).await;
     }
     match db::dialogs::get::<Dialog>(&app.pool, cx.user).await? {
         Some(Dialog::Ride(ride)) => return client::on_message(&cx, ride, &msg).await,
         Some(Dialog::DriverForm(form)) => return driver::on_message(&cx, form, &msg).await,
-        // Only the "Publish again" button uses it; messages work as usual.
-        Some(Dialog::Republish(_)) | None => {}
+        // Only their buttons use them; messages work as usual.
+        Some(Dialog::Republish(_) | Dialog::Terms { .. }) | None => {}
     }
     match pressed {
         Some(Button::RequestRide) => client::start(&cx).await,
         Some(Button::ApplyDriver) => driver::apply(&cx).await,
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
+        Some(Button::Support) => support::open(&cx).await,
+        Some(Button::Admins) => admin::show_admins(&cx).await,
         Some(Button::SwitchLang) => {
             let lang = cx.lang.other();
             db::users::set_lang(&app.pool, cx.user, lang).await?;
@@ -80,6 +94,32 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         }
         _ => menu(&cx, Text::Menu).await,
     }
+}
+
+/// What a `/start` link asked for: an invitation, a counteroffer, or just the menu.
+async fn resume_start(cx: &Ctx<'_>, payload: Option<String>) -> HandlerResult {
+    let payload = payload.unwrap_or_default();
+    if let Some(code) = payload.strip_prefix("inv_") {
+        return driver::start_from_invite(cx, code).await;
+    }
+    if let Some(code) = payload.strip_prefix("adm_") {
+        return admin::redeem_admin_invite(cx, code).await;
+    }
+    if let Some(id) = payload.strip_prefix("co_") {
+        return auction::start_counteroffer(cx, id).await;
+    }
+    menu(cx, Text::Welcome).await
+}
+
+async fn ask_username(cx: &Ctx<'_>) -> HandlerResult {
+    let markup = keyboards::username_set(cx.lang);
+    cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NeedUsername)).reply_markup(markup).await?;
+    Ok(())
+}
+
+async fn show_terms(cx: &Ctx<'_>) -> HandlerResult {
+    cx.bot.send_message(chat(cx.user), i18n::terms(cx.lang)).reply_markup(keyboards::accept_terms(cx.lang)).await?;
+    Ok(())
 }
 
 async fn menu(cx: &Ctx<'_>, t: Text) -> HandlerResult {
@@ -105,16 +145,41 @@ async fn on_callback(bot: Bot, app: AppRef, q: CallbackQuery) -> HandlerResult {
 
 /// Returns the alert to show, if any.
 async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::Result<Option<String>> {
-    let cx = Ctx {
-        bot,
-        app,
-        user: user_id(&q.from),
-        lang: app.lang_for(&q.from).await?,
-        has_username: q.from.username.is_some(),
-    };
+    let cx = ctx(bot, app, &q.from).await?;
+    if app.too_fast(cx.user) {
+        return Ok(None);
+    }
     let data = q.data.as_deref().unwrap_or_default();
     let (kind, arg) = data.split_once(':').unwrap_or((data, ""));
     let pressed: Option<MessageId> = q.message.as_ref().map(|m| m.id());
+    let spend = |msg: Option<MessageId>| async move {
+        if let Some(msg) = msg {
+            let _ = bot.edit_message_reply_markup(chat(cx.user), msg).await;
+        }
+    };
+
+    // Gates, as for messages; "I've set it" and "I accept" pass them.
+    if q.from.username.is_none() {
+        return Ok(Some(i18n::text(cx.lang, Text::StillNoUsername).into()));
+    }
+    let terms_ok = app.accepted_terms(cx.user).await?;
+    match kind {
+        "unm" => {
+            spend(pressed).await;
+            return if terms_ok { resume_after_gates(&cx).await } else { show_terms(&cx).await.map(|_| None) };
+        }
+        "terms" => {
+            spend(pressed).await;
+            if !terms_ok {
+                db::support::accept_terms(&app.pool, cx.user, TERMS_VERSION, now()).await?;
+                db::reputation::touch(&app.pool, cx.user, Role::Client, now()).await?;
+                bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::TermsAccepted)).await?;
+            }
+            return resume_after_gates(&cx).await;
+        }
+        _ if !terms_ok => return Ok(Some(i18n::text(cx.lang, Text::TermsFirst).into())),
+        _ => {}
+    }
 
     let id = arg.split(':').next().and_then(RequestId::parse);
     let alert = match (kind, id) {
@@ -123,11 +188,21 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             Some(amount) => Some(auction::counteroffer(&cx, &id, amount).await?),
             None => None,
         },
-        ("fin" | "can" | "cok" | "cno" | "wd" | "rai" | "kw", Some(id)) => {
+        ("can", Some(id)) => trip::cancel_pressed(bot, app, cx.user, cx.lang, &id, pressed).await?,
+        ("cb", Some(id)) => {
+            trip::cancel_back(bot, app, cx.user, cx.lang, &id, pressed).await?;
+            None
+        }
+        ("omw" | "arr", Some(id)) => trip::on_my_way_or_arrived(bot, app, cx.user, cx.lang, &id, kind == "arr").await?,
+        ("shr", Some(id)) => trip::share(bot, app, cx.user, cx.lang, &id).await?,
+        ("fin" | "cr" | "cok" | "cno" | "wd" | "rai" | "kw", Some(id)) => {
             let result = match kind {
                 "fin" => trip::complete(bot, app, cx.user, cx.lang, &id).await?,
                 "wd" => trip::withdraw(bot, app, cx.user, cx.lang, &id).await?,
-                "can" => trip::cancel(bot, app, cx.user, cx.lang, &id).await?,
+                "cr" => {
+                    let reason = arg.split_once(':').and_then(|(_, r)| CancelReason::parse(r));
+                    trip::cancel(bot, app, cx.user, cx.lang, &id, reason).await?
+                }
                 "cok" | "cno" => match number(arg) {
                     Some(driver) => {
                         let confirmed = kind == "cok";
@@ -142,10 +217,8 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
                 },
             };
             // Done: the buttons of the pressed message are spent.
-            if result.is_none()
-                && let Some(msg) = pressed
-            {
-                let _ = bot.edit_message_reply_markup(chat(cx.user), msg).await;
+            if result.is_none() {
+                spend(pressed).await;
             }
             result
         }
@@ -157,15 +230,41 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
         },
         ("rep", _) => {
             if let Some(Dialog::Republish(again)) = db::dialogs::get(&app.pool, cx.user).await? {
-                if let Some(msg) = pressed {
-                    let _ = bot.edit_message_reply_markup(chat(cx.user), msg).await;
-                }
+                spend(pressed).await;
                 client::republish(&cx, again).await?;
                 None
             } else {
                 Some(i18n::text(cx.lang, Text::NoActiveRequest).into())
             }
         }
+        ("rs", _) => {
+            let (code, stars) = arg.split_once(':').unwrap_or((arg, ""));
+            if let Ok(stars) = stars.parse() {
+                rating::stars(&cx, code, stars, pressed).await?;
+            }
+            None
+        }
+        ("rtg", _) => {
+            let (code, tag) = arg.split_once(':').unwrap_or((arg, ""));
+            rating::toggle(&cx, code, tag, pressed).await?;
+            None
+        }
+        ("rdn", _) => {
+            rating::done(&cx, arg, pressed).await?;
+            None
+        }
+        ("adm", _) => {
+            let (action, user) = arg.split_once(':').unwrap_or((arg, ""));
+            match (Action::parse(action), user.parse().map(UserId)) {
+                (Some(action), Ok(user)) => Some(admin::moderate(&cx, action, user).await?),
+                _ => None,
+            }
+        }
+        ("ina", _) => admin::invite_admin(&cx).await?,
+        ("rma", _) => match arg.parse().map(UserId) {
+            Ok(admin_id) => admin::remove_admin(&cx, admin_id).await?,
+            Err(_) => None,
+        },
         ("dok" | "dno", _) => driver::review(&cx, kind == "dok", arg, pressed).await?,
         ("dedit", _) => {
             driver::edit(&cx).await?;
@@ -186,6 +285,20 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
         _ => None,
     };
     Ok(alert)
+}
+
+/// Both gates passed: continue with the `/start` link that brought the user,
+/// if any, or show the menu.
+async fn resume_after_gates(cx: &Ctx<'_>) -> anyhow::Result<Option<String>> {
+    let payload = match db::dialogs::get::<Dialog>(&cx.app.pool, cx.user).await? {
+        Some(Dialog::Terms { payload }) => {
+            db::dialogs::clear(&cx.app.pool, cx.user).await?;
+            payload
+        }
+        _ => None,
+    };
+    resume_start(cx, payload).await?;
+    Ok(None)
 }
 
 /// The number after the request id in `<id>:<number>`.

@@ -98,16 +98,7 @@ pub async fn start_counteroffer(cx: &Ctx<'_>, id: &str) -> anyhow::Result<()> {
     if request.client == cx.user {
         return say(i18n::domain_error(cx.lang, &DomainError::OwnRequest)).await;
     }
-    let zones = &cx.app.zones;
-    let prompt = i18n::counteroffer_prompt(
-        cx.lang,
-        &request.id,
-        request.km,
-        request.price,
-        request.payment,
-        zones.municipality(request.pickup),
-        zones.municipality(request.dropoff),
-    );
+    let prompt = i18n::counteroffer_prompt(cx.lang, &effects::post_of(cx.app, &request).await?);
     cx.bot
         .send_message(chat(cx.user), prompt)
         .reply_markup(keyboards::counteroffer_amounts(&request.id, request.price))

@@ -3,6 +3,7 @@
 use sqlx::SqlitePool;
 
 use crate::domain::ids::UserId;
+use crate::domain::request::UnixTime;
 use crate::i18n::Lang;
 
 pub async fn admins(pool: &SqlitePool) -> sqlx::Result<Vec<UserId>> {
@@ -16,6 +17,22 @@ pub async fn is_admin(pool: &SqlitePool, user: UserId) -> sqlx::Result<bool> {
         .fetch_optional(pool)
         .await?;
     Ok(found.is_some())
+}
+
+/// Returns false if they already were an admin.
+pub async fn appoint_admin(pool: &SqlitePool, user: UserId, by: UserId, now: UnixTime) -> sqlx::Result<bool> {
+    let done = sqlx::query("INSERT OR IGNORE INTO admins (telegram_id, appointed_by, created_at) VALUES (?, ?, ?)")
+        .bind(user.0)
+        .bind(by.0)
+        .bind(now)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+pub async fn remove_admin(pool: &SqlitePool, user: UserId) -> sqlx::Result<bool> {
+    let done = sqlx::query("DELETE FROM admins WHERE telegram_id = ?").bind(user.0).execute(pool).await?;
+    Ok(done.rows_affected() == 1)
 }
 
 /// Only set when the user changed it; otherwise Telegram's language is used.
@@ -63,5 +80,9 @@ mod tests {
         assert!(is_admin(&pool, UserId(9)).await.unwrap());
         assert!(!is_admin(&pool, UserId(8)).await.unwrap());
         assert_eq!(admins(&pool).await.unwrap(), vec![UserId(9)]);
+        assert!(appoint_admin(&pool, UserId(8), UserId(1), 0).await.unwrap());
+        assert!(!appoint_admin(&pool, UserId(8), UserId(1), 0).await.unwrap());
+        assert!(remove_admin(&pool, UserId(8)).await.unwrap());
+        assert!(!is_admin(&pool, UserId(8)).await.unwrap());
     }
 }

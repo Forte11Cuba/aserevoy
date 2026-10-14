@@ -1,5 +1,6 @@
 //! A client requesting a ride: pickup pin → confirm → landmark → destination
-//! pin → confirm → route and price → payment → optional phone → publish.
+//! pin → confirm → route and price → payment → publish. Everyone has a
+//! @username, so no phone is asked for.
 
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardMarkup, MessageId};
@@ -10,8 +11,9 @@ use crate::db;
 use crate::db::requests::InsertOutcome;
 use crate::domain::fare::{self, Cup};
 use crate::domain::ids::{RequestId, UserId};
-use crate::domain::request::{DomainError, NewRequest, PaymentMethod, Point, Request};
-use crate::domain::{driver, phone};
+use crate::domain::reputation::Role;
+use crate::domain::request::{DomainError, NewRequest, PaymentMethod, Point, Request, State};
+use crate::domain::driver;
 use crate::i18n::{self, Button, Lang, Text, parse_button};
 
 /// Who is talking and in which language.
@@ -20,7 +22,6 @@ pub struct Ctx<'a> {
     pub app: &'a App,
     pub user: UserId,
     pub lang: Lang,
-    pub has_username: bool,
 }
 
 impl Ctx<'_> {
@@ -43,11 +44,17 @@ impl Ctx<'_> {
 const REFERENCE_MAX: usize = 100;
 
 pub async fn start(cx: &Ctx<'_>) -> anyhow::Result<()> {
+    if let Some(blocked) = cx.app.blocked_message(cx.user, Role::Client, cx.lang).await? {
+        cx.bot.send_message(chat(cx.user), blocked).await?;
+        return Ok(());
+    }
     if let Some(request) = db::requests::active_for(&cx.app.pool, cx.user).await? {
-        let markup: InlineKeyboardMarkup = if request.driver.is_some() {
-            keyboards::assigned_trip(cx.lang, &request.id)
-        } else {
-            keyboards::open_request(cx.lang, &request.id)
+        let id = &request.id;
+        let markup: InlineKeyboardMarkup = match request.state {
+            State::Assigned if request.client == cx.user => keyboards::client_trip(cx.lang, id),
+            State::Assigned => keyboards::driver_trip(cx.lang, id),
+            State::Confirming if request.client != cx.user => keyboards::awaiting_client(cx.lang, id),
+            _ => keyboards::open_request(cx.lang, id),
         };
         cx.bot
             .send_message(chat(cx.user), i18n::already_active(cx.lang, &request.id))
@@ -107,18 +114,6 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
             }
             _ => cx.say_plain(Text::AmountNotNumber).await,
         },
-        Ride::Phone { trip, price, payment } => {
-            let phone = if skipped {
-                None
-            } else {
-                let typed = msg.contact().map(|c| c.phone_number.as_str()).or(text);
-                match typed.and_then(phone::normalize) {
-                    Some(p) => Some(p),
-                    None => return cx.say_plain(Text::InvalidPhone).await,
-                }
-            };
-            publish(cx, trip, price, payment, phone).await
-        }
         // These steps wait for an inline button; repeat the question.
         Ride::ConfirmPickup { .. } => cx.say(Text::ConfirmPickup, keyboards::confirm_point(cx.lang, "pick")).await,
         Ride::ConfirmDropoff { .. } => {
@@ -163,7 +158,7 @@ pub async fn on_callback(
         },
         (Ride::Payment { trip, price }, "pay", method) => match PaymentMethod::parse(method) {
             Some(payment) => {
-                publish_or_ask_phone(cx, trip, price, payment).await?;
+                publish(cx, trip, price, payment).await?;
                 true
             }
             None => false,
@@ -202,17 +197,6 @@ async fn confirm_route(
     Ok(true)
 }
 
-/// Clients with a @username can be reached through it; the rest are offered
-/// to leave a phone first.
-async fn publish_or_ask_phone(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -> anyhow::Result<()> {
-    if cx.has_username {
-        return publish(cx, trip, price, payment, None).await;
-    }
-    cx.save(Ride::Phone { trip, price, payment }).await?;
-    let extra = [keyboards::share_phone(cx.lang), keyboards::skip(cx.lang)];
-    cx.say(Text::AskPhone, keyboards::step(cx.lang, &extra)).await
-}
-
 /// 🔁 Publish again: the same trip and price as the request that closed.
 pub async fn republish(cx: &Ctx<'_>, again: Republish) -> anyhow::Result<()> {
     if db::requests::active_for(&cx.app.pool, cx.user).await?.is_some() {
@@ -228,7 +212,7 @@ pub async fn republish(cx: &Ctx<'_>, again: Republish) -> anyhow::Result<()> {
         suggested,
         minimum: fare::minimum_price(suggested, &fares),
     };
-    publish_or_ask_phone(cx, trip, again.price, again.payment).await
+    publish(cx, trip, again.price, again.payment).await
 }
 
 async fn ask_payment(cx: &Ctx<'_>, trip: Trip, price: Cup) -> anyhow::Result<()> {
@@ -236,18 +220,20 @@ async fn ask_payment(cx: &Ctx<'_>, trip: Trip, price: Cup) -> anyhow::Result<()>
     cx.say(Text::AskPayment, keyboards::payment(cx.lang)).await
 }
 
-async fn publish(
-    cx: &Ctx<'_>,
-    trip: Trip,
-    price: Cup,
-    payment: PaymentMethod,
-    client_phone: Option<String>,
-) -> anyhow::Result<()> {
+/// Everyone has a @username, so the client is reachable through it and no
+/// phone is asked for or stored.
+async fn publish(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -> anyhow::Result<()> {
     let app = cx.app;
+    if let Some(blocked) = app.blocked_message(cx.user, Role::Client, cx.lang).await? {
+        db::dialogs::clear(&app.pool, cx.user).await?;
+        cx.bot.send_message(chat(cx.user), blocked).reply_markup(app.menu(cx.user, cx.lang).await?).await?;
+        return Ok(());
+    }
+    db::reputation::touch(&app.pool, cx.user, Role::Client, now()).await?;
     let fares = db::fares::load(&app.pool).await?;
     let new = NewRequest {
         client: cx.user,
-        client_phone,
+        client_phone: None,
         pickup: trip.pickup,
         dropoff: trip.dropoff,
         reference: trip.reference,

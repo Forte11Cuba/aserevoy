@@ -73,11 +73,14 @@ En los dos casos:
 
 **Soporte.** Todos los usuarios tienen un botón **💬 Soporte** en el menú.
 
-- Al pulsarlo, la persona escribe su mensaje (texto o foto) y puede indicar el ID corto de un viaje. Esto sustituye a `/reportar`: quejas, accidentes, robos, cobros abusivos o problemas entre chofer y gestor.
-- Los admins reciben el mensaje y responden desde el bot; la respuesta le llega a la persona en su chat con el bot.
-- Mecanismo propuesto (por confirmar): un grupo privado de admins con **un tema por usuario**. Así todos los admins ven cada conversación y quién respondió, y el bot reenvía las respuestas. El historial de soporte queda en Telegram, no en la base de datos.
+- Sirve para quejas, accidentes, robos, cobros abusivos o problemas entre chofer y gestor, y sustituye a `/reportar`. La persona puede indicar el ID corto de un viaje.
+- **Mecanismo:** una cuenta de Telegram atendida por personas (`SUPPORT_USERNAME`). El botón 💬 Soporte abre el chat con ella y muestra un **código de soporte** de 4 caracteres (renovado cada 30 días), que la persona incluye en su mensaje.
+  - Con el código, un admin escribe `/caso K7P2` en el bot y ve el rol, la reputación y los bloqueos de esa persona, con los botones Bloquear 24 h, Bloquear, Desbloquear y Quitar chofer. Nadie necesita su ID de Telegram.
+  - La cuenta de soporte tiene activado el **borrado automático** de mensajes para los chats nuevos (por ejemplo, a 1 semana), y la usa una sola persona en el piloto; si cambia, se cierran sus sesiones.
+  - Al escribir a soporte, la cuenta ve el perfil de Telegram de la persona; los términos lo dicen.
+  - Las **alertas automáticas** llegan a cada superadmin y admin en su chat con el bot, en su idioma y con sus botones.
 
-**Alertas automáticas** (bloqueos temporales, reputación baja, cancelaciones por inseguridad, solicitudes de alta): llegan a los admins por el mismo canal de soporte. Cada acción administrativa guarda quién la hizo (`añadido_por`, `confirmado_por`, `bloqueado_por`).
+**Alertas automáticas** (bloqueos temporales, reputación baja, cancelaciones por inseguridad, solicitudes de alta): llegan por privado a cada admin en su chat con el bot (decisión 60). Cada acción administrativa guarda quién la hizo (`añadido_por`, `confirmado_por`, `bloqueado_por`).
 
 **Una persona con varios roles.** Un chofer puede pedir viajes como cliente desde el mismo chat, pero el bot le impide aceptar su propia solicitud. Lo mismo vale para un chofer que también sea gestor.
 
@@ -163,8 +166,7 @@ flowchart TD
   A["Cliente: recogida 📍 + destino 📍<br/>(pin o dirección escrita)"] --> A2["Bot confirma pins y calcula ruta y precio sugerido"]
   A2 --> B["Oferta: botones desde el precio sugerido"]
   B --> C["Método de pago: Efectivo / Transferencia"]
-  C --> C2["Contacto (opcional): escribir o compartir un teléfono"]
-  C2 --> D["Bot publica en el canal:<br/>zona, distancia, precio, método,<br/>⭐, viajes y días en el bot del cliente"]
+  C --> D["Bot publica en el canal:<br/>zona, distancia, precio, método,<br/>⭐, viajes y días en el bot del cliente"]
   D --> E{"Abierta hasta 60 min"}
   E -->|"✅ Aceptar en el canal"| P["POR CONFIRMAR: el cliente ve la ficha del chofer"]
   P -->|"Confirma"| H["ASIGNADA"]
@@ -196,7 +198,7 @@ Reglas del flujo:
   - Aceptar una contraoferta no necesita este paso: el cliente ya eligió al chofer.
 - **Oferta inicial** con botones sugeridos, por ejemplo `[sugerido] [+50] [+100]`; no se permite bajar del precio mínimo.
 - **Método de pago:** Efectivo (por defecto) o Transferencia (Transfermóvil, EnZona). Se muestra en el canal para que solo acepte quien pueda cobrarlo. Los datos para transferir los da el chofer al cliente; no pasan por el bot.
-- **Contacto del cliente:** al pedir el viaje, si el cliente no tiene @usuario, el bot le ofrece (es opcional) escribir un número o compartir el suyo con el botón de Telegram (`request_contact`), para que el chofer pueda llamarlo. El número solo vive en la solicitud y se borra al cerrarla.
+- **@usuario obligatorio:** clientes y choferes necesitan un nombre de usuario de Telegram para usar el bot. Si no lo tienen, el bot explica cómo ponerlo (Ajustes → Nombre de usuario) y ofrece "Ya lo puse". Se comprueba en cada acción, porque se puede quitar. Así chofer y cliente siempre pueden escribirse o llamarse por Telegram, y **no se pide ni se guarda el teléfono del cliente**. El @usuario se consulta a Telegram al asignar el viaje; no se guarda.
 - **Contraoferta:** en el chat privado con el bot, con botones de monto (+50, +100, +150 CUP). Vence en 5 minutos. No hay límite de contraofertas: si el cliente rechaza una, el chofer puede hacer otra. La nueva contraoferta de un chofer reemplaza a la anterior en la lista.
 - **Lluvia de contraofertas:** cada contraoferta le llega al cliente como un mensaje propio, con la foto, la moto y (desde la fase 3) la reputación del chofer, y los botones Aceptar y Rechazar. El mensaje se borra solo cuando la contraoferta vence, se rechaza o se reemplaza por otra del mismo chofer, y todos se borran al asignar o cerrar la solicitud. Al aceptar, el bot comprueba que siga vigente y, si no, avisa.
 - **Si el cliente sube el precio** por encima de una contraoferta, esa contraoferta se retira y se avisa al chofer de que puede aceptar el nuevo precio en el canal.
@@ -267,7 +269,7 @@ Todo vive en un solo archivo SQLite. Lo temporal se borra al cerrar; lo permanen
 | `bloqueados` | Permanente | `telegram_id`, rol, motivo (texto corto), `hasta` (`NULL` = permanente), fecha, `bloqueado_por` |
 | `cancelaciones` | Vence a los 30 días | `telegram_id`, rol, fecha |
 | `tarifas` | Configuración | clave, valor |
-| `solicitudes` | Temporal, se borra al cerrar | ID corto, `cliente_id` (o `gestor_id` en v2), teléfono de contacto (opcional; en v2, obligatorio con el nombre del cliente final si es de gestor), recogida, destino, referencia, km, precio (para el chofer), `precio_cliente` (solo gestor, v2), método, estado, `chofer_id` (reservado o asignado), `msg_canal_id`, `asignada_en`, `pregunta_en` ("¿Sigues esperando?"), `confirmar_hasta`, `ya_voy_en`, `llego_en`, `vence_en` (60 min) |
+| `solicitudes` | Temporal, se borra al cerrar | ID corto, `cliente_id` (o `gestor_id` en v2), teléfono de contacto (vacío en el MVP; en v2, obligatorio con el nombre del cliente final si es de gestor), recogida, destino, referencia, km, precio (para el chofer), `precio_cliente` (solo gestor, v2), método, estado, `chofer_id` (reservado o asignado), `msg_canal_id`, `asignada_en`, `pregunta_en` ("¿Sigues esperando?"), `confirmar_hasta`, `ya_voy_en`, `llego_en`, `vence_en` (60 min) |
 | `contraofertas` | Temporal | `solicitud_id`, `chofer_id`, monto, `vence_en` |
 | `calificaciones_pendientes` | Temporal, 24 h | `cliente_id`, `chofer_id`, notas y etiquetas de cada lado, `vence_en` |
 | `pares_recientes` | Temporal, 7 días | HMAC del par cliente-chofer, `vence_en` |
@@ -300,7 +302,7 @@ WHERE id = ? AND estado = 'ABIERTA';
 - Las copias de seguridad van cifradas.
 - La foto no se almacena: Telegram entrega un `file_id` y con ese texto se reenvía cuando haga falta.
 - No se guardan tarjetas ni datos bancarios.
-- Los teléfonos de los clientes solo viven en la solicitud activa.
+- No se guardan teléfonos de clientes: el contacto es su @usuario, que se consulta a Telegram al asignar.
 - Al chofer se le informa qué datos se guardan y para qué.
 
 ## Arquitectura técnica
@@ -382,7 +384,7 @@ aserevoy/
     main.rs               # arranca el bot y el barrido
     config.rs             # lectura del .env
     i18n.rs               # textos en español (por defecto) e inglés
-    bot/                  # teloxide: client.rs, driver.rs, admin.rs, support.rs, channel.rs, dispatcher.rs
+    bot/                  # teloxide: dispatcher.rs, effects.rs, client.rs, trip.rs, auction.rs, driver.rs, rating.rs, admin.rs, support.rs
     domain/               # sin teloxide: request.rs, effect.rs, fare.rs, ids.rs, reputation.rs
     location/             # parser.rs, jev.rs, geocoder.rs, routing.rs
     db/                   # mod.rs (conexión y migraciones), requests.rs, fares.rs, …
@@ -405,7 +407,7 @@ Sin historial de viajes, el control descansa en pocas reglas simples, la reputac
 **Para proteger al chofer**
 
 - En el mensaje del canal, el chofer ve las **estrellas, los viajes completados y los días en el bot** del cliente, además de la zona, antes de aceptar. Así puede desconfiar de una cuenta recién creada que pide un viaje desde un lugar apartado.
-- **El teléfono del cliente es opcional:** se lo puede dar al chofer escribiéndolo o compartiéndolo con `request_contact`.
+- **Contacto por @usuario:** el chofer puede escribir o llamar al cliente por Telegram sin que el cliente dé su teléfono.
 - **El chofer puede cancelar sin penalización**, por ejemplo con el motivo "me sentí inseguro", que avisa a los admins.
 - **Evasión de bloqueos:** se acepta que un cliente bloqueado pueda volver con otra cuenta de Telegram. Mostrar los días en el bot y los viajes ayuda a que el chofer lo note.
 
@@ -493,7 +495,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 - [x] ¿Conexión por @usuario y teléfono, o chat intermediado por el bot? → En el MVP, intercambio directo: el celular del chofer y el @usuario y/o teléfono opcional del cliente. El chat intermediado queda para más adelante.
 - [ ] ¿Cómo se cobra el servicio: comisión por viaje, suscripción de choferes o gratis al inicio?
 - [x] ¿Se permiten varias solicitudes abiertas para quien pide viajes para otros? → Sí, con el rol de gestor (ver [Gestores](#gestores)).
-- [ ] ¿El soporte funciona con un grupo privado de admins con un tema por usuario, o con mensajes privados a cada admin?
+- [x] ¿El soporte funciona con un grupo privado de admins con un tema por usuario, o con mensajes privados a cada admin? → Ninguno de los dos: una cuenta de Telegram atendida por personas, con código de soporte (decisión 60).
 - [ ] (v2) Gestores: ¿el chofer debe ver en el canal el precio para el cliente y la comisión, o solo su propio precio?
 - [x] ¿Qué puede hacer exactamente un admin frente a un superadmin? → El admin gestiona choferes, bloqueos y reportes; el superadmin, además, gestiona admins y tarifas.
 - [x] ¿Se añade `/emergencia` con los números de Cuba? → No por ahora.
@@ -534,13 +536,13 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 20 | Jev (TypeSafe) opcional para interpretar direcciones, activado con un interruptor; sustituye a Ollama | 2026-10-14 |
 | 21 | Rust (`teloxide`, `tokio`, `sqlx`); el script de OSM puede quedarse en Python | 2026-10-13 |
 | 22 | Superadmins solo en `.env`; nombran y quitan admins y pueden quitar choferes en cualquier momento; cada acción guarda quién la hizo | 2026-10-14 |
-| 23 | Botón 💬 Soporte para todos los usuarios; los admins responden desde el bot (mecanismo por confirmar) | 2026-10-14 |
+| 23 | Botón 💬 Soporte para todos los usuarios; los admins responden desde el bot. *Mecanismo fijado en la decisión 60* | 2026-10-14 |
 | 24 | Reputación de nivel A (solo agregados), calificación ciega en ambas direcciones, sin historial de viajes | 2026-10-13 |
 | 25 | Alta de choferes por selector de contactos o por enlace de invitación de un solo uso | 2026-10-13 |
 | 26 | Canal de ofertas con ✅ Aceptar (callback) y 💬 Contraofertar (enlace al bot) | 2026-10-13 |
 | 27 | Tarifas: valores iniciales en `.env`, después editables desde el bot; `tarifa_km` en modo fijo para el MVP, con un modo basado en combustible por definir | 2026-10-13 |
 | 28 | En el canal se muestran del cliente sus estrellas, viajes completados y días usando el bot | 2026-10-14 |
-| 29 | El teléfono del cliente es opcional (escrito o con `request_contact`) y solo vive en la solicitud | 2026-10-14 |
+| 29 | El teléfono del cliente es opcional (escrito o con `request_contact`) y solo vive en la solicitud. *Sustituida por la decisión 61* | 2026-10-14 |
 | 30 | El chofer puede cancelar sin penalización (motivo "inseguro" avisa a los admins); al principio no se penaliza a los choferes | 2026-10-14 |
 | 31 | Botones Ya voy (cliente) y Llegué (chofer); las cancelaciones del cliente se atribuyen con esas horas | 2026-10-14 |
 | 32 | Sin límite de solicitudes por hora ni de contraofertas; el cliente puede rechazar una contraoferta y el chofer hacer otra | 2026-10-14 |
@@ -569,3 +571,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 55 | Descripción libre como último recurso: municipio elegido con botones, contacto obligatorio, marcada en el canal; el texto solo llega al chofer al confirmar (fase 4) | 2026-10-14 |
 | 56 | Sin coordenadas exactas, la distancia se estima desde el centro del municipio con OSRM y se multiplica por 1,5; el canal la muestra como aproximada (fase 4) | 2026-10-14 |
 | 57 | El canal muestra, junto al municipio, la esquina más cercana de origen y destino; nunca enlaces de ubicación ni la dirección completa (fase 4) | 2026-10-14 |
+| 58 | *Sustituida por la decisión 60.* Soporte en un supergrupo privado de admins con un tema por caso: respuestas anónimas como "Soporte", notas internas con `//`, Cerrar caso borra el tema, cierre automático a los 7 días sin mensajes, alertas en un tema semanal, el bot invita y expulsa a los admins | 2026-10-14 |
+| 59 | Los admins actúan con botones en la consulta por código de soporte, las alertas y las fichas (Bloquear 24 h, Bloquear, Desbloquear, Quitar chofer), sin escribir IDs de Telegram | 2026-10-14 |
+| 60 | Soporte por una cuenta de Telegram atendida por personas (`SUPPORT_USERNAME`), con borrado automático de mensajes; el bot da un código de soporte que los admins consultan con `/caso`; alertas por privado a cada admin | 2026-10-14 |
+| 61 | @usuario de Telegram obligatorio para clientes y choferes, con guía para ponerlo; ya no se pide ni se guarda el teléfono del cliente | 2026-10-14 |

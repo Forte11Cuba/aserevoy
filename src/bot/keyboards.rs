@@ -5,7 +5,9 @@ use teloxide::types::{ButtonRequest, InlineKeyboardButton, InlineKeyboardMarkup,
 
 use crate::domain::fare::Cup;
 use crate::domain::ids::{RequestId, UserId};
-use crate::i18n::{Button, Lang, button};
+use crate::domain::reputation::Tag;
+use crate::domain::request::CancelReason;
+use crate::i18n::{self, Button, Lang, button};
 
 fn reply(lang: Lang, b: Button) -> KeyboardButton {
     KeyboardButton::new(button(lang, b))
@@ -15,13 +17,17 @@ fn inline(lang: Lang, b: Button, data: impl Into<String>) -> InlineKeyboardButto
     InlineKeyboardButton::callback(button(lang, b), data.into())
 }
 
-pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup {
+pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool, is_superadmin: bool) -> KeyboardMarkup {
     let profile = if is_driver { Button::MyProfile } else { Button::ApplyDriver };
     let mut rows = vec![vec![reply(lang, Button::RequestRide)], vec![reply(lang, profile)]];
     if is_staff {
-        rows.push(vec![reply(lang, Button::InviteDriver)]);
+        let mut row = vec![reply(lang, Button::InviteDriver)];
+        if is_superadmin {
+            row.push(reply(lang, Button::Admins));
+        }
+        rows.push(row);
     }
-    rows.push(vec![reply(lang, Button::SwitchLang)]);
+    rows.push(vec![reply(lang, Button::Support), reply(lang, Button::SwitchLang)]);
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
@@ -149,12 +155,101 @@ pub fn republish(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::Republish, "rep")]])
 }
 
-/// For both sides once the trip is assigned.
-pub fn assigned_trip(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![
-        inline(lang, Button::Complete, format!("fin:{request}")),
-        inline(lang, Button::CancelTrip, format!("can:{request}")),
-    ]])
+/// For the client once the trip is assigned.
+pub fn client_trip(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![
+            inline(lang, Button::OnMyWay, format!("omw:{request}")),
+            inline(lang, Button::ShareTrip, format!("shr:{request}")),
+        ],
+        vec![
+            inline(lang, Button::Complete, format!("fin:{request}")),
+            inline(lang, Button::CancelTrip, format!("can:{request}")),
+        ],
+    ])
+}
+
+/// For the driver once the trip is assigned.
+pub fn driver_trip(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![inline(lang, Button::Arrived, format!("arr:{request}"))],
+        vec![
+            inline(lang, Button::Complete, format!("fin:{request}")),
+            inline(lang, Button::CancelTrip, format!("can:{request}")),
+        ],
+    ])
+}
+
+/// Why cancel an assigned trip; replaces the trip's buttons until one is picked.
+pub fn cancel_reasons(lang: Lang, request: &RequestId, reasons: &[CancelReason]) -> InlineKeyboardMarkup {
+    let mut rows: Vec<_> = reasons
+        .iter()
+        .map(|r| vec![InlineKeyboardButton::callback(i18n::cancel_reason(lang, *r), format!("cr:{request}:{}", r.code()))])
+        .collect();
+    rows.push(vec![inline(lang, Button::Back, format!("cb:{request}"))]);
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// ⭐1 to ⭐5 for a pending rating.
+pub fn stars(code: &str) -> InlineKeyboardMarkup {
+    let row = (1..=5).map(|n| InlineKeyboardButton::callback("⭐".repeat(n), format!("rs:{code}:{n}"))).collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(vec![row[..3].to_vec(), row[3..].to_vec()])
+}
+
+/// Optional tags (✓ when chosen) and Done.
+pub fn rating_tags(lang: Lang, code: &str, tags: &[Tag], chosen: i64) -> InlineKeyboardMarkup {
+    let mut rows: Vec<_> = tags
+        .iter()
+        .map(|t| {
+            let mark = if chosen & t.bit() != 0 { "✓ " } else { "" };
+            vec![InlineKeyboardButton::callback(format!("{mark}{}", i18n::tag(lang, *t)), format!("rtg:{code}:{}", t.code()))]
+        })
+        .collect();
+    rows.push(vec![inline(lang, Button::RatingDone, format!("rdn:{code}"))]);
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// Staff actions on a person (support code lookup, alert).
+pub fn moderate(lang: Lang, user: UserId, is_driver: bool) -> InlineKeyboardMarkup {
+    let mut rows = vec![
+        vec![
+            inline(lang, Button::Block24h, format!("adm:b24:{}", user.0)),
+            inline(lang, Button::Block, format!("adm:bl:{}", user.0)),
+        ],
+        vec![inline(lang, Button::Unblock, format!("adm:ub:{}", user.0))],
+    ];
+    if is_driver {
+        rows[1].push(inline(lang, Button::RemoveDriver, format!("adm:rd:{}", user.0)));
+    }
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// Opens the chat with the human support account.
+pub fn support_link(lang: Lang, username: &str) -> InlineKeyboardMarkup {
+    let url = reqwest::Url::parse(&format!("https://t.me/{username}"));
+    let rows = url.map(|url| vec![vec![InlineKeyboardButton::url(button(lang, Button::WriteSupport), url)]]);
+    InlineKeyboardMarkup::new(rows.unwrap_or_default())
+}
+
+/// Under the @username guide: check again.
+pub fn username_set(lang: Lang) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::UsernameSet, "unm")]])
+}
+
+pub fn accept_terms(lang: Lang) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::AcceptTerms, "terms")]])
+}
+
+/// The superadmin's list of admins: remove each, or invite a new one.
+pub fn admins(lang: Lang, admins: &[(UserId, String)]) -> InlineKeyboardMarkup {
+    let mut rows: Vec<_> = admins
+        .iter()
+        .map(|(id, name)| {
+            vec![InlineKeyboardButton::callback(format!("{} {name}", button(lang, Button::RemoveAdmin)), format!("rma:{}", id.0))]
+        })
+        .collect();
+    rows.push(vec![inline(lang, Button::InviteAdmin, "ina")]);
+    InlineKeyboardMarkup::new(rows)
 }
 
 pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {

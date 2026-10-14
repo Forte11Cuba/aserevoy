@@ -6,8 +6,10 @@ use teloxide::types::{FileId, InputFile, KeyboardButton, MessageId};
 
 use super::client::Ctx;
 use super::dialog::{Dialog, DriverForm, FormStep};
-use super::{App, chat, keyboards, now};
+use super::{App, chat, keyboards, now, support};
 use crate::db;
+use crate::db::invitations::InviteRole;
+use crate::domain::reputation::Role;
 use crate::domain::driver::{self, ALIAS_MAX, DriverStatus, FIELD_MAX, PaymentMethods, Profile};
 use crate::domain::ids::{InviteCode, UserId};
 use crate::domain::phone;
@@ -27,7 +29,7 @@ pub async fn start_from_invite(cx: &Ctx<'_>, code: &str) -> anyhow::Result<()> {
         return refuse(cx, status).await;
     }
     let inviter = match InviteCode::parse(code) {
-        Some(code) => db::invitations::check(&cx.app.pool, &code, now()).await?,
+        Some(code) => db::invitations::check(&cx.app.pool, &code, InviteRole::Driver, now()).await?,
         None => None,
     };
     let Some(inviter) = inviter else {
@@ -254,7 +256,7 @@ async fn finish(cx: &Ctx<'_>, form: DriverForm) -> anyhow::Result<()> {
     // with the same link. If it was used or expired meanwhile, the profile is
     // still sent as a regular application.
     let invited = match &invite {
-        Some(code) if is_new => db::invitations::redeem(&app.pool, code, cx.user, now()).await?,
+        Some(code) if is_new => db::invitations::redeem(&app.pool, code, InviteRole::Driver, cx.user, now()).await?,
         _ => false,
     };
     let added_by = if invited { inviter } else { None };
@@ -273,20 +275,9 @@ async fn finish(cx: &Ctx<'_>, form: DriverForm) -> anyhow::Result<()> {
 }
 
 async fn notify_staff(bot: &Bot, app: &App, driver: UserId, profile: &Profile, invited: bool) -> anyhow::Result<()> {
-    for staff in app.staff().await? {
-        let lang = app.lang_of(staff).await;
-        let photo = InputFile::file_id(FileId(profile.photo_file_id.clone()));
-        let sent = bot
-            .send_photo(chat(staff), photo)
-            .caption(i18n::application(lang, profile, invited))
-            .reply_markup(keyboards::review_application(lang, driver))
-            .await;
-        if let Err(e) = sent {
-            // Usually a staff member who never opened the bot.
-            tracing::warn!(error = %e, "cannot send application to staff");
-        }
-    }
-    Ok(())
+    let text = |lang| i18n::application(lang, profile, invited);
+    let markup = |lang| keyboards::review_application(lang, driver);
+    support::alert(bot, app, text, Some(profile.photo_file_id.clone()), markup).await
 }
 
 /// `dok:<id>` / `dno:<id>`: staff approve or reject an application.
@@ -318,6 +309,7 @@ pub async fn review(
     let driver_lang = app.lang_of(driver).await;
     let to_driver = if approve {
         tracing::info!("driver approved");
+        db::reputation::touch(&app.pool, driver, Role::Driver, now()).await?;
         i18n::approved(driver_lang, &app.channel_link)
     } else {
         tracing::info!("driver rejected");
@@ -338,7 +330,7 @@ pub async fn invite(cx: &Ctx<'_>) -> anyhow::Result<()> {
         return Ok(());
     }
     let code = InviteCode::generate(&mut rand::rng());
-    db::invitations::create(&cx.app.pool, &code, cx.user, now()).await?;
+    db::invitations::create(&cx.app.pool, &code, InviteRole::Driver, cx.user, now()).await?;
     let link = format!("https://t.me/{}?start=inv_{}", cx.app.bot_username, code.as_str());
     cx.bot.send_message(chat(cx.user), i18n::invite_created(cx.lang, &link)).await?;
     Ok(())

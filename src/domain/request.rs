@@ -14,7 +14,7 @@
 //! Atomicity (one winner per request, one trip per driver) is enforced by the
 //! database; these methods validate the transition and return the effects.
 
-use super::effect::{Effect, Notice, Place};
+use super::effect::{Alert, Effect, Notice, Place};
 use super::fare::{self, Cup, Fares};
 use super::ids::{RequestId, UserId};
 
@@ -33,6 +33,42 @@ pub const CONFIRM_SECS: i64 = 5 * 60;
 pub const COUNTEROFFER_SECS: i64 = 5 * 60;
 /// Assigned trips nobody marks as completed are closed after this.
 pub const AUTO_COMPLETE_SECS: i64 = 2 * 60 * 60;
+/// A client may cancel with "the driver isn't coming" without it counting
+/// once this long passed after assignment without "Arrived".
+pub const DRIVER_LATE_SECS: i64 = 15 * 60;
+/// After "Arrived", the driver waits this long before "the client didn't
+/// show up" counts against the client.
+pub const NO_SHOW_WAIT_SECS: i64 = 10 * 60;
+
+/// Why an assigned trip is cancelled. The first two are the client's, the
+/// rest the driver's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelReason {
+    DriverNotComing,
+    ChangedMind,
+    ClientNoShow,
+    Unsafe,
+    Other,
+}
+
+impl CancelReason {
+    pub const FOR_CLIENT: [CancelReason; 2] = [CancelReason::DriverNotComing, CancelReason::ChangedMind];
+    pub const FOR_DRIVER: [CancelReason; 3] = [CancelReason::ClientNoShow, CancelReason::Unsafe, CancelReason::Other];
+
+    pub fn code(self) -> &'static str {
+        match self {
+            CancelReason::DriverNotComing => "late",
+            CancelReason::ChangedMind => "mind",
+            CancelReason::ClientNoShow => "noshow",
+            CancelReason::Unsafe => "unsafe",
+            CancelReason::Other => "other",
+        }
+    }
+
+    pub fn parse(code: &str) -> Option<CancelReason> {
+        Self::FOR_CLIENT.into_iter().chain(Self::FOR_DRIVER).find(|r| r.code() == code)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Point {
@@ -115,6 +151,10 @@ pub enum DomainError {
     NotParticipant,
     #[error("the counteroffer is no longer valid")]
     OfferGone,
+    #[error("a reason is needed to cancel this trip")]
+    ReasonNeeded,
+    #[error("already done")]
+    AlreadyDone,
 }
 
 /// A driver's latest counteroffer on an open request.
@@ -163,6 +203,9 @@ pub struct Request {
     pub answer_by: Option<UnixTime>,
     /// Deadline to confirm the driver while `Confirming`.
     pub confirm_by: Option<UnixTime>,
+    /// When the client tapped "On my way" and the driver "Arrived".
+    pub on_my_way_at: Option<UnixTime>,
+    pub arrived_at: Option<UnixTime>,
     pub expires_at: UnixTime,
     /// Active counteroffers, while `Open`.
     pub counteroffers: Vec<Counteroffer>,
@@ -206,6 +249,8 @@ impl Request {
             check_at: Some(now + STILL_WAITING_AFTER_SECS),
             answer_by: None,
             confirm_by: None,
+            on_my_way_at: None,
+            arrived_at: None,
             expires_at: now + REQUEST_TTL_SECS,
             counteroffers: Vec::new(),
         };
@@ -416,6 +461,37 @@ impl Request {
         Ok(())
     }
 
+    /// 🚶 On my way: the client tells the driver they are heading to the pickup.
+    pub fn on_my_way(&mut self, by: UserId, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
+        let driver = self.assigned_driver()?;
+        self.check_client(by)?;
+        if self.on_my_way_at.is_some() {
+            return Err(DomainError::AlreadyDone);
+        }
+        self.on_my_way_at = Some(now);
+        Ok(vec![Effect::Notify { to: driver, notice: Notice::ClientOnTheWay { request: self.id.clone() } }])
+    }
+
+    /// 📍 Arrived: the driver is at the pickup.
+    pub fn arrived(&mut self, by: UserId, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
+        let driver = self.assigned_driver()?;
+        if by != driver {
+            return Err(DomainError::NotParticipant);
+        }
+        if self.arrived_at.is_some() {
+            return Err(DomainError::AlreadyDone);
+        }
+        self.arrived_at = Some(now);
+        Ok(vec![Effect::Notify { to: self.client, notice: Notice::DriverArrived { request: self.id.clone() } }])
+    }
+
+    fn assigned_driver(&self) -> Result<UserId, DomainError> {
+        match (self.state, self.driver) {
+            (State::Assigned, Some(driver)) => Ok(driver),
+            _ => Err(DomainError::NotAssigned),
+        }
+    }
+
     /// Either participant can mark the trip as completed.
     pub fn complete(&mut self, by: UserId) -> Result<Vec<Effect>, DomainError> {
         if self.state != State::Assigned {
@@ -430,33 +506,65 @@ impl Request {
             return Err(DomainError::NotParticipant);
         };
         self.state = State::Completed;
-        Ok(self.close_effects(vec![Effect::Notify {
-            to: other,
-            notice: Notice::Completed { request: self.id.clone() },
-        }]))
+        let effects = vec![
+            Effect::Notify { to: other, notice: Notice::Completed { request: self.id.clone() } },
+            Effect::StartRating { client: self.client, driver },
+        ];
+        Ok(self.close_effects(effects))
     }
 
     /// The client can cancel while open, confirming (turning the driver down)
-    /// or assigned; the driver only once assigned.
-    pub fn cancel(&mut self, by: UserId) -> Result<Vec<Effect>, DomainError> {
+    /// or assigned; the driver only once assigned. An assigned trip needs a
+    /// reason, which decides whether it counts against the client:
+    /// - the client's cancellations count, except "the driver isn't coming"
+    ///   15 minutes after assignment without "Arrived";
+    /// - the driver's count against the client only for "the client didn't
+    ///   show up" 10 minutes after "Arrived"; "I felt unsafe" alerts the admins.
+    pub fn cancel(
+        &mut self,
+        by: UserId,
+        reason: Option<CancelReason>,
+        now: UnixTime,
+    ) -> Result<Vec<Effect>, DomainError> {
         let id = self.id.clone();
-        let notify = match (self.state, self.driver) {
+        let mut effects = match (self.state, self.driver) {
             (State::Open, _) if by == self.client => vec![],
             (State::Confirming, Some(driver)) if by == self.client => vec![
                 Effect::Notify { to: driver, notice: Notice::ClientDeclined { request: id.clone() } },
                 Effect::Notify { to: self.client, notice: Notice::DeclinedDriver { request: id } },
             ],
             (State::Assigned, Some(driver)) if by == self.client => {
-                vec![Effect::Notify { to: driver, notice: Notice::CancelledByClient { request: id } }]
+                let reason = reason.filter(|r| CancelReason::FOR_CLIENT.contains(r)).ok_or(DomainError::ReasonNeeded)?;
+                let driver_late = self.arrived_at.is_none()
+                    && self.assigned_at.is_some_and(|at| now >= at + DRIVER_LATE_SECS);
+                let mut effects =
+                    vec![Effect::Notify { to: driver, notice: Notice::CancelledByClient { request: id } }];
+                if !(reason == CancelReason::DriverNotComing && driver_late) {
+                    effects.push(Effect::CountCancellation { client: self.client });
+                }
+                effects
             }
             (State::Assigned, Some(driver)) if by == driver => {
-                vec![Effect::Notify { to: self.client, notice: Notice::CancelledByDriver { request: id } }]
+                let reason = reason.filter(|r| CancelReason::FOR_DRIVER.contains(r)).ok_or(DomainError::ReasonNeeded)?;
+                let mut effects =
+                    vec![Effect::Notify { to: self.client, notice: Notice::CancelledByDriver { request: id.clone() } }];
+                match reason {
+                    CancelReason::ClientNoShow if self.arrived_at.is_some_and(|at| now >= at + NO_SHOW_WAIT_SECS) => {
+                        effects.push(Effect::CountCancellation { client: self.client });
+                    }
+                    CancelReason::Unsafe => effects.push(Effect::Alert {
+                        alert: Alert::UnsafeTrip { request: id, client: self.client, driver },
+                    }),
+                    _ => {}
+                }
+                effects
             }
             (State::Open | State::Confirming | State::Assigned, _) => return Err(DomainError::NotParticipant),
             _ => return Err(DomainError::NotOpen),
         };
         self.state = State::Cancelled;
-        Ok(self.close_effects(notify))
+        effects = self.close_effects(effects);
+        Ok(effects)
     }
 
     /// Called by the sweeper when a deadline passes.
@@ -484,8 +592,10 @@ impl Request {
                 Some(Tick::Close(self.close_effects(notify)))
             }
             State::Assigned if self.assigned_at.is_some_and(|at| now >= at + AUTO_COMPLETE_SECS) => {
+                let driver = self.driver.expect("assigned request has a driver");
                 self.state = State::Completed;
-                Some(Tick::Close(self.close_effects(Vec::new())))
+                let rate = vec![Effect::StartRating { client: self.client, driver }];
+                Some(Tick::Close(self.close_effects(rate)))
             }
             _ => None,
         }
@@ -607,13 +717,13 @@ mod tests {
     #[test]
     fn turning_the_driver_down_cancels_and_tells_both() {
         let mut r = confirming();
-        let effects = r.cancel(CLIENT).unwrap();
+        let effects = r.cancel(CLIENT, None, T0 + 30).unwrap();
         assert_eq!(r.state, State::Cancelled);
         assert!(matches!(notified(&effects, DRIVER)[..], [Notice::ClientDeclined { .. }]));
         assert!(matches!(notified(&effects, CLIENT)[..], [Notice::DeclinedDriver { .. }]));
         assert!(matches!(effects.last(), Some(Effect::Forget { .. })));
         // The waiting driver cannot cancel in the client's place.
-        assert_eq!(confirming().cancel(DRIVER).unwrap_err(), DomainError::NotParticipant);
+        assert_eq!(confirming().cancel(DRIVER, None, T0 + 30).unwrap_err(), DomainError::NotParticipant);
     }
 
     #[test]
@@ -750,7 +860,7 @@ mod tests {
         let mut r = open();
         r.counteroffer(DRIVER, 630, T0).unwrap();
         r.counteroffers[0].client_msg_id = Some(77);
-        let effects = r.cancel(CLIENT).unwrap();
+        let effects = r.cancel(CLIENT, None, T0 + 30).unwrap();
         assert!(matches!(notified(&effects, DRIVER)[..], [Notice::RequestGone { .. }]));
         assert!(effects.contains(&Effect::HideOffer { client: CLIENT, msg: 77 }));
         assert!(matches!(effects.last(), Some(Effect::Forget { .. })));
@@ -771,19 +881,80 @@ mod tests {
 
     #[test]
     fn cancellation_of_assigned_trips() {
+        use CancelReason::*;
         let mut r = assigned();
-        let effects = r.cancel(DRIVER).unwrap();
+        assert_eq!(r.cancel(DRIVER, None, T0 + 30).unwrap_err(), DomainError::ReasonNeeded);
+        // The client's reasons are not the driver's.
+        assert_eq!(r.cancel(DRIVER, Some(ChangedMind), T0 + 30).unwrap_err(), DomainError::ReasonNeeded);
+        let effects = r.cancel(DRIVER, Some(Other), T0 + 30).unwrap();
         assert!(matches!(notified(&effects, CLIENT)[..], [Notice::CancelledByDriver { .. }]));
 
         let mut r = assigned();
-        let effects = r.cancel(CLIENT).unwrap();
+        let effects = r.cancel(CLIENT, Some(ChangedMind), T0 + 30).unwrap();
         assert!(matches!(notified(&effects, DRIVER)[..], [Notice::CancelledByClient { .. }]));
 
-        assert_eq!(open().cancel(DRIVER).unwrap_err(), DomainError::NotParticipant);
-        assert_eq!(assigned().cancel(STRANGER).unwrap_err(), DomainError::NotParticipant);
+        assert_eq!(open().cancel(DRIVER, None, T0 + 30).unwrap_err(), DomainError::NotParticipant);
+        assert_eq!(assigned().cancel(STRANGER, Some(Other), T0 + 30).unwrap_err(), DomainError::NotParticipant);
         let mut r = assigned();
         r.complete(CLIENT).unwrap();
-        assert_eq!(r.cancel(CLIENT).unwrap_err(), DomainError::NotOpen);
+        assert_eq!(r.cancel(CLIENT, Some(ChangedMind), T0 + 30).unwrap_err(), DomainError::NotOpen);
+    }
+
+    fn counts(effects: &[Effect]) -> bool {
+        effects.contains(&Effect::CountCancellation { client: CLIENT })
+    }
+
+    #[test]
+    fn whose_cancellation_counts() {
+        use CancelReason::*;
+        let assigned_at = T0 + 20;
+        // The client's own cancellations count...
+        assert!(counts(&assigned().cancel(CLIENT, Some(ChangedMind), assigned_at + 60).unwrap()));
+        // ..."the driver isn't coming" too, unless 15 min passed without "Arrived".
+        assert!(counts(&assigned().cancel(CLIENT, Some(DriverNotComing), assigned_at + 60).unwrap()));
+        let late = assigned_at + DRIVER_LATE_SECS;
+        assert!(!counts(&assigned().cancel(CLIENT, Some(DriverNotComing), late).unwrap()));
+        let mut r = assigned();
+        r.arrived(DRIVER, assigned_at + 60).unwrap();
+        assert!(counts(&r.cancel(CLIENT, Some(DriverNotComing), late).unwrap()));
+
+        // "The client didn't show up" counts only 10 min after "Arrived".
+        assert!(!counts(&assigned().cancel(DRIVER, Some(ClientNoShow), late).unwrap()));
+        let mut r = assigned();
+        r.arrived(DRIVER, assigned_at + 60).unwrap();
+        assert!(!counts(&r.clone().cancel(DRIVER, Some(ClientNoShow), assigned_at + 60 + NO_SHOW_WAIT_SECS - 1).unwrap()));
+        assert!(counts(&r.cancel(DRIVER, Some(ClientNoShow), assigned_at + 60 + NO_SHOW_WAIT_SECS).unwrap()));
+
+        // "I felt unsafe" never counts against the client and alerts the admins.
+        let effects = assigned().cancel(DRIVER, Some(Unsafe), late).unwrap();
+        assert!(!counts(&effects));
+        assert!(effects.iter().any(|e| matches!(e, Effect::Alert { alert: Alert::UnsafeTrip { .. } })));
+    }
+
+    #[test]
+    fn on_my_way_and_arrived_tell_the_other_side_once() {
+        let mut r = assigned();
+        assert_eq!(r.on_my_way(DRIVER, T0 + 30).unwrap_err(), DomainError::NotParticipant);
+        let effects = r.on_my_way(CLIENT, T0 + 30).unwrap();
+        assert!(matches!(notified(&effects, DRIVER)[..], [Notice::ClientOnTheWay { .. }]));
+        assert_eq!(r.on_my_way(CLIENT, T0 + 31).unwrap_err(), DomainError::AlreadyDone);
+
+        assert_eq!(r.arrived(CLIENT, T0 + 40).unwrap_err(), DomainError::NotParticipant);
+        let effects = r.arrived(DRIVER, T0 + 40).unwrap();
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::DriverArrived { .. }]));
+        assert_eq!(r.arrived_at, Some(T0 + 40));
+        assert_eq!(open().arrived(DRIVER, T0).unwrap_err(), DomainError::NotAssigned);
+    }
+
+    #[test]
+    fn finished_trips_start_the_rating() {
+        let effects = assigned().complete(DRIVER).unwrap();
+        assert!(effects.contains(&Effect::StartRating { client: CLIENT, driver: DRIVER }));
+        let mut r = assigned();
+        let Some(Tick::Close(effects)) = r.tick(T0 + 20 + AUTO_COMPLETE_SECS) else { panic!() };
+        assert!(effects.contains(&Effect::StartRating { client: CLIENT, driver: DRIVER }));
+        let effects = assigned().cancel(CLIENT, Some(CancelReason::ChangedMind), T0 + 30).unwrap();
+        assert!(!effects.iter().any(|e| matches!(e, Effect::StartRating { .. })));
     }
 
     #[test]

@@ -23,8 +23,21 @@ pub enum Effect {
     HideOffer { client: UserId, msg: i32 },
     /// The driver is now busy: drop their counteroffers on other requests.
     WithdrawDriverOffers { driver: UserId },
+    /// A cancellation that counts against the client (3 in 7 days block them).
+    CountCancellation { client: UserId },
+    /// A finished trip: ask both sides for a blind rating.
+    StartRating { client: UserId, driver: UserId },
+    /// Something the admins must know about.
+    Alert { alert: Alert },
     /// The request reached a final state: delete its row.
     Forget { request: RequestId },
+}
+
+/// Alerts to the admins (sent to each one's chat with the bot).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Alert {
+    /// A driver cancelled because they felt unsafe.
+    UnsafeTrip { request: RequestId, client: UserId, driver: UserId },
 }
 
 /// Which point of the trip a location is.
@@ -52,6 +65,10 @@ pub enum Notice {
     DriverConfirmed { request: RequestId, driver: UserId },
     /// To the client after accepting a counteroffer: the driver's full card.
     DriverAssigned { request: RequestId, driver: UserId },
+    /// To the driver: the client is heading to the pickup.
+    ClientOnTheWay { request: RequestId },
+    /// To the client: the driver is at the pickup.
+    DriverArrived { request: RequestId },
     /// To the driver: they won the trip (rendered with the client's contact).
     TripAssigned { request: RequestId, client: UserId },
     /// To the driver: the client cancelled instead of confirming them.

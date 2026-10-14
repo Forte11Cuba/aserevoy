@@ -1,6 +1,7 @@
 //! Telegram layer: reads updates, calls the domain and the database, and runs
 //! the effects the domain returns. Roles are checked here on every action.
 
+pub mod admin;
 pub mod auction;
 pub mod client;
 pub mod dialog;
@@ -8,22 +9,25 @@ pub mod dispatcher;
 pub mod driver;
 pub mod effects;
 pub mod keyboards;
+pub mod rating;
+pub mod support;
 pub mod trip;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sqlx::SqlitePool;
 use teloxide::types::{ChatId, KeyboardMarkup, User};
 
 use crate::config::Config;
-use crate::crypto::PhoneCipher;
+use crate::crypto::{PairKey, PhoneCipher};
 use crate::db;
 use crate::domain::driver::DriverStatus;
 use crate::domain::ids::UserId;
+use crate::domain::reputation::Role;
 use crate::domain::request::UnixTime;
-use crate::i18n::Lang;
+use crate::i18n::{self, Lang, TERMS_VERSION};
 use crate::location::routing::Osrm;
 use crate::location::zones::Zones;
 
@@ -33,6 +37,7 @@ pub struct App {
     pub pool: SqlitePool,
     pub config: Config,
     pub cipher: PhoneCipher,
+    pub pair_key: PairKey,
     pub osrm: Osrm,
     pub zones: Zones,
     /// The offers channel.
@@ -44,7 +49,12 @@ pub struct App {
     /// them in it when someone else triggers the message. Not persisted;
     /// starts empty.
     pub seen_langs: Mutex<HashMap<i64, Lang>>,
+    /// Last action of each user, for the anti-flood (1 per second).
+    pub last_action: Mutex<HashMap<i64, Instant>>,
 }
+
+/// At most one action per second per user; extra taps are ignored.
+const FLOOD_INTERVAL: Duration = Duration::from_secs(1);
 
 pub type AppRef = Arc<App>;
 
@@ -83,7 +93,34 @@ impl App {
     /// The main menu, with the buttons this user's roles allow.
     pub async fn menu(&self, user: UserId, lang: Lang) -> anyhow::Result<KeyboardMarkup> {
         let is_driver = self.driver_status(user).await?.is_some();
-        Ok(keyboards::main_menu(lang, is_driver, self.is_staff(user).await?))
+        let is_superadmin = self.config.is_superadmin(user);
+        Ok(keyboards::main_menu(lang, is_driver, self.is_staff(user).await?, is_superadmin))
+    }
+
+    /// True if the user acted less than a second ago (and then this action is
+    /// dropped); records the action otherwise.
+    pub fn too_fast(&self, user: UserId) -> bool {
+        let now = Instant::now();
+        let mut last = self.last_action.lock().unwrap();
+        if last.get(&user.0).is_some_and(|t| now.duration_since(*t) < FLOOD_INTERVAL) {
+            return true;
+        }
+        last.insert(user.0, now);
+        // Keep the map small: forget users idle for a minute.
+        if last.len() > 10_000 {
+            last.retain(|_, t| now.duration_since(*t) < Duration::from_secs(60));
+        }
+        false
+    }
+
+    pub async fn accepted_terms(&self, user: UserId) -> anyhow::Result<bool> {
+        Ok(db::support::terms_version(&self.pool, user).await?.is_some_and(|v| v >= TERMS_VERSION))
+    }
+
+    /// The message to show if the user is blocked in `role`.
+    pub async fn blocked_message(&self, user: UserId, role: Role, lang: Lang) -> anyhow::Result<Option<String>> {
+        let until = db::moderation::blocked_until(&self.pool, user, role, now()).await?;
+        Ok(until.map(|until| i18n::blocked(lang, until.map(local_time).as_deref())))
     }
 
     pub async fn driver_status(&self, user: UserId) -> anyhow::Result<Option<DriverStatus>> {
@@ -97,6 +134,15 @@ pub fn user_id(user: &User) -> UserId {
 
 pub fn chat(user: UserId) -> ChatId {
     ChatId(user.0)
+}
+
+/// A time as people in Cuba read it: "14/10 18:05".
+pub fn local_time(t: UnixTime) -> String {
+    use chrono::TimeZone;
+    match chrono_tz::America::Havana.timestamp_opt(t, 0) {
+        chrono::LocalResult::Single(dt) => dt.format("%d/%m %H:%M").to_string(),
+        _ => String::new(),
+    }
 }
 
 pub fn now() -> UnixTime {

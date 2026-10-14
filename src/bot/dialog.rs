@@ -15,6 +15,9 @@ pub enum Dialog {
     /// After a request closed without a trip: what "Publish again" reuses.
     /// Any other message leaves it in place.
     Republish(Republish),
+    /// The @username guide or the terms are shown; `payload` is the `/start`
+    /// argument to resume after them (an invitation, a counteroffer link).
+    Terms { payload: Option<String> },
 }
 
 /// A closed request's trip, without the client's phone.
@@ -38,7 +41,6 @@ pub enum Ride {
     ConfirmDropoff { pickup: Point, reference: Option<String>, dropoff: Point },
     Price { trip: Trip },
     Payment { trip: Trip, price: Cup },
-    Phone { trip: Trip, price: Cup, payment: PaymentMethod },
 }
 
 /// The route once both points are confirmed.

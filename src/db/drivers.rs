@@ -80,6 +80,27 @@ pub async fn reject(pool: &SqlitePool, id: UserId) -> sqlx::Result<bool> {
     Ok(done.rows_affected() == 1)
 }
 
+/// `active` ↔ `blocked`, when a driver is blocked or unblocked.
+pub async fn set_status(pool: &SqlitePool, id: UserId, status: DriverStatus) -> sqlx::Result<bool> {
+    let status = match status {
+        DriverStatus::Pending => "pending",
+        DriverStatus::Active => "active",
+        DriverStatus::Blocked => "blocked",
+    };
+    let done = sqlx::query("UPDATE drivers SET status = ? WHERE telegram_id = ? AND status != 'pending'")
+        .bind(status)
+        .bind(id.0)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// Removes a driver for good (their reputation as a driver stays aggregated).
+pub async fn remove(pool: &SqlitePool, id: UserId) -> sqlx::Result<bool> {
+    let done = sqlx::query("DELETE FROM drivers WHERE telegram_id = ?").bind(id.0).execute(pool).await?;
+    Ok(done.rows_affected() == 1)
+}
+
 fn from_row(row: &SqliteRow, cipher: &PhoneCipher) -> anyhow::Result<Driver> {
     let decode_err = |what: &str| anyhow::anyhow!("invalid driver {what}");
     let phone_enc: Vec<u8> = row.try_get("phone_enc")?;

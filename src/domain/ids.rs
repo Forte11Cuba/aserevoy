@@ -34,6 +34,12 @@ impl RequestId {
     }
 }
 
+/// A random code from the unambiguous alphabet, for support codes and
+/// pending ratings.
+pub fn short_code(rng: &mut impl rand::Rng, len: usize) -> String {
+    (0..len).map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char).collect()
+}
+
 /// One-use code of a driver invitation link (`t.me/AsereVoyBot?start=inv_<code>`).
 /// Long enough that it cannot be guessed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
