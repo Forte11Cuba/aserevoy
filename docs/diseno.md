@@ -528,3 +528,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 42 | Nombre del bot: Asere Voy (`@AsereVoyBot`), con la descripción "Conectamos pasajeros y choferes. Tú propones el precio." | 2026-10-14 |
 | 43 | El código (nombres, tablas, comentarios) va en inglés; el documento de diseño sigue en español | 2026-10-14 |
 | 44 | Bot bilingüe: español por defecto e inglés según el idioma de Telegram, con botón para cambiarlo; textos en `src/i18n.rs` | 2026-10-14 |
+| 45 | Licencia MIT para el código del proyecto | 2026-10-14 |
