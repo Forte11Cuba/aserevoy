@@ -279,7 +279,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             driver::edit(&cx).await?;
             None
         }
-        ("pick" | "drop" | "cand" | "mun" | "padj" | "pok" | "pay", _) => {
+        ("pick" | "drop" | "cand" | "mun" | "zone" | "padj" | "pok" | "pay", _) => {
             if let Some(Dialog::Ride(ride)) = db::dialogs::get(&app.pool, cx.user).await? {
                 client::on_callback(&cx, ride, kind, arg, pressed).await?;
             }

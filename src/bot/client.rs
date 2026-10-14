@@ -96,7 +96,13 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
     let written = text.filter(|t| parse_button(t).is_none());
 
     match ride {
-        Ride::Pickup | Ride::ChoosePickup { .. } | Ride::DescribePickup { .. } => {
+        Ride::RepartoPickup { text: description, municipality, .. } if point.is_none() && written.is_some() => {
+            reparto_typed(cx, None, description, municipality, written.unwrap_or_default()).await
+        }
+        Ride::RepartoDropoff { pickup, text: description, municipality, .. } if point.is_none() && written.is_some() => {
+            reparto_typed(cx, Some(pickup), description, municipality, written.unwrap_or_default()).await
+        }
+        Ride::Pickup | Ride::ChoosePickup { .. } | Ride::DescribePickup { .. } | Ride::RepartoPickup { .. } => {
             if let Some(pickup) = point {
                 cx.save(Ride::ConfirmPickup { pickup, label: None }).await?;
                 return cx.say(Text::ConfirmPickup, keyboards::confirm_point(cx.lang, "pick")).await;
@@ -106,7 +112,10 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
                 None => cx.say_plain(Text::NeedLocation).await,
             }
         }
-        Ride::Dropoff { pickup } | Ride::ChooseDropoff { pickup, .. } | Ride::DescribeDropoff { pickup, .. } => {
+        Ride::Dropoff { pickup }
+        | Ride::ChooseDropoff { pickup, .. }
+        | Ride::DescribeDropoff { pickup, .. }
+        | Ride::RepartoDropoff { pickup, .. } => {
             if let Some(dropoff) = point {
                 cx.save(Ride::ConfirmDropoff { pickup, dropoff, label: None }).await?;
                 return cx.say(Text::ConfirmDropoff, keyboards::confirm_point(cx.lang, "drop")).await;
@@ -187,7 +196,11 @@ async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> an
             }
             cx.say(Text::ChooseAddress, markup).await
         }
-        Decision::Nothing => ask_description(cx, pickup, text).await,
+        Decision::Nothing => match cx.app.streets.reparto_in_text(&text) {
+            // The description names a reparto ("…, Alamar"): place it there.
+            Some((reparto, _)) => described_at(cx, pickup, text, Candidate { label: reparto.name, point: reparto.point }).await,
+            None => ask_description(cx, pickup, text).await,
+        },
     }
 }
 
@@ -269,16 +282,14 @@ pub async fn on_callback(
             }
             None => false,
         },
-        (Ride::DescribePickup { text }, "mun", _) => match described(cx, index, text) {
-            // A description is its own landmark: straight to the destination.
-            Some(pickup) => {
-                ask_dropoff(cx, pickup).await?;
-                true
-            }
+        (Ride::DescribePickup { text }, "mun", _) => ask_reparto(cx, None, text, index).await?,
+        (Ride::DescribeDropoff { pickup, text }, "mun", _) => ask_reparto(cx, Some(pickup), text, index).await?,
+        (Ride::RepartoPickup { text, options, .. }, "zone", _) => match index.and_then(|i| options.get(i)) {
+            Some(reparto) => described_at(cx, None, text, reparto.clone()).await.map(|_| true)?,
             None => false,
         },
-        (Ride::DescribeDropoff { pickup, text }, "mun", _) => match described(cx, index, text) {
-            Some(dropoff) => confirm_route(cx, pickup, dropoff).await?,
+        (Ride::RepartoDropoff { pickup, text, options, .. }, "zone", _) => match index.and_then(|i| options.get(i)) {
+            Some(reparto) => described_at(cx, Some(pickup), text, reparto.clone()).await.map(|_| true)?,
             None => false,
         },
         (Ride::Price { trip, offer }, "padj", delta) => {
@@ -313,11 +324,74 @@ pub async fn on_callback(
     Ok(())
 }
 
-/// The description placed at the chosen municipality's centre.
-fn described(cx: &Ctx<'_>, municipality: Option<usize>, text: String) -> Option<Spot> {
+/// Up to this many repartos are shown as buttons; more are typed.
+const REPARTO_BUTTONS: usize = 10;
+
+/// After the municipality: its repartos as buttons if few, or ask to type it.
+/// A municipality is too big to be a point (Habana del Este spans 30 km).
+async fn ask_reparto(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, index: Option<usize>) -> anyhow::Result<bool> {
     let names = cx.app.zones.names();
-    let point = cx.app.zones.centre(names.get(municipality?)?)?;
-    Some(Spot { point, approx: true, note: Some(text) })
+    let Some(municipality) = index.and_then(|i| names.get(i)).map(|m| (*m).to_owned()) else {
+        return Ok(false);
+    };
+    let repartos = cx.app.streets.repartos_in(&municipality);
+    let options: Vec<Candidate> = if repartos.len() <= REPARTO_BUTTONS {
+        repartos.into_iter().map(|r| Candidate { label: r.name, point: r.point }).collect()
+    } else {
+        Vec::new()
+    };
+    let markup = keyboards::repartos(&options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
+    let question = if options.is_empty() { Text::AskReparto } else { Text::ChooseReparto };
+    match pickup {
+        None => cx.save(Ride::RepartoPickup { text, municipality, options }).await?,
+        Some(pickup) => cx.save(Ride::RepartoDropoff { pickup, text, municipality, options }).await?,
+    }
+    cx.say(question, markup).await?;
+    Ok(true)
+}
+
+/// The client typed the reparto: one match is used, several become buttons.
+async fn reparto_typed(
+    cx: &Ctx<'_>,
+    pickup: Option<Spot>,
+    text: String,
+    municipality: String,
+    typed: &str,
+) -> anyhow::Result<()> {
+    let found: Vec<Candidate> = cx
+        .app
+        .streets
+        .find_repartos(&municipality, typed)
+        .into_iter()
+        .take(8)
+        .map(|r| Candidate { label: r.name, point: r.point })
+        .collect();
+    match found.len() {
+        0 => {
+            let message = i18n::reparto_not_found(cx.lang, &municipality);
+            cx.bot.send_message(chat(cx.user), message).await?;
+            Ok(())
+        }
+        1 => described_at(cx, pickup, text, found[0].clone()).await,
+        _ => {
+            let markup = keyboards::repartos(&found.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
+            match pickup {
+                None => cx.save(Ride::RepartoPickup { text, municipality, options: found }).await?,
+                Some(pickup) => cx.save(Ride::RepartoDropoff { pickup, text, municipality, options: found }).await?,
+            }
+            cx.say(Text::ChooseReparto, markup).await
+        }
+    }
+}
+
+/// The description placed at the reparto's point: the next step for a pickup
+/// (a description is its own landmark), or the route for a destination.
+async fn described_at(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, reparto: Candidate) -> anyhow::Result<()> {
+    let spot = Spot { point: reparto.point, approx: true, note: Some(format!("{text} ({})", reparto.label)) };
+    match pickup {
+        None => ask_dropoff(cx, spot).await,
+        Some(pickup) => confirm_route(cx, pickup, spot).await.map(|_| ()),
+    }
 }
 
 /// Returns false (and keeps the step) if the route could not be computed.

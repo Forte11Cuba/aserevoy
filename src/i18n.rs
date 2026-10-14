@@ -232,6 +232,8 @@ pub enum Text {
     NeedLocation,
     ChooseAddress,
     AddressNotFound,
+    AskReparto,
+    ChooseReparto,
     RouteFailed,
     AmountNotNumber,
     AskPayment,
@@ -337,6 +339,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AddressNotFound) => {
             "I couldn't find that address on the map. Send your location 📍, or pick your municipality and I'll give your description to the driver once you confirm them (the price is estimated)."
         }
+        (Lang::Es, AskReparto) => "¿En qué reparto o zona? Escríbelo, por ejemplo: Alamar zona 6. También puedes enviar tu ubicación 📍.",
+        (Lang::En, AskReparto) => "Which neighborhood (reparto) or zone? Type it, for example: Alamar zona 6. You can also send your location 📍.",
+        (Lang::Es, ChooseReparto) => "¿En qué reparto?",
+        (Lang::En, ChooseReparto) => "Which neighborhood?",
         (Lang::Es, NeedLocation) => "Necesito un pin de ubicación 📍 o una dirección escrita.",
         (Lang::En, NeedLocation) => "I need a location pin 📍 or a written address.",
         (Lang::Es, RouteFailed) => "No pude calcular la ruta ahora mismo. Inténtalo de nuevo en unos minutos.",
@@ -504,6 +510,13 @@ pub fn offer_button(lang: Lang, offer: Cup) -> String {
     match lang {
         Lang::Es => format!("✅ Ofrecer {offer} CUP"),
         Lang::En => format!("✅ Offer {offer} CUP"),
+    }
+}
+
+pub fn reparto_not_found(lang: Lang, municipality: &str) -> String {
+    match lang {
+        Lang::Es => format!("No encontré ese reparto en {municipality}. Escríbelo de otra forma o envía tu ubicación 📍."),
+        Lang::En => format!("I couldn't find that neighborhood in {municipality}. Type it another way or send your location 📍."),
     }
 }
 

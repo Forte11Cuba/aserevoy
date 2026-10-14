@@ -189,6 +189,45 @@ impl Streets {
             .collect()
     }
 
+    /// The repartos of a municipality, by name (one point per name).
+    pub fn repartos_in(&self, municipality: &str) -> Vec<Reparto> {
+        let mut found: Vec<Reparto> = Vec::new();
+        for p in self.places.iter().filter(|p| p.kind == "neighborhood" && p.municipality == municipality) {
+            if !found.iter().any(|r| r.name == p.name) {
+                found.push(Reparto { name: p.name.clone(), point: p.point });
+            }
+        }
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        found
+    }
+
+    /// The repartos of `municipality` the client's words name, best first:
+    /// "alamar zona 6" names both "Alamar" and "Zona 6", and the longer name
+    /// is more precise, so only "Zona 6" is kept.
+    pub fn find_repartos(&self, municipality: &str, text: &str) -> Vec<Reparto> {
+        let repartos = self.repartos_in(municipality);
+        best_named(&repartos, &normalize(text), |r| normalize(&r.name))
+    }
+
+    /// A reparto named in a free description, anywhere in Havana, if exactly
+    /// one name stands out ("doble vía e/ 160c y 160d, Alamar").
+    pub fn reparto_in_text(&self, text: &str) -> Option<(Reparto, String)> {
+        let written = normalize(text);
+        let repartos: Vec<(Reparto, String)> = self
+            .places
+            .iter()
+            .filter(|p| p.kind == "neighborhood")
+            .map(|p| (Reparto { name: p.name.clone(), point: p.point }, p.municipality.clone()))
+            .collect();
+        let best = best_named(&repartos, &written, |(r, _)| normalize(&r.name));
+        let mut names: Vec<&str> = best.iter().map(|(r, _)| r.name.as_str()).collect();
+        names.dedup();
+        match (best.first(), names.len()) {
+            (Some(found), 1) => Some(found.clone()),
+            _ => None,
+        }
+    }
+
     /// A municipality or reparto named in the text.
     fn area_hint(&self, hints: &[String]) -> Option<Area> {
         for hint in hints {
@@ -201,6 +240,32 @@ impl Streets {
         }
         None
     }
+}
+
+/// A neighborhood: where a free description is placed when there is no pin.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reparto {
+    pub name: String,
+    pub point: Point,
+}
+
+/// The items whose whole name appears among the written words, keeping only
+/// those with the most words (the most precise). Names without a word of
+/// three letters or more are ignored, so "6" alone never picks "Zona 6".
+fn best_named<T: Clone>(items: &[T], written: &str, name: impl Fn(&T) -> String) -> Vec<T> {
+    let words: Vec<&str> = written.split(' ').filter(|w| !w.is_empty()).collect();
+    let mut scored: Vec<(usize, T)> = items
+        .iter()
+        .filter_map(|item| {
+            let n = name(item);
+            let name_words: Vec<&str> = n.split(' ').filter(|w| !w.is_empty()).collect();
+            let meaningful = name_words.iter().any(|w| w.len() > 2 && w.chars().any(char::is_alphabetic));
+            (meaningful && name_words.iter().all(|w| words.contains(w))).then(|| (name_words.len(), item.clone()))
+        })
+        .collect();
+    let most = scored.iter().map(|(n, _)| *n).max().unwrap_or(0);
+    scored.retain(|(n, _)| *n == most);
+    scored.into_iter().map(|(_, item)| item).collect()
 }
 
 enum Area {
@@ -478,6 +543,22 @@ mod tests {
         let found = s.candidates("7ma entre 160c y 160d, Alamar");
         assert!(!found.is_empty(), "{found:?}");
         assert!(found.iter().all(|c| c.municipality == "Habana del Este"));
+    }
+
+    #[tokio::test]
+    async fn repartos_for_free_descriptions() {
+        let s = havana().await;
+        let names = |found: Vec<Reparto>| found.into_iter().map(|r| r.name).collect::<Vec<_>>();
+        // The more precise name wins: Alamar's zone 6, not all of Alamar.
+        assert_eq!(names(s.find_repartos("Habana del Este", "alamar zona 6")), ["Zona 6"]);
+        assert_eq!(names(s.find_repartos("Habana del Este", "en cojimar")), ["Cojímar"]);
+        assert!(s.find_repartos("Habana del Este", "vedado").is_empty());
+        // Small municipalities have few repartos (shown as buttons).
+        assert!(s.repartos_in("Centro Habana").len() <= 10);
+        // Named in the description itself.
+        let (reparto, municipality) = s.reparto_in_text("doble via e/ 160c y 160d, Alamar").unwrap();
+        assert_eq!((reparto.name.as_str(), municipality.as_str()), ("Alamar", "Habana del Este"));
+        assert!(s.reparto_in_text("la casa azul detrás del policlínico").is_none());
     }
 
     #[tokio::test]

@@ -166,6 +166,13 @@ pub fn candidates(lang: Lang, labels: &[&str]) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(rows)
 }
 
+/// Repartos to choose from, two per row.
+pub fn repartos(names: &[&str]) -> InlineKeyboardMarkup {
+    let buttons: Vec<_> =
+        names.iter().enumerate().map(|(i, n)| InlineKeyboardButton::callback(*n, format!("zone:{i}"))).collect();
+    InlineKeyboardMarkup::new(buttons.chunks(2).map(<[_]>::to_vec).collect::<Vec<_>>())
+}
+
 /// The municipalities, two per row, for a description without a pin.
 pub fn municipalities(names: &[&str]) -> InlineKeyboardMarkup {
     let buttons: Vec<_> =

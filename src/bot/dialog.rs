@@ -40,11 +40,14 @@ pub enum Ride {
     ChoosePickup { text: String, options: Vec<Candidate> },
     /// Nothing matched: the client picks a municipality for their description.
     DescribePickup { text: String },
+    /// Then the reparto within it: typed, or one of `options` (buttons).
+    RepartoPickup { text: String, municipality: String, options: Vec<Candidate> },
     ConfirmPickup { pickup: Point, label: Option<String> },
     Reference { pickup: Point },
     Dropoff { pickup: Spot },
     ChooseDropoff { pickup: Spot, text: String, options: Vec<Candidate> },
     DescribeDropoff { pickup: Spot, text: String },
+    RepartoDropoff { pickup: Spot, text: String, municipality: String, options: Vec<Candidate> },
     ConfirmDropoff { pickup: Spot, dropoff: Point, label: Option<String> },
     /// The client adjusts their offer, starting at the suggested price.
     Price { trip: Trip, offer: Cup },

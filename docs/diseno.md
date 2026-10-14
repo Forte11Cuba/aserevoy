@@ -124,11 +124,11 @@ La recogida y el destino pueden llegar como pin de ubicación o como dirección 
 - El texto de referencia ("frente a la bodega") se conserva y se le muestra al chofer, porque en Cuba las direcciones son informales.
 - Si no se entiende la dirección, el bot pide: "No entendí la dirección, envía tu ubicación 📍".
 - **Descripción libre como último recurso (fase 4).** Si la dirección no se entiende y el cliente no quiere o no puede mandar un pin, se acepta su descripción tal cual ("la casa azul detrás del policlínico"):
-  - el cliente elige su **municipio con botones** (los 15 de La Habana), para que el canal siga mostrando la zona;
+  - el cliente elige su **municipio con botones** (los 15 de La Habana) y después su **reparto**: con botones si el municipio tiene 10 o menos, escrito si tiene más ("Alamar zona 6"). Si la descripción ya nombra un reparto, se usa directamente (decisión 67);
   - el **contacto es obligatorio** (@usuario o teléfono), porque el chofer seguramente tendrá que llamar para orientarse;
   - el canal lo marca: "📝 Dirección escrita, sin ubicación exacta";
   - la descripción es tan sensible como un pin: no va al canal ni a los logs, y el chofer la recibe solo cuando el cliente lo confirma.
-- **Distancia aproximada (fase 4).** Si uno de los dos puntos (o los dos) no tiene coordenadas exactas, se usa el centro de su municipio, se calcula la ruta con OSRM y los km se multiplican por **1,5** para cubrir la incertidumbre del chofer. El precio sugerido y el mínimo salen de esos km, y el canal los muestra como aproximados ("≈10 km"). El factor se calibra en el piloto.
+- **Distancia aproximada (fase 4).** Si uno de los dos puntos (o los dos) no tiene coordenadas exactas, se usa el punto de su reparto (un municipio es demasiado grande: Habana del Este mide más de 30 km), se calcula la ruta con OSRM y los km se multiplican por **1,5** para cubrir la incertidumbre del chofer. El precio sugerido y el mínimo salen de esos km, y el canal los muestra como aproximados ("≈10 km"). El factor se calibra en el piloto.
 - **Jev (TypeSafe) para interpretar direcciones, opcional** (se activa con un interruptor de configuración):
   - **Cómo se usa.** Jev no genera texto: elige entre opciones (`Choice`), puntúa o responde sí/no, y devuelve una **confianza**. Su propia documentación recomienda el patrón que usamos: las reglas encuentran candidatos y Jev elige cuál es el correcto, con una opción "ninguna".
     - Con confianza alta, se geocodifica.
@@ -562,7 +562,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 53 | Lluvia de contraofertas: cada una llega al cliente como un mensaje propio con Aceptar y Rechazar, y se borra cuando vence, se rechaza, se reemplaza o se cierra la solicitud | 2026-10-14 |
 | 54 | Mientras espera la confirmación, el chofer puede pulsar Retirarme: la solicitud vuelve a ABIERTA y al canal. Si el cliente no confirma en 5 min, la solicitud se sigue cancelando (decisión 51) | 2026-10-14 |
 | 55 | Descripción libre como último recurso: municipio elegido con botones, contacto obligatorio, marcada en el canal; el texto solo llega al chofer al confirmar (fase 4) | 2026-10-14 |
-| 56 | Sin coordenadas exactas, la distancia se estima desde el centro del municipio con OSRM y se multiplica por 1,5; el canal la muestra como aproximada (fase 4) | 2026-10-14 |
+| 56 | Sin coordenadas exactas, la distancia se estima desde el centro del municipio con OSRM y se multiplica por 1,5; el canal la muestra como aproximada (fase 4). *El punto pasa a ser el reparto (decisión 67)* | 2026-10-14 |
 | 57 | El canal muestra, junto al municipio, la esquina más cercana de origen y destino; nunca enlaces de ubicación ni la dirección completa (fase 4) | 2026-10-14 |
 | 58 | *Sustituida por la decisión 60.* Soporte en un supergrupo privado de admins con un tema por caso: respuestas anónimas como "Soporte", notas internas con `//`, Cerrar caso borra el tema, cierre automático a los 7 días sin mensajes, alertas en un tema semanal, el bot invita y expulsa a los admins | 2026-10-14 |
 | 59 | Los admins actúan con botones en la consulta por código de soporte, las alertas y las fichas (Bloquear 24 h, Bloquear, Desbloquear, Quitar chofer), sin escribir IDs de Telegram | 2026-10-14 |
@@ -573,3 +573,5 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 64 | Con varios candidatos para una dirección escrita: si Jev elige con confianza ≥ 0,7 se usa esa; si no, se ofrecen como botones las opciones con probabilidad ≥ 0,3 (máximo 4) más "Ninguna de estas"; sin ninguna, se pide el pin o la descripción con municipio | 2026-10-14 |
 | 65 | Los admins invitan choferes solo con enlace de un solo uso; se descarta el selector de contactos | 2026-10-14 |
 | 66 | Despliegue con Docker Compose: el bot y un OSRM propio cuyo mapa de Cuba se descarga y prepara en el primer arranque (volumen `osrm-data`); la base de datos va en el volumen `bot-data`. Igual en local y en el VPS (ver `docs/docker.md`) | 2026-10-14 |
+| 67 | Una descripción sin pin se sitúa en su reparto, no en el municipio: tras el municipio se elige el reparto (botones si hay 10 o menos, escrito si hay más); si la descripción ya nombra un reparto, se usa directamente | 2026-10-14 |
+| 68 | La oferta inicial se ajusta con botones −1000, −500, −100, +100, +500 y +1000 sobre el precio sugerido (nunca por debajo del mínimo), mostrando el precio por km | 2026-10-14 |
