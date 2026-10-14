@@ -583,3 +583,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 74 | Contraoferta desde el bot con botones +50, +100, +500 y +1000 sobre el precio vigente (en una fila) o un monto escrito, y Cancelar debajo | 2026-10-14 |
 | 75 | Bitcoin como tercer método de pago, directo entre cliente y chofer como los otros; los métodos se muestran uno debajo del otro | 2026-10-14 |
 | 76 | El chofer ya no declara en su ficha qué pagos acepta: el canal muestra el método de cada solicitud y él decide si la toma. La columna `drivers.payment_methods` queda sin uso | 2026-10-14 |
+| 77 | Cuando hay que elegir entre direcciones, cada botón dice municipio (nombre corto: Plaza, 10 de Octubre, San Miguel, Habana Vieja), reparto y el resto de la dirección. El municipio se omite si todas las opciones están en el mismo, y el reparto si se llama como el municipio. El mensaje sigue listando cada dirección completa | 2026-10-14 |
