@@ -6,3 +6,6 @@
 *.sqlite-*
 /osrm-data/
 CLAUDE.md
+
+# Generated from OSM by scripts/prepare_osm.py; versioned like zones.geojson.
+!data/streets.sqlite
