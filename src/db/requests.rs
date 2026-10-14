@@ -218,6 +218,12 @@ pub async fn set_channel_msg(pool: &SqlitePool, id: &RequestId, msg_id: i32) -> 
     Ok(())
 }
 
+/// The post left the channel (the trip was taken): nothing to delete at the end.
+pub async fn clear_channel_msg(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<()> {
+    sqlx::query("UPDATE requests SET channel_msg_id = NULL WHERE id = ?").bind(id.as_str()).execute(pool).await?;
+    Ok(())
+}
+
 /// Deletes the request only if it is still in `expected` state, so that two
 /// concurrent closes (Completed twice, a cancel racing an acceptance, the
 /// sweeper racing a user) apply their effects once. Returns whether it won.

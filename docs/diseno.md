@@ -225,7 +225,7 @@ Efectos al entrar en cada estado:
 | Al entrar en… | El bot hace |
 | --- | --- |
 | POR CONFIRMAR | Marca al chofer como ocupado, edita el mensaje del canal a "En confirmación" (sin botones) y envía al cliente la ficha del chofer con Confirmar y Cancelar |
-| ASIGNADA | Marca al chofer como ocupado, retira todas sus contraofertas en otras solicitudes, avisa a los choferes que contraofertaron en esta, edita el mensaje del canal a "Tomado" |
+| ASIGNADA | Marca al chofer como ocupado, retira todas sus contraofertas en otras solicitudes, avisa a los choferes que contraofertaron en esta, borra el mensaje del canal |
 | FINALIZADA | Libera al chofer, borra el mensaje del canal, crea la calificación pendiente y elimina la solicitud |
 | CANCELADA | Lo mismo que FINALIZADA (sin calificación), más una cancelación registrada para el cliente cuando corresponde (ver [Datos](#datos)) |
 | EXPIRADA | Borra el mensaje del canal y le ofrece al cliente "¿Publicar de nuevo?" |
@@ -591,3 +591,5 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 82 | El tipo de lugar se muestra en español (casa de renta, heladería, policlínico, círculo infantil…) solo para los tipos comunes; los vagos o raros ("information") no se muestran, ni el que ya dice el nombre ("Hospital …"). Se acepta la calle seguida de las entrecalles sin "entre" ("Calle L 23 y 21") | 2026-10-14 |
 | 83 | Los avisos durante el viaje repiten los botones del viaje: "Tu chofer llegó" lleva al cliente Ya voy, Compartir, Completado y Cancelar; "El cliente va para allá" lleva al chofer Llegué, Completado y Cancelar. Completado sigue disponible para ambos (decisión 6) | 2026-10-14 |
 | 84 | Contraoferta acumulativa: el monto empieza en el precio del cliente y cada toque lo cambia (arriba −100, −1k, −5k, −10k; abajo +100, +1k, +5k, +10k) (nunca por debajo del precio del cliente); el mensaje se edita con el monto. Abajo, ✅ Enviar y ❌ Cancelar; Enviar sin haber subido el monto pide subirlo o usar Aceptar en el canal. Un monto escrito se envía directamente | 2026-10-14 |
+| 85 | Al asignarse un viaje, su mensaje se borra del canal en vez de editarse a "Tomada": el canal muestra solo ofertas abiertas. "En confirmación" se mantiene, porque la solicitud puede volver al canal si el cliente no confirma | 2026-10-14 |
+| 86 | El cliente ajusta su precio con los mismos pasos que la contraoferta: arriba −100, −1k, −5k, −10k; abajo +100, +1k, +5k, +10k; nunca por debajo del mínimo | 2026-10-14 |

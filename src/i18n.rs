@@ -712,13 +712,6 @@ pub fn place(lang: Lang, place: Place) -> &'static str {
     }
 }
 
-pub fn channel_taken(lang: Lang, request: &RequestId) -> String {
-    match lang {
-        Lang::Es => format!("✅ Solicitud {request}: tomada."),
-        Lang::En => format!("✅ Request {request}: taken."),
-    }
-}
-
 /// To the client when a driver accepts: who is coming and how to reach them.
 pub fn driver_assigned(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown, username: Option<&str>) -> String {
     let rep = reputation(lang, driver, false);

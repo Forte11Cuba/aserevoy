@@ -38,12 +38,12 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                     log_failure(bot.edit_message_text(app.channel, MessageId(msg), text).await, "mark confirming");
                 }
             }
-            Effect::MarkChannelTaken { .. } => {
+            Effect::ChannelTaken { .. } => {
                 let metric = db::metrics::assigned(&app.pool, &local_date(now()), request.price, request.suggested).await;
                 log_failure(metric, "metrics");
-                if let Some(msg) = request.channel_msg_id {
-                    let text = i18n::channel_taken(CHANNEL_LANG, &request.id);
-                    log_failure(bot.edit_message_text(app.channel, MessageId(msg), text).await, "mark taken");
+                if let Some(msg) = request.channel_msg_id.take() {
+                    log_failure(bot.delete_message(app.channel, MessageId(msg)).await, "delete taken post");
+                    log_failure(db::requests::clear_channel_msg(&app.pool, &request.id).await, "clear post");
                 }
             }
             Effect::DeleteFromChannel { .. } => {
