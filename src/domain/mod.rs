@@ -3,4 +3,5 @@
 pub mod effect;
 pub mod fare;
 pub mod ids;
+pub mod phone;
 pub mod request;

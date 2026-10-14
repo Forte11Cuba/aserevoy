@@ -13,6 +13,8 @@ pub struct Config {
     pub database_url: String,
     pub superadmins: Vec<UserId>,
     pub offers_channel_id: Option<i64>,
+    /// Hex key that encrypts drivers' phones at rest.
+    pub phone_key: Option<String>,
     pub osrm_url: String,
     pub typesafe_api_key: Option<String>,
     pub jev_enabled: bool,
@@ -43,6 +45,7 @@ impl Config {
             offers_channel_id: optional("OFFERS_CHANNEL_ID")
                 .map(|v| v.parse().context("OFFERS_CHANNEL_ID must be numeric"))
                 .transpose()?,
+            phone_key: optional("PHONE_KEY"),
             osrm_url: optional("OSRM_URL").unwrap_or_else(|| "http://localhost:5000".into()),
             typesafe_api_key: optional("TYPESAFE_API_KEY"),
             jev_enabled: parse_or("JEV_ENABLED", false)?,

@@ -1,4 +1,5 @@
 mod config;
+mod crypto;
 mod db;
 mod domain;
 mod i18n;
