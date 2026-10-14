@@ -55,6 +55,8 @@ pub enum Button {
     // Main menu (reply keyboard).
     RequestRide,
     ApplyDriver,
+    WorkWithUs,
+    ApplyManager,
     MyProfile,
     DriverMenu,
     MyStats,
@@ -125,7 +127,7 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 20] = [
+const REPLY_BUTTONS: [Button; 21] = [
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -135,6 +137,7 @@ const REPLY_BUTTONS: [Button; 20] = [
     Button::StepBack,
     Button::RequestRide,
     Button::ApplyDriver,
+    Button::WorkWithUs,
     Button::MyProfile,
     Button::DriverMenu,
     Button::MyStats,
@@ -153,6 +156,10 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
     match (lang, b) {
         (Lang::Es, RequestRide) => "🛵 Pedir viaje",
         (Lang::En, RequestRide) => "🛵 Request a ride",
+        (Lang::Es, WorkWithUs) => "🤝 Trabaja con nosotros",
+        (Lang::En, WorkWithUs) => "🤝 Work with us",
+        (Lang::Es, ApplyManager) => "🏢 Aplicar a gestor (próximamente)",
+        (Lang::En, ApplyManager) => "🏢 Apply as a manager (coming soon)",
         (Lang::Es, ApplyDriver) => "🧑‍✈️ Aplicar a ser chofer",
         (Lang::En, ApplyDriver) => "🧑‍✈️ Apply to drive",
         (Lang::Es, MyProfile) => "🪪 Mi ficha",
@@ -354,6 +361,8 @@ pub enum Text {
     NoActiveRequest,
     // Driver profile.
     AskAlias,
+    WorkWithUs,
+    ManagerSoon,
     AskFullName,
     InvalidFullName,
     DriverMenu,
@@ -543,6 +552,14 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, NameApproved) => "✅ Your full name was approved.",
         (Lang::Es, NameRejected) => "❌ Tu cambio de nombre no fue aprobado. Si crees que es un error, escribe a soporte.",
         (Lang::En, NameRejected) => "❌ Your name change wasn't approved. If you think it's a mistake, write to support.",
+        (Lang::Es, WorkWithUs) => {
+            "🤝 Trabaja con nosotros\n\n🧑‍✈️ Chofer: recibe ofertas de viaje en el canal y pon tu precio.\n🏢 Gestor: si tienes tu agencia, conecta a tus clientes con nuestros choferes (próximamente)."
+        }
+        (Lang::En, WorkWithUs) => {
+            "🤝 Work with us\n\n🧑‍✈️ Driver: get trip offers in the channel and set your price.\n🏢 Manager: if you run an agency, connect your clients with our drivers (coming soon)."
+        }
+        (Lang::Es, ManagerSoon) => "🏢 Los gestores llegan pronto. Ya avisé al equipo de que te interesa; te escribiremos.",
+        (Lang::En, ManagerSoon) => "🏢 Managers are coming soon. I've told the team you're interested; we'll write to you.",
         (Lang::Es, AskAlias) => "🧑 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
         (Lang::En, AskAlias) => "🧑 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
@@ -872,6 +889,15 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
 }
 
 /// To admins: a new driver application to approve or reject.
+/// To staff: someone wants to be a manager (not available yet).
+pub fn manager_interest(lang: Lang, username: Option<&str>) -> String {
+    let who = username.map(|u| format!("@{u}")).unwrap_or_else(|| "?".into());
+    match lang {
+        Lang::Es => format!("🏢 {who} quiere ser gestor (próximamente). Escríbele cuando esté disponible."),
+        Lang::En => format!("🏢 {who} wants to be a manager (coming soon). Write to them when it's available."),
+    }
+}
+
 /// Under the driver's own profile: the name waiting for approval.
 pub fn name_pending(lang: Lang, name: &str) -> String {
     match lang {

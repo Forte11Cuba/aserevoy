@@ -97,6 +97,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
     match pressed {
         Some(Button::RequestRide) => client::start(&cx).await,
         Some(Button::ApplyDriver) => driver::apply(&cx).await,
+        Some(Button::WorkWithUs) => driver::work_with_us(&cx).await,
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
         Some(Button::DriverMenu) => driver::menu(&cx).await,
         Some(Button::MyStats) => driver::stats(&cx).await,
@@ -296,6 +297,14 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
         ("dok" | "dno", _) => driver::review(&cx, kind == "dok", arg, pressed).await?,
         ("dna" | "dnr", _) => driver::review_name(&cx, kind == "dna", arg, pressed).await?,
         ("df", _) => driver::edit_field(&cx, arg).await?,
+        ("work", _) => {
+            spend(pressed).await;
+            match arg {
+                "drv" => driver::apply(&cx).await?,
+                _ => driver::manager_interest(&cx, q.from.username.as_deref()).await?,
+            }
+            None
+        }
         // The old "✏️ Edit profile" button: the profile with its field buttons.
         ("dedit", _) => {
             driver::show_profile(&cx).await?;

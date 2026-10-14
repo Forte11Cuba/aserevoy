@@ -2,7 +2,7 @@
 //! profile form, approval by staff, and editing the profile later.
 
 use teloxide::prelude::*;
-use teloxide::types::{FileId, InputFile, KeyboardButton, MessageId};
+use teloxide::types::{FileId, InlineKeyboardMarkup, InputFile, KeyboardButton, MessageId};
 
 use super::client::Ctx;
 use super::dialog::{Dialog, DriverForm, FormStep};
@@ -21,6 +21,28 @@ pub async fn apply(cx: &Ctx<'_>) -> anyhow::Result<()> {
         None => start_form(cx, DriverForm::default()).await,
         Some(status) => refuse(cx, status).await,
     }
+}
+
+/// "🤝 Work with us": what each role is, with a button to apply.
+pub async fn work_with_us(cx: &Ctx<'_>) -> anyhow::Result<()> {
+    if cx.app.driver_status(cx.user).await?.is_some() {
+        return menu(cx).await;
+    }
+    cx.bot
+        .send_message(chat(cx.user), i18n::text(cx.lang, Text::WorkWithUs))
+        .reply_markup(keyboards::work_with_us(cx.lang))
+        .await?;
+    Ok(())
+}
+
+/// "🏢 Apply as a manager": not yet (version 2). The admins hear who is
+/// interested, to write to them when it is.
+pub async fn manager_interest(cx: &Ctx<'_>, username: Option<&str>) -> anyhow::Result<()> {
+    tracing::info!("manager interest");
+    let text = |lang| i18n::manager_interest(lang, username);
+    support::alert(cx.bot, cx.app, text, None, |_| InlineKeyboardMarkup::default()).await?;
+    cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::ManagerSoon)).await?;
+    Ok(())
 }
 
 /// `/start inv_<code>`.

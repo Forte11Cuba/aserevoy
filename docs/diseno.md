@@ -43,7 +43,7 @@ Hay un solo bot. Lo que cada persona ve depende de su rol, y el rol se comprueba
 
 **Alta de choferes y gestores.** Hay dos caminos:
 
-- **Aplicar desde el bot:** en el menú de cualquier usuario están los botones **"Aplicar a ser chofer"** y, en la versión 2, **"Aplicar a ser gestor"**. La persona completa su ficha y los admins reciben la solicitud con los botones Aprobar y Rechazar.
+- **Aplicar desde el bot:** en el menú de quien no es chofer ni gestor está **"🤝 Trabaja con nosotros"**, con **"Aplicar a chofer"** y **"Aplicar a gestor"** (este, "próximamente" hasta la versión 2). La persona completa su ficha y los admins reciben la solicitud con los botones Aprobar y Rechazar.
 - **Invitación de un admin:** el admin pulsa "Invitar chofer" (o "Añadir gestor" en la v2) y recibe un **enlace de invitación de un solo uso** (`t.me/AsereVoyBot?start=inv_X7K2`), que le pasa a la persona. Es la única forma de invitar (decisión 65). La persona abre el enlace y completa su ficha.
 
 En los dos casos:
@@ -86,17 +86,22 @@ En los dos casos:
 
 Un gestor tiene su propio grupo de clientes y usa el bot para conectarlos con choferes, poniendo su propio precio. Su beneficio es la diferencia entre lo que paga el cliente y lo que cobra el chofer.
 
-**Cómo funciona una solicitud de gestor:**
+Un gestor suele ser una **agencia**: tiene sus propios clientes y los conecta con nuestros choferes. Ejemplo: la agencia cierra con su cliente un viaje en 3500 CUP y el viaje se asigna a un chofer en 3300; el chofer cobra 3500 al cliente y le entrega 200 al gestor.
+
+**Su ficha** lleva alias, nombre de la agencia (el que verán los choferes), nombre completo y celular (cifrados), y pasa por la aprobación de un admin como la de un chofer.
+
+**Cómo funciona una solicitud de agencia:**
 
 1. El gestor crea la solicitud en nombre de su cliente:
    - recogida y destino, igual que un cliente;
    - **contacto del cliente final** (nombre y teléfono), obligatorio, porque ese cliente no usa el bot;
-   - **dos precios**: el **precio para el chofer**, que es el que se publica y se subasta, y el **precio para el cliente**, que es lo que paga el cliente y nunca puede ser menor que el del chofer.
-2. En el canal, la oferta aparece marcada **🧑‍💼 Vía gestor**, con la reputación del gestor, el precio para el chofer, lo que el cliente paga y la **comisión** que el chofer deberá entregar al gestor.
-3. Las contraofertas y las subidas de precio afectan al precio para el chofer. El gestor decide si mantiene el precio para el cliente (y reduce su comisión) o lo cambia.
+   - **precio para el cliente**: lo que el cliente paga al chofer;
+   - **precio mínimo y precio máximo para el chofer** (decisión 91). El mínimo es el que se publica en el canal y con el que empieza la subasta; el máximo es lo más que la agencia está dispuesta a pagar al chofer y nunca supera el precio para el cliente. Las contraofertas por encima del máximo no se envían.
+2. En el canal, la oferta sale como **🏢 Viaje de agencia: <nombre de la agencia>**, con su reputación, el precio para el chofer y, para que el chofer sepa a qué se compromete, lo que cobra al cliente y la **comisión** que entrega a la agencia.
+3. Las contraofertas y las subidas de precio afectan al precio para el chofer, siempre entre el mínimo y el máximo. La comisión es la diferencia con el precio para el cliente.
 4. Al asignar:
-   - el chofer recibe el contacto del cliente final y el del gestor, cuánto cobrar al cliente y cuánto entregar al gestor;
-   - el gestor recibe los datos del chofer.
+   - el chofer recibe el contacto del cliente final y el del gestor, cuánto cobrar al cliente y cuánto entregar a la agencia;
+   - el gestor recibe los datos del chofer, con su nombre completo.
 
    Ese mensaje queda en el chat de cada uno como constancia; el servidor no guarda historial.
 5. El gestor puede marcar Ya voy y Completado en nombre de su cliente. El chofer califica al gestor.
@@ -104,9 +109,16 @@ Un gestor tiene su propio grupo de clientes y usa el bot para conectarlos con ch
 **Reglas:**
 
 - El gestor puede tener **varias solicitudes abiertas** a la vez.
-- **El pago de la comisión se hace directamente del chofer al gestor.** El bot no interviene ni asume responsabilidad; los términos del gestor y del chofer lo dicen expresamente. Si hay un problema, cualquiera de los dos puede escribir a soporte.
-- El precio mínimo se aplica al precio para el chofer.
+- **El pago de la comisión se hace directamente del chofer al gestor.** El bot no interviene ni asume responsabilidad; los términos del gestor y del chofer lo dicen expresamente. Si hay un problema, cualquiera de los dos puede escribir a soporte, y un gestor puede reportar a un chofer que no pagó.
+- El precio mínimo de la tarifa se aplica al precio para el chofer.
 - Las cancelaciones de las solicitudes de un gestor cuentan para el gestor.
+
+**Menú.** Quien no es chofer ni gestor ve **🤝 Trabaja con nosotros**, con "Aplicar a chofer" y "Aplicar a gestor" (en el MVP, "próximamente": se avisa a los admins de quién está interesado). Un chofer ve **🏍 Chofer**; un gestor verá **🏢 Gestor**, con sus solicitudes abiertas y su ficha.
+
+**Preguntas abiertas de la v2:**
+
+- ¿El máximo de la agencia lo ven los choferes, o solo sirve para filtrar contraofertas sin revelarlo? Recomendación: oculto; al chofer que se pasa se le dice "por encima de lo que acepta esta agencia", sin el número.
+- ¿Una persona puede ser chofer y gestor a la vez? Si sí, el menú muestra los dos botones.
 
 ## Ubicación y precio
 
@@ -489,7 +501,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 - [ ] ¿Cómo se cobra el servicio: comisión por viaje, suscripción de choferes o gratis al inicio?
 - [x] ¿Se permiten varias solicitudes abiertas para quien pide viajes para otros? → Sí, con el rol de gestor (ver [Gestores](#gestores)).
 - [x] ¿El soporte funciona con un grupo privado de admins con un tema por usuario, o con mensajes privados a cada admin? → Ninguno de los dos: una cuenta de Telegram atendida por personas, con código de soporte (decisión 60).
-- [ ] (v2) Gestores: ¿el chofer debe ver en el canal el precio para el cliente y la comisión, o solo su propio precio?
+- [x] (v2) Gestores: ¿el chofer debe ver en el canal el precio para el cliente y la comisión, o solo su propio precio? → Los ve, para saber a qué se compromete (decisión 91).
 - [x] ¿Qué puede hacer exactamente un admin frente a un superadmin? → El admin gestiona choferes, bloqueos y reportes; el superadmin, además, gestiona admins y tarifas.
 - [x] ¿Se añade `/emergencia` con los números de Cuba? → No por ahora.
 - [ ] ¿Los clientes en la zona piloto realmente usan Telegram? **Decide si el proyecto sigue.** Se comprobará en el piloto, sin validación previa.
@@ -597,3 +609,5 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 88 | El chofer edita su ficha campo por campo con un botón por campo. Al aplicar se pide el nombre completo (al menos nombre y apellido), cifrado como el celular. Un cambio de nombre completo espera aprobación de un admin (sigue el anterior mientras); un cambio de chapa o de foto se guarda y se avisa a los admins; los demás campos, sin aviso. A los choferes de antes se les pide al abrir su ficha | 2026-10-14 |
 | 89 | El cliente ve el nombre completo del chofer, por seguridad, en la ficha para confirmarlo y al asignarse el viaje | 2026-10-14 |
 | 90 | Sin canal de alertas por ahora: las alertas (solicitudes de chofer, cambios de nombre con el antes y el después y Aprobar o Rechazar, cambios de chapa o foto, reportes) llegan a cada admin y superadmin por privado; el primero que decide gana y a los demás el botón les dice que ya se decidió | 2026-10-14 |
+| 91 | Versión 2 — Gestores como agencias: en el canal, "🏢 Viaje de agencia: <nombre>"; la agencia fija el precio para el cliente y un precio mínimo (publicado) y máximo para el chofer; la subasta se mueve entre ambos; el chofer ve en el canal lo que cobra al cliente y la comisión | 2026-10-15 |
+| 92 | Botón "🤝 Trabaja con nosotros" para quien no es chofer: "Aplicar a chofer" y "Aplicar a gestor" (próximamente; avisa a los admins del interesado). Los choferes ven "🏍 Chofer"; los gestores verán "🏢 Gestor" | 2026-10-15 |
