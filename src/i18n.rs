@@ -614,6 +614,24 @@ pub fn confirm_written(lang: Lang, pickup: bool, label: &str) -> String {
     }
 }
 
+/// The client's description placed at a reparto, to confirm.
+pub fn confirm_approx(lang: Lang, pickup: bool, note: &str, municipality: &str) -> String {
+    match (lang, pickup) {
+        (Lang::Es, true) => format!(
+            "📍 {note}, {municipality}\nSin ubicación exacta: el punto del mapa es el centro del reparto. ¿Te recogemos por aquí?"
+        ),
+        (Lang::En, true) => format!(
+            "📍 {note}, {municipality}\nNo exact location: the point on the map is the middle of the reparto. Is the pickup around here?"
+        ),
+        (Lang::Es, false) => format!(
+            "🏁 {note}, {municipality}\nSin ubicación exacta: el punto del mapa es el centro del reparto. ¿El destino es por aquí?"
+        ),
+        (Lang::En, false) => format!(
+            "🏁 {note}, {municipality}\nNo exact location: the point on the map is the middle of the reparto. Is the destination around here?"
+        ),
+    }
+}
+
 /// To the driver, for a point without an exact location.
 pub fn approx_point(lang: Lang, place: Place, note: &str, municipality: Option<&str>) -> String {
     let municipality = municipality.unwrap_or("?");
@@ -1345,6 +1363,13 @@ mod tests {
     fn candidates_are_listed_in_full_and_numbered() {
         let text = choose_address(Lang::Es, &["Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este", "78 en Habana del Este"]);
         assert!(text.contains("\n1. Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este\n2. 78"), "{text}");
+    }
+
+    #[test]
+    fn a_described_point_is_confirmed_with_its_reparto() {
+        let text = confirm_approx(Lang::Es, true, "Calle 5 y 6 alamar (Alamar)", "Habana del Este");
+        assert!(text.starts_with("📍 Calle 5 y 6 alamar (Alamar), Habana del Este\n"), "{text}");
+        assert!(text.ends_with("¿Te recogemos por aquí?"), "{text}");
     }
 
     #[test]

@@ -73,6 +73,9 @@ pub enum Ride {
         choices: Vec<Candidate>,
     },
     ConfirmDropoff { pickup: Spot, dropoff: Point, label: Option<String> },
+    /// A description placed at a reparto: "is it around here?" before going
+    /// on. `pickup` is `None` while the pickup itself is being confirmed.
+    ConfirmApprox { pickup: Option<Spot>, spot: Spot },
     /// The client adjusts their offer, starting at the suggested price.
     Price { trip: Trip, offer: Cup },
     Payment { trip: Trip, price: Cup },
