@@ -679,11 +679,11 @@ pub fn driver_confirmed(lang: Lang, request: &RequestId, p: &Profile) -> String 
 pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup) -> String {
     match lang {
         Lang::Es => format!(
-            "💬 {} hace tu viaje {request} por {amount} CUP.\n🏍 {}, {}\n\nVale 5 min.",
+            "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n🧑 {}\n🏍 {}, {}\n\nVale 5 min.",
             p.alias, p.bike_model, p.bike_color
         ),
         Lang::En => format!(
-            "💬 {} will do your trip {request} for {amount} CUP.\n🏍 {}, {}\n\nValid for 5 min.",
+            "💬 Counteroffer for your trip {request}\n\n💰 {amount} CUP\n🧑 {}\n🏍 {}, {}\n\nValid for 5 min.",
             p.alias, p.bike_model, p.bike_color
         ),
     }

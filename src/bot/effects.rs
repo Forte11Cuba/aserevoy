@@ -123,7 +123,7 @@ async fn show_offer(bot: &Bot, app: &App, request: &Request, driver: UserId) -> 
     let sent = bot
         .send_photo(chat(client), photo)
         .caption(i18n::offer_card(lang, &request.id, &profile, offer.amount))
-        .reply_markup(keyboards::offer(lang, &request.id, driver, offer.amount))
+        .reply_markup(keyboards::offer(lang, &request.id, driver))
         .await?;
     if !db::counteroffers::set_msg(&app.pool, &request.id, driver, offer.expires_at, sent.id.0).await? {
         log_failure(bot.delete_message(chat(client), sent.id).await, "hide stale offer");

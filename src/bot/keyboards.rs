@@ -132,13 +132,10 @@ pub fn counteroffer_amounts(request: &RequestId, price: Cup) -> InlineKeyboardMa
     InlineKeyboardMarkup::new(vec![row])
 }
 
-/// Under one counteroffer: accept it or reject it.
-pub fn offer(lang: Lang, request: &RequestId, driver: UserId, amount: Cup) -> InlineKeyboardMarkup {
+/// Under one counteroffer: accept it or reject it (the amount is in the message).
+pub fn offer(lang: Lang, request: &RequestId, driver: UserId) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::callback(
-            format!("{} {amount} CUP", button(lang, Button::Accept)),
-            format!("coa:{request}:{}", driver.0),
-        ),
+        inline(lang, Button::Accept, format!("coa:{request}:{}", driver.0)),
         inline(lang, Button::Reject, format!("cor:{request}:{}", driver.0)),
     ]])
 }
