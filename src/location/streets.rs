@@ -321,13 +321,27 @@ pub fn normalize(text: &str) -> String {
             _ => ' ',
         })
         .collect();
-    let words: Vec<String> = plain.split_whitespace().map(ordinal).collect();
+    let words = join_letter_suffixes(plain.split_whitespace().map(ordinal).collect());
     let meaningful: Vec<&String> = words.iter().filter(|w| !GENERIC.contains(&w.as_str())).collect();
     // "Paseo" or "La Rampa" alone are names: keep the words if all are generic.
     if meaningful.is_empty() {
         return words.join(" ");
     }
     meaningful.iter().map(|w| w.as_str()).collect::<Vec<_>>().join(" ")
+}
+
+/// A number followed by a single letter is one name, however it is written:
+/// "160 C" and "160C" → "160c"; "7ma C" → "7c".
+fn join_letter_suffixes(words: Vec<String>) -> Vec<String> {
+    let mut joined: Vec<String> = Vec::with_capacity(words.len());
+    for word in words {
+        let is_letter = word.len() == 1 && word.chars().all(|c| c.is_ascii_lowercase());
+        match joined.last_mut() {
+            Some(prev) if is_letter && prev.chars().all(|c| c.is_ascii_digit()) => prev.push_str(&word),
+            _ => joined.push(word),
+        }
+    }
+    joined
 }
 
 /// "5ta" → "5", "1ra" → "1", "quinta" → "5".
@@ -400,6 +414,10 @@ mod tests {
         assert_eq!(normalize("Paseo"), "paseo");
         assert_eq!(normalize("Calle L"), "l");
         assert_eq!(normalize("1ra"), "1");
+        assert_eq!(normalize("160 C"), "160c");
+        assert_eq!(normalize("160C"), "160c");
+        assert_eq!(normalize("7ma C"), "7c");
+        assert_eq!(normalize("Avenida Séptima"), "7");
     }
 
     #[test]
@@ -455,6 +473,11 @@ mod tests {
         assert!(found.iter().any(|c| c.label.contains("Hermanos Ameijeiras") && c.municipality == "Centro Habana"));
 
         assert!(s.candidates("la casa azul detrás del policlínico").is_empty());
+
+        // Found in a live test: Alamar's streets are written "160 C" or "160C".
+        let found = s.candidates("7ma entre 160c y 160d, Alamar");
+        assert!(!found.is_empty(), "{found:?}");
+        assert!(found.iter().all(|c| c.municipality == "Habana del Este"));
     }
 
     #[tokio::test]
