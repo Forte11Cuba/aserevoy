@@ -3,6 +3,7 @@ mod crypto;
 mod db;
 mod domain;
 mod i18n;
+mod location;
 
 use tracing_subscriber::EnvFilter;
 
