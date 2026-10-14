@@ -158,13 +158,18 @@ flowchart TD
   B --> C["Método de pago: Efectivo / Transferencia"]
   C --> C2["Contacto (opcional): escribir o compartir un teléfono"]
   C2 --> D["Bot publica en el canal:<br/>zona, distancia, precio, método,<br/>⭐, viajes y días en el bot del cliente"]
-  D --> E{"Ronda de 5 min"}
-  E -->|"✅ Aceptar en el canal"| H["ASIGNADA"]
+  D --> E{"Abierta hasta 60 min"}
+  E -->|"✅ Aceptar en el canal"| P["POR CONFIRMAR: el cliente ve la ficha del chofer"]
+  P -->|"Confirma"| H["ASIGNADA"]
+  P -->|"Cancela o no responde en 5 min"| Y["CANCELADA: se borra del canal;<br/>el cliente vuelve a publicar si quiere"]
   E -->|"💬 Contraofertar: el chofer va al bot"| F["Cliente ve la lista editable con ⭐ de cada chofer"]
   F -->|"Acepta una vigente"| H
-  E -->|"Nadie responde o el cliente quiere"| G["Cliente sube el precio: nueva ronda"]
-  G --> D
-  E -->|"3 rondas sin éxito"| X["EXPIRADA"]
+  E -->|"Cuando el cliente quiera"| G["Cliente sube el precio"]
+  G --> E
+  E -->|"A los 30 min: ¿Sigues esperando?"| Q{"Responde en 10 min"}
+  Q -->|"Sí"| E
+  Q -->|"No responde"| X["EXPIRADA"]
+  E -->|"60 min sin chofer"| X
   H --> I["Cliente recibe: alias, foto, moto, chapa, ⭐, celular<br/>Chofer recibe: ubicación exacta, referencia y contacto"]
   I --> I2["Cliente: Ya voy · Chofer: Llegué"]
   I2 --> J["Chofer o cliente: Completado"]
@@ -174,13 +179,20 @@ flowchart TD
 
 Reglas del flujo:
 
-- **Rondas de 5 minutos**, con un máximo de 3. El cliente puede subir el precio en cualquier momento; al subirlo, se edita el mismo mensaje del canal y empieza una ronda nueva. Hay que limitar la frecuencia de edición (Telegram permite unos 20 mensajes por minuto en un chat).
+- **La solicitud vive hasta 60 minutos** en el canal, sin rondas. El mensaje no se vuelve a publicar arriba. El cliente puede subir el precio o cancelar en cualquier momento; al subir el precio se edita el mismo mensaje del canal. Hay que limitar la frecuencia de edición (Telegram permite unos 20 mensajes por minuto en un chat).
+- **"¿Sigues esperando?"** a los 30 minutos, con los botones Sí, Subir precio y Cancelar. Si el cliente no responde en 10 minutos, la solicitud expira. Así no quedan solicitudes abandonadas en el canal.
+- **Confirmación del cliente:** cuando un chofer pulsa Aceptar en el canal, la solicitud queda reservada para él (POR CONFIRMAR) y el cliente recibe su ficha (foto, moto, chapa y, desde la fase 3, estrellas y viajes) con los botones Confirmar y Cancelar. Tiene 5 minutos.
+  - Si confirma, se asigna y se intercambian los contactos. El chofer no recibe la ubicación exacta ni el contacto del cliente hasta ese momento.
+  - Si cancela o no responde a tiempo, la solicitud se cancela: se borra del canal, se avisa al chofer y el cliente tiene que volver a publicar. No cuenta como cancelación del cliente, porque el viaje no estaba asignado.
+  - Mientras espera la confirmación, el chofer cuenta como ocupado y no puede aceptar otra solicitud.
+  - Si los 60 minutos se cumplen durante una confirmación, se espera a que termine.
+  - Aceptar una contraoferta no necesita este paso: el cliente ya eligió al chofer.
 - **Oferta inicial** con botones sugeridos, por ejemplo `[sugerido] [+50] [+100]`; no se permite bajar del precio mínimo.
 - **Método de pago:** Efectivo (por defecto) o Transferencia (Transfermóvil, EnZona). Se muestra en el canal para que solo acepte quien pueda cobrarlo. Los datos para transferir los da el chofer al cliente; no pasan por el bot.
 - **Contacto del cliente:** al pedir el viaje, si el cliente no tiene @usuario, el bot le ofrece (es opcional) escribir un número o compartir el suyo con el botón de Telegram (`request_contact`), para que el chofer pueda llamarlo. El número solo vive en la solicitud y se borra al cerrarla.
 - **Contraoferta:** en el chat privado con el bot, con botones de monto (+50, +100, +150 CUP). Vence en 5 minutos. No hay límite de contraofertas: si el cliente rechaza una, el chofer puede hacer otra. La nueva contraoferta de un chofer reemplaza a la anterior en la lista.
 - **El cliente ve las contraofertas en un único mensaje** que se va editando, con la reputación de cada chofer y los botones Aceptar y Rechazar en cada una. Al aceptar, el bot comprueba que siga vigente y, si no, avisa.
-- **Asignación atómica:** gana el primer chofer que acepta (ver [Datos](#datos)).
+- **Reserva atómica:** el primer chofer que acepta se queda la solicitud mientras el cliente confirma (ver [Datos](#datos)).
 - **Conexión:** al asignar, el cliente recibe los datos del chofer (incluido su celular) y el chofer recibe la ubicación exacta de la recogida y el destino (`sendVenue`, con título), la referencia y el contacto del cliente (@usuario y/o teléfono). El chat intermediado por el bot queda para más adelante.
 - **Encuentro:** el cliente tiene el botón **Ya voy** y el chofer, **Llegué**. Cada uno avisa al otro y deja registrada la hora en la solicitud, que sirve para atribuir las cancelaciones.
 - **Compartir viaje:** el cliente puede generar un texto con el alias, la moto, la chapa y la hora para reenviárselo a un familiar. No se guarda nada en el servidor.
@@ -190,9 +202,12 @@ Reglas del flujo:
 ```mermaid
 stateDiagram-v2
   [*] --> ABIERTA
-  ABIERTA --> ABIERTA: llega contraoferta / cliente sube precio (ronda nueva)
-  ABIERTA --> ASIGNADA: chofer acepta el precio / cliente acepta contraoferta vigente
-  ABIERTA --> EXPIRADA: 3 rondas sin éxito o el cliente no responde
+  ABIERTA --> ABIERTA: llega contraoferta / cliente sube precio / responde "¿Sigues esperando?"
+  ABIERTA --> POR_CONFIRMAR: un chofer acepta en el canal
+  POR_CONFIRMAR --> ASIGNADA: el cliente confirma
+  POR_CONFIRMAR --> CANCELADA: el cliente cancela o no responde en 5 min (no cuenta)
+  ABIERTA --> ASIGNADA: el cliente acepta una contraoferta vigente
+  ABIERTA --> EXPIRADA: 60 min sin chofer o sin respuesta a "¿Sigues esperando?" en 10 min
   ABIERTA --> CANCELADA: el cliente cancela
   ASIGNADA --> FINALIZADA: chofer o cliente marca Completado / cierre automático a las 2 h
   ASIGNADA --> CANCELADA: cliente o chofer cancela (cuenta para penalización)
@@ -201,12 +216,13 @@ stateDiagram-v2
   CANCELADA --> [*]
 ```
 
-Hay cinco estados. Una solicitud ABIERTA lleva su lista de contraofertas activas. Cada solicitud tiene un ID corto, el precio vigente, el método de pago, la ronda actual, las contraofertas activas y un `vence_en` que se reinicia en cada ronda.
+Hay seis estados. Una solicitud ABIERTA lleva su lista de contraofertas activas. Cada solicitud tiene un ID corto, el precio vigente, el método de pago, las contraofertas activas, el plazo de 60 minutos, la hora de la pregunta "¿Sigues esperando?" y, en POR CONFIRMAR, el chofer reservado y el plazo de 5 minutos.
 
 Efectos al entrar en cada estado:
 
 | Al entrar en… | El bot hace |
 | --- | --- |
+| POR CONFIRMAR | Marca al chofer como ocupado, edita el mensaje del canal a "En confirmación" (sin botones) y envía al cliente la ficha del chofer con Confirmar y Cancelar |
 | ASIGNADA | Marca al chofer como ocupado, retira todas sus contraofertas en otras solicitudes, avisa a los choferes que contraofertaron en esta, edita el mensaje del canal a "Tomado" |
 | FINALIZADA | Libera al chofer, borra el mensaje del canal, crea la calificación pendiente y elimina la solicitud |
 | CANCELADA | Lo mismo que FINALIZADA (sin calificación), más una cancelación registrada para el cliente cuando corresponde (ver [Datos](#datos)) |
@@ -242,7 +258,7 @@ Todo vive en un solo archivo SQLite. Lo temporal se borra al cerrar; lo permanen
 | `bloqueados` | Permanente | `telegram_id`, rol, motivo (texto corto), `hasta` (`NULL` = permanente), fecha, `bloqueado_por` |
 | `cancelaciones` | Vence a los 30 días | `telegram_id`, rol, fecha |
 | `tarifas` | Configuración | clave, valor |
-| `solicitudes` | Temporal, se borra al cerrar | ID corto, `cliente_id` (o `gestor_id` en v2), teléfono de contacto (opcional; en v2, obligatorio con el nombre del cliente final si es de gestor), recogida, destino, referencia, km, precio (para el chofer), `precio_cliente` (solo gestor, v2), método, ronda, estado, `chofer_id`, `msg_canal_id`, `asignada_en`, `ya_voy_en`, `llego_en`, `vence_en` |
+| `solicitudes` | Temporal, se borra al cerrar | ID corto, `cliente_id` (o `gestor_id` en v2), teléfono de contacto (opcional; en v2, obligatorio con el nombre del cliente final si es de gestor), recogida, destino, referencia, km, precio (para el chofer), `precio_cliente` (solo gestor, v2), método, estado, `chofer_id` (reservado o asignado), `msg_canal_id`, `asignada_en`, `pregunta_en` ("¿Sigues esperando?"), `confirmar_hasta`, `ya_voy_en`, `llego_en`, `vence_en` (60 min) |
 | `contraofertas` | Temporal | `solicitud_id`, `chofer_id`, monto, `vence_en` |
 | `calificaciones_pendientes` | Temporal, 24 h | `cliente_id`, `chofer_id`, notas y etiquetas de cada lado, `vence_en` |
 | `pares_recientes` | Temporal, 7 días | HMAC del par cliente-chofer, `vence_en` |
@@ -254,7 +270,7 @@ Los contornos de los municipios (`data/zones.geojson`) y, más adelante, los lug
 **Asignación atómica.** Una sola sentencia decide el ganador:
 
 ```sql
-UPDATE solicitudes SET estado = 'ASIGNADA', chofer_id = ?
+UPDATE solicitudes SET estado = 'POR_CONFIRMAR', chofer_id = ?
 WHERE id = ? AND estado = 'ABIERTA';
 -- filas afectadas = 1 → ganó; 0 → "Ya fue tomado"
 ```
@@ -288,7 +304,7 @@ flowchart TD
   end
   U <--> B["Capa del bot (teloxide)<br/>handlers por rol + despachador de efectos"]
   C <--> B
-  B <--> L["Dominio<br/>estados, rondas, ofertas, precio, reputación"]
+  B <--> L["Dominio<br/>estados, plazos, ofertas, precio, reputación"]
   L --> B
   B <--> DB["SQLite<br/>temporal + permanente"]
   W["Barrido cada 10 s<br/>vencimientos y métricas"] --> L
@@ -318,7 +334,7 @@ pub fn accept(&mut self, driver: UserId, now: UnixTime) -> Result<Vec<Effect>, D
 }
 ```
 
-**Los vencimientos se resuelven con un barrido.** Cada 10 segundos una tarea revisa las filas con `vence_en < ahora` (rondas, contraofertas, cierre automático a las 2 h, calificaciones, bloqueos temporales, invitaciones) y actualiza `metricas_diarias`. No hay temporizadores en memoria, así que un reinicio no pierde nada.
+**Los vencimientos se resuelven con un barrido.** Cada 10 segundos una tarea revisa las filas con `vence_en < ahora` (plazo de 60 min, "¿Sigues esperando?", confirmación del cliente, contraofertas, cierre automático a las 2 h, calificaciones, bloqueos temporales, invitaciones) y actualiza `metricas_diarias`. No hay temporizadores en memoria, así que un reinicio no pierde nada.
 
 **Límites de Telegram:**
 
@@ -430,7 +446,7 @@ El desarrollo va por fases; cada una deja algo que funciona de principio a fin. 
 | Fase | Contenido | Resultado |
 | --- | --- | --- |
 | **1. Núcleo** | Proyecto, migraciones de SQLite y superadmin desde `.env`. Alta de choferes por enlace de invitación y por "Aplicar a ser chofer", con ficha editable desde el bot. Solicitud solo con pin, OSRM y tarifa fija. Publicación en el canal y aceptación atómica. Intercambio de contacto. Completado, Cancelar y barrido | Un viaje real de principio a fin |
-| **2. Subasta** | Rondas de 5 min, subir el precio, Republicar, contraofertas con enlace al bot, lista editable con Aceptar y Rechazar | La experiencia tipo inDrive |
+| **2. Subasta** | Solicitud abierta hasta 60 min con "¿Sigues esperando?" a los 30 min, confirmación del chofer por el cliente, subir el precio, Republicar, contraofertas con enlace al bot, lista editable con Aceptar y Rechazar | La experiencia tipo inDrive |
 | **3. Confianza** | Ya voy y Llegué, cancelaciones del cliente según el motivo, bloqueos, reputación ciega (estrellas, viajes y días en el bot), botón 💬 Soporte, Compartir viaje, rol de admin, términos y aviso de privacidad, anti-flood | Listo para usuarios que no conoces |
 | **4. Comodidad** | Direcciones escritas (reglas y `calles.sqlite`), Jev opcional (probado antes con direcciones cubanas reales), selector de contactos para el alta de choferes, `metricas_diarias`, tasa USD desde la API de elTOQUE | Menos fricción |
 | **5. Piloto** | Una zona, pocos choferes de confianza, despliegue en producción, copias de seguridad cifradas diarias, alertas de error a los superadmins | Datos reales |
@@ -438,7 +454,7 @@ El desarrollo va por fases; cada una deja algo que funciona de principio a fin. 
 
 **Pruebas.**
 
-- La lógica de dominio no depende de Telegram, así que la máquina de estados, las rondas, los precios y las cancelaciones se prueban con tests unitarios.
+- La lógica de dominio no depende de Telegram, así que la máquina de estados, los plazos, los precios y las cancelaciones se prueban con tests unitarios.
 - La asignación atómica se prueba con un test que lanza N aceptaciones en paralelo y comprueba que hay exactamente un ganador.
 - Las pruebas de integración usan un bot y un canal de prueba con su propio token.
 
@@ -459,7 +475,7 @@ El desarrollo va por fases; cada una deja algo que funciona de principio a fin. 
 Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 
 - [x] **¿Cómo se llama el bot?** → **Asere Voy** (`@AsereVoyBot`). Falta reservarlo en BotFather.
-- [x] ¿Cuánto dura cada ronda? → 5 minutos, máximo 3 rondas; el cliente puede subir el precio en cualquier momento.
+- [x] ¿Cuánto dura cada ronda? → Ya no hay rondas: la solicitud vive hasta 60 minutos y el cliente puede subir el precio en cualquier momento (decisión 49).
 - [x] ¿Qué pasa si el cliente acepta una contraoferta que justo venció? → El bot comprueba que siga vigente y, si no, avisa. Al asignarse un chofer, sus contraofertas se retiran.
 - [x] ¿Qué ocurre cuando un chofer cancela ya asignado? → Botón "Republicar al mismo precio"; sin reasignación automática y, al principio, sin penalizar al chofer.
 - [x] ¿Puede una misma persona ser cliente y chofer? → Sí, en el mismo bot; no puede aceptar su propia solicitud.
@@ -479,7 +495,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 - [ ] ¿Qué se dice a los usuarios sobre privacidad, datos y reputación?
 - [ ] ¿Valores iniciales de tarifa: `base`, `tarifa_km` y `% mínimo`? (Para calibrarlos, preguntar a los choferes del piloto cuánto cobran hoy por trayectos típicos.)
 - [ ] ¿Cuándo y cómo pasar `tarifa_km` del modo fijo al modo combustible? ¿Las motos del piloto son de gasolina, eléctricas o de los dos tipos?
-- [ ] ¿Cuánto espera el bot a que el cliente responda "¿subir oferta?" antes de expirar?
+- [x] ¿Cuánto espera el bot a que el cliente responda "¿subir oferta?" antes de expirar? → Pregunta "¿Sigues esperando?" a los 30 minutos y espera 10 (decisión 50).
 - [ ] ¿Cuáles son los lugares de referencia de la zona piloto? (La zona aproximada del canal ya no depende de esto: usa los municipios de La Habana.)
 - [x] ¿Dónde corre en producción? → En un VPS fuera de Cuba, pagado desde fuera.
 
@@ -487,7 +503,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 
 | # | Decisión | Fecha |
 | --- | --- | --- |
-| 1 | Rondas y contraofertas de 5 min, máximo 3 rondas; `vence_en` se reinicia en cada ronda | 2026-10-13 |
+| 1 | Rondas y contraofertas de 5 min, máximo 3 rondas; `vence_en` se reinicia en cada ronda. *Las rondas quedan sustituidas por la decisión 49; las contraofertas siguen venciendo a los 5 min* | 2026-10-13 |
 | 2 | WhatsApp descartado (costo por mensaje y probable bloqueo de la Cloud API en Cuba) | 2026-10-13 |
 | 3 | Pago en CUP, método elegido por el cliente (efectivo o transferencia); sin datos bancarios en el bot | 2026-10-13 |
 | 4 | Roles verificados en el servidor en cada acción; entrada al canal con solicitud de unión solo para choferes activos | 2026-10-13 |
@@ -535,3 +551,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 46 | Al asignar, el chofer recibe la recogida y el destino; en el canal solo la zona aproximada de cada uno | 2026-10-14 |
 | 47 | Zona aproximada del canal: municipio de La Habana donde cae cada pin (contornos de OSM en `data/zones.geojson`, point-in-polygon); sustituye a la lista de repartos | 2026-10-14 |
 | 48 | Atribución de OpenStreetMap (ODbL) en `data/README.md` y, en la fase 3, en los términos del bot; los datos derivados de OSM no quedan bajo la licencia MIT | 2026-10-14 |
+| 49 | La solicitud vive hasta 60 min en el canal, sin rondas y sin volver a publicarla arriba; el cliente sube el precio o cancela cuando quiera | 2026-10-14 |
+| 50 | "¿Sigues esperando?" a los 30 min; si el cliente no responde en 10 min, la solicitud expira | 2026-10-14 |
+| 51 | Cuando un chofer acepta en el canal, el cliente confirma o cancela en 5 min viendo su ficha (estado POR CONFIRMAR); si cancela o no responde, la solicitud se borra del canal, no cuenta como cancelación y el cliente vuelve a publicar. El chofer recibe ubicación y contacto solo tras la confirmación | 2026-10-14 |
+| 52 | Se mantiene el flujo largo para pedir el viaje (confirmación de cada pin, referencia, precio, pago y teléfono por separado) | 2026-10-14 |
