@@ -8,13 +8,18 @@ use crate::domain::ids::UserId;
 /// Settings read from the environment (`.env` in development). See `.env.example`.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Optional until the bot layer exists; required to run the bot.
+    /// Without it the program only prepares the database and exits.
     pub telegram_token: Option<String>,
     pub database_url: String,
     pub superadmins: Vec<UserId>,
     pub offers_channel_id: Option<i64>,
+    /// Hex key that encrypts drivers' phones at rest.
+    pub phone_key: Option<String>,
     pub osrm_url: String,
+    // Jev (typed addresses) arrives in phase 4.
+    #[allow(dead_code)]
     pub typesafe_api_key: Option<String>,
+    #[allow(dead_code)]
     pub jev_enabled: bool,
     pub default_fares: Fares,
 }
@@ -43,6 +48,7 @@ impl Config {
             offers_channel_id: optional("OFFERS_CHANNEL_ID")
                 .map(|v| v.parse().context("OFFERS_CHANNEL_ID must be numeric"))
                 .transpose()?,
+            phone_key: optional("PHONE_KEY"),
             osrm_url: optional("OSRM_URL").unwrap_or_else(|| "http://localhost:5000".into()),
             typesafe_api_key: optional("TYPESAFE_API_KEY"),
             jev_enabled: parse_or("JEV_ENABLED", false)?,

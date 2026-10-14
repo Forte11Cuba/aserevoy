@@ -101,6 +101,45 @@ pub async fn set_channel_msg(pool: &SqlitePool, id: &RequestId, msg_id: i32) -> 
     Ok(())
 }
 
+/// Deletes the request only if it is still in `expected` state, so that two
+/// concurrent closes (Completed twice, a cancel racing an acceptance, the
+/// sweeper racing a user) apply their effects once. Returns whether it won.
+pub async fn close(pool: &SqlitePool, id: &RequestId, expected: State) -> sqlx::Result<bool> {
+    let done = sqlx::query("DELETE FROM requests WHERE id = ? AND state = ?")
+        .bind(id.as_str())
+        .bind(expected.as_str())
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// The open or assigned request where `user` is the client, or the assigned
+/// trip where `user` is the driver.
+pub async fn active_for(pool: &SqlitePool, user: UserId) -> sqlx::Result<Option<Request>> {
+    sqlx::query(
+        "SELECT * FROM requests
+         WHERE (client_id = ? AND state IN ('open', 'assigned'))
+            OR (driver_id = ? AND state = 'assigned')
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(user.0)
+    .bind(user.0)
+    .fetch_optional(pool)
+    .await?
+    .map(|row| from_row(&row))
+    .transpose()
+}
+
+/// Whether the driver already holds an assigned trip.
+pub async fn driver_busy(pool: &SqlitePool, driver: UserId) -> sqlx::Result<bool> {
+    let found: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM requests WHERE driver_id = ? AND state = 'assigned'")
+            .bind(driver.0)
+            .fetch_optional(pool)
+            .await?;
+    Ok(found.is_some())
+}
+
 /// Removes a closed request. Nothing about the trip is kept.
 pub async fn forget(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM requests WHERE id = ?")
@@ -228,6 +267,30 @@ mod tests {
         insert(&pool, &r).await.unwrap();
         assert!(!try_assign(&pool, &r.id, UserId(1), T0 + 1).await.unwrap());
         assert!(!try_assign(&pool, &r.id, UserId(9), T0 + ROUND_SECS).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn close_wins_once_and_only_from_the_expected_state() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        try_assign(&pool, &r.id, UserId(9), T0 + 1).await.unwrap();
+        assert!(!close(&pool, &r.id, State::Open).await.unwrap());
+        assert!(close(&pool, &r.id, State::Assigned).await.unwrap());
+        assert!(!close(&pool, &r.id, State::Assigned).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn active_for_finds_clients_and_drivers() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        assert_eq!(active_for(&pool, UserId(1)).await.unwrap().unwrap().id, r.id);
+        assert!(active_for(&pool, UserId(9)).await.unwrap().is_none());
+        assert!(!driver_busy(&pool, UserId(9)).await.unwrap());
+        try_assign(&pool, &r.id, UserId(9), T0 + 1).await.unwrap();
+        assert_eq!(active_for(&pool, UserId(9)).await.unwrap().unwrap().id, r.id);
+        assert!(driver_busy(&pool, UserId(9)).await.unwrap());
     }
 
     #[tokio::test]

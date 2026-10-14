@@ -34,6 +34,31 @@ impl RequestId {
     }
 }
 
+/// One-use code of a driver invitation link (`t.me/AsereVoyBot?start=inv_<code>`).
+/// Long enough that it cannot be guessed.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InviteCode(String);
+
+const INVITE_LEN: usize = 12;
+
+impl InviteCode {
+    pub fn generate(rng: &mut impl rand::Rng) -> Self {
+        let code = (0..INVITE_LEN)
+            .map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char)
+            .collect();
+        InviteCode(code)
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        let valid = s.len() == INVITE_LEN && s.bytes().all(|b| ALPHABET.contains(&b));
+        valid.then(|| InviteCode(s.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 impl fmt::Display for RequestId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
@@ -51,6 +76,14 @@ mod tests {
             let id = RequestId::generate(&mut rng);
             assert_eq!(RequestId::parse(id.as_str()), Some(id));
         }
+    }
+
+    #[test]
+    fn invite_codes_are_long_and_parse_back() {
+        let code = InviteCode::generate(&mut rand::rng());
+        assert_eq!(code.as_str().len(), 12);
+        assert_eq!(InviteCode::parse(code.as_str()), Some(code));
+        assert!(InviteCode::parse("AB7K").is_none());
     }
 
     #[test]

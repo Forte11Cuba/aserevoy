@@ -147,7 +147,7 @@ La recogida y el destino pueden llegar como pin de ubicación o como dirección 
     - Cualquier cambio, manual o automático, tiene un tope de ±10 % y el bot avisa si el dato lleva más de 14 días sin actualizarse.
 
   En `metricas_diarias` se registra la relación precio final / precio sugerido, que sirve para ajustar la tarifa con cualquiera de los dos modos.
-- La zona aproximada que se muestra en el canal sale de una lista propia de repartos con sus coordenadas (el más cercano).
+- La zona aproximada que se muestra en el canal es el **municipio** de La Habana donde cae cada pin ("📍 Plaza de la Revolución → Centro Habana"); si el pin está fuera de todos, no se muestra zona. Los contornos están en `data/zones.geojson`, generado una vez con `scripts/prepare_zones.py` (osmium + shapely) a partir de `cuba-latest.osm.pbf`: municipios (`admin_level=6`) dentro de la provincia (`admin_level=4`), simplificados. El bot calcula el municipio con point-in-polygon (crate `geo`). En los pins que recibe el chofer, la dirección es también el municipio.
 
 ## Flujo de la subasta
 
@@ -181,7 +181,7 @@ Reglas del flujo:
 - **Contraoferta:** en el chat privado con el bot, con botones de monto (+50, +100, +150 CUP). Vence en 5 minutos. No hay límite de contraofertas: si el cliente rechaza una, el chofer puede hacer otra. La nueva contraoferta de un chofer reemplaza a la anterior en la lista.
 - **El cliente ve las contraofertas en un único mensaje** que se va editando, con la reputación de cada chofer y los botones Aceptar y Rechazar en cada una. Al aceptar, el bot comprueba que siga vigente y, si no, avisa.
 - **Asignación atómica:** gana el primer chofer que acepta (ver [Datos](#datos)).
-- **Conexión:** al asignar, el cliente recibe los datos del chofer (incluido su celular) y el chofer recibe la ubicación exacta (`sendLocation`), la referencia y el contacto del cliente (@usuario y/o teléfono). El chat intermediado por el bot queda para más adelante.
+- **Conexión:** al asignar, el cliente recibe los datos del chofer (incluido su celular) y el chofer recibe la ubicación exacta de la recogida y el destino (`sendVenue`, con título), la referencia y el contacto del cliente (@usuario y/o teléfono). El chat intermediado por el bot queda para más adelante.
 - **Encuentro:** el cliente tiene el botón **Ya voy** y el chofer, **Llegué**. Cada uno avisa al otro y deja registrada la hora en la solicitud, que sirve para atribuir las cancelaciones.
 - **Compartir viaje:** el cliente puede generar un texto con el alias, la moto, la chapa y la hora para reenviárselo a un familiar. No se guarda nada en el servidor.
 
@@ -249,7 +249,7 @@ Todo vive en un solo archivo SQLite. Lo temporal se borra al cerrar; lo permanen
 | `user_prefs` | Permanente | `telegram_id`, idioma (`es` o `en`), solo si el usuario lo cambió |
 | `metricas_diarias` | Agregada, sin IDs | fecha, solicitudes, asignadas, expiradas, canceladas, km promedio, precio promedio, relación precio final / sugerido |
 
-Los repartos y lugares de referencia de la zona piloto son un archivo de datos estático en el repositorio (CSV o JSON), no una tabla.
+Los contornos de los municipios (`data/zones.geojson`) y, más adelante, los lugares de referencia de la zona piloto son archivos de datos estáticos en el repositorio, no tablas.
 
 **Asignación atómica.** Una sola sentencia decide el ganador:
 
@@ -349,8 +349,10 @@ aserevoy/
   .env.example            # variables de configuración (el .env real no se sube)
   migrations/             # esquema SQLite
   docs/diseno.md          # este documento
-  data/neighborhoods.csv  # repartos y lugares de referencia del piloto
+  data/zones.geojson      # contornos de los municipios de La Habana (zona aproximada, ODbL)
+  data/README.md          # origen y atribución de los datos de OpenStreetMap
   scripts/prepare_osm.py  # genera streets.sqlite a partir del extracto de OSM
+  scripts/prepare_zones.py # genera data/zones.geojson a partir del extracto de OSM
   src/
     main.rs               # arranca el bot y el barrido
     config.rs             # lectura del .env
@@ -417,6 +419,7 @@ Sin historial de viajes, el control descansa en pocas reglas simples, la reputac
 **Aspectos legales**
 
 - **Términos y aviso de privacidad** que cada persona acepta la primera vez que inicia el bot. Deben decir que la plataforma solo conecta a cliente y chofer, que no es transportista ni asegura viajes, y qué datos se guardan.
+- **Atribución de OpenStreetMap:** los contornos de los municipios y las rutas (OSRM) salen de datos de OpenStreetMap (licencia ODbL). Los términos del bot (fase 3) deben incluir "Datos del mapa © colaboradores de OpenStreetMap"; en el repositorio, la atribución está en `data/README.md`. El código es MIT, pero `data/zones.geojson` sigue bajo la ODbL.
 - **Soporte** (quejas, accidentes, robos, cobros abusivos, problemas con la comisión de un gestor) con el botón 💬 Soporte; llega a los admins.
 - **Comisión del gestor (v2):** el bot no interviene en el pago entre chofer y gestor ni asume responsabilidad; lo dicen los términos de ambos.
 
@@ -477,7 +480,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 - [ ] ¿Valores iniciales de tarifa: `base`, `tarifa_km` y `% mínimo`? (Para calibrarlos, preguntar a los choferes del piloto cuánto cobran hoy por trayectos típicos.)
 - [ ] ¿Cuándo y cómo pasar `tarifa_km` del modo fijo al modo combustible? ¿Las motos del piloto son de gasolina, eléctricas o de los dos tipos?
 - [ ] ¿Cuánto espera el bot a que el cliente responda "¿subir oferta?" antes de expirar?
-- [ ] ¿Cuáles son los repartos y lugares de referencia de la zona piloto?
+- [ ] ¿Cuáles son los lugares de referencia de la zona piloto? (La zona aproximada del canal ya no depende de esto: usa los municipios de La Habana.)
 - [x] ¿Dónde corre en producción? → En un VPS fuera de Cuba, pagado desde fuera.
 
 ## Registro de decisiones
@@ -528,3 +531,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 42 | Nombre del bot: Asere Voy (`@AsereVoyBot`), con la descripción "Conectamos pasajeros y choferes. Tú propones el precio." | 2026-10-14 |
 | 43 | El código (nombres, tablas, comentarios) va en inglés; el documento de diseño sigue en español | 2026-10-14 |
 | 44 | Bot bilingüe: español por defecto e inglés según el idioma de Telegram, con botón para cambiarlo; textos en `src/i18n.rs` | 2026-10-14 |
+| 45 | Licencia MIT para el código del proyecto | 2026-10-14 |
+| 46 | Al asignar, el chofer recibe la recogida y el destino; en el canal solo la zona aproximada de cada uno | 2026-10-14 |
+| 47 | Zona aproximada del canal: municipio de La Habana donde cae cada pin (contornos de OSM en `data/zones.geojson`, point-in-polygon); sustituye a la lista de repartos | 2026-10-14 |
+| 48 | Atribución de OpenStreetMap (ODbL) en `data/README.md` y, en la fase 3, en los términos del bot; los datos derivados de OSM no quedan bajo la licencia MIT | 2026-10-14 |
