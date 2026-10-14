@@ -19,7 +19,7 @@ fn inline(lang: Lang, b: Button, data: impl Into<String>) -> InlineKeyboardButto
 }
 
 pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup {
-    let profile = if is_driver { Button::DriverMenu } else { Button::ApplyDriver };
+    let profile = if is_driver { Button::DriverMenu } else { Button::WorkWithUs };
     let mut rows = vec![vec![reply(lang, Button::RequestRide)], vec![reply(lang, profile)]];
     if is_staff {
         rows.push(vec![reply(lang, Button::AdminPanel)]);
@@ -437,6 +437,14 @@ pub fn profile_fields(lang: Lang) -> InlineKeyboardMarkup {
         vec![field(Button::FieldAlias, "al"), field(Button::FieldFullName, "fn"), field(Button::FieldPhone, "ph")],
         vec![field(Button::FieldPlate, "pl"), field(Button::FieldModel, "bm"), field(Button::FieldColor, "bc")],
         vec![field(Button::FieldPhoto, "pp"), field(Button::FieldBikePhoto, "bp")],
+    ])
+}
+
+/// "🤝 Work with us": apply as a driver, or as a manager (coming soon).
+pub fn work_with_us(lang: Lang) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![inline(lang, Button::ApplyDriver, "work:drv")],
+        vec![inline(lang, Button::ApplyManager, "work:mgr")],
     ])
 }
 
