@@ -872,6 +872,14 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
 }
 
 /// To admins: a new driver application to approve or reject.
+/// Added to the admin's welcome: where staff alerts arrive.
+pub fn alerts_channel_link(lang: Lang, link: &str) -> String {
+    match lang {
+        Lang::Es => format!("\n\n🔔 Únete al canal de alertas del equipo: {link}"),
+        Lang::En => format!("\n\n🔔 Join the team's alerts channel: {link}"),
+    }
+}
+
 /// Under the driver's own profile: the name waiting for approval.
 pub fn name_pending(lang: Lang, name: &str) -> String {
     match lang {

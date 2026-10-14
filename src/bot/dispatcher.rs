@@ -171,7 +171,9 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
     }
     let data = q.data.as_deref().unwrap_or_default();
     let (kind, arg) = data.split_once(':').unwrap_or((data, ""));
-    let pressed: Option<MessageId> = q.message.as_ref().map(|m| m.id());
+    // Only a message in the user's own chat: handlers edit it there. One in
+    // the alerts channel has the same kind of id and must not be mistaken.
+    let pressed: Option<MessageId> = q.message.as_ref().filter(|m| m.chat().id == chat(cx.user)).map(|m| m.id());
     let spend = |msg: Option<MessageId>| async move {
         if let Some(msg) = msg {
             let _ = bot.edit_message_reply_markup(chat(cx.user), msg).await;
@@ -307,6 +309,15 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
         }
         _ => None,
     };
+    // Staff acted on an alert in the alerts channel: the others see it done.
+    if let (Some(outcome), Some(msg), Some(channel)) = (&alert, q.regular_message(), app.config.alerts_channel_id)
+        && msg.chat.id.0 == channel
+        && matches!(kind, "dok" | "dno" | "dna" | "dnr" | "adm")
+        && app.is_staff(cx.user).await?
+    {
+        let who = q.from.username.as_deref().unwrap_or("?");
+        support::mark_alert_handled(bot, msg, who, outcome).await;
+    }
     Ok(alert)
 }
 

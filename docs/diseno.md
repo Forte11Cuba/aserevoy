@@ -36,7 +36,7 @@ Hay un solo bot. Lo que cada persona ve depende de su rol, y el rol se comprueba
 | Rol | Cómo se obtiene | Qué hace | Qué se guarda |
 | --- | --- | --- | --- |
 | Cliente | Cualquiera que abra el bot (`t.me/AsereVoyBot` o QR), acepte los términos y pulse Iniciar | Pide viaje, ofrece precio, elige método de pago, acepta o rechaza contraofertas, marca Ya voy y Completado, califica | Su reputación agregada y la fecha de su primer uso; su ID y su teléfono (opcional) mientras dura una solicitud |
-| Chofer | Aplica desde el bot o un admin lo invita; un admin lo aprueba | Además de lo anterior: ve ofertas en el canal, acepta o contraoferta, marca Llegué y Completado, califica al cliente | Registro permanente: alias, celular, chapa, moto, fotos, estado; reputación agregada |
+| Chofer | Aplica desde el bot o un admin lo invita; un admin lo aprueba | Además de lo anterior: ve ofertas en el canal, acepta o contraoferta, marca Llegué y Completado, califica al cliente | Registro permanente: alias, nombre completo y celular (cifrados), chapa, moto, fotos, estado; reputación agregada |
 | Gestor *(versión 2)* | Aplica desde el bot o un admin lo invita; un admin lo aprueba | Además de lo que hace un cliente: pide viajes para sus propios clientes, con su propio precio, y puede tener varias solicitudes abiertas (ver [Gestores](#gestores)) | Registro permanente: alias, celular, estado; reputación agregada |
 | Admin | Un superadmin lo nombra y puede quitarlo en cualquier momento | Además de lo anterior: aprueba, invita o quita choferes y gestores, bloquea usuarios, atiende el soporte y recibe alertas | Su ID; quién hizo cada acción administrativa |
 | Superadmin | Definido en `.env`; no se añade ni se quita desde el bot | Además de lo anterior: nombra y quita admins, quita choferes y gestores en cualquier momento, ajusta tarifas | Su ID (en `.env`) |
@@ -48,7 +48,7 @@ Hay un solo bot. Lo que cada persona ve depende de su rol, y el rol se comprueba
 
 En los dos casos:
 
-1. **La ficha del chofer** lleva alias, celular, chapa, modelo y color de la moto, **foto suya** (obligatoria), **foto de la moto** (opcional). El chofer no declara qué pagos acepta: lo decide oferta a oferta en el canal. **La del gestor** lleva alias y celular. Cada uno puede editar su ficha cuando quiera desde su perfil, sin volver a pasar por aprobación.
+1. **La ficha del chofer** lleva alias, **nombre completo** (como en el carnet; lo ven los admins y el cliente al asignarse el viaje), celular, chapa, modelo y color de la moto, **foto suya** (obligatoria), **foto de la moto** (opcional). El chofer no declara qué pagos acepta: lo decide oferta a oferta en el canal. **La del gestor** lleva alias y celular. Cada uno puede editar su ficha cuando quiera desde su perfil, sin volver a pasar por aprobación.
 2. Un admin aprueba la ficha y la persona pasa a `activo`.
 3. Si es chofer, el bot le envía el enlace del canal y aprueba su solicitud de unión.
 
@@ -252,7 +252,7 @@ Todo vive en un solo archivo SQLite. Lo temporal se borra al cerrar; lo permanen
 
 | Tabla | Tipo | Campos clave |
 | --- | --- | --- |
-| `choferes` | Permanente | `telegram_id`, alias, celular (cifrado), chapa, modelo y color de la moto, `file_id_foto_chofer`, `file_id_foto_moto` (opcional), estado (`pendiente`, `activo`, `bloqueado`), `fecha_alta`, `añadido_por`, `confirmado_por` |
+| `choferes` | Permanente | `telegram_id`, alias, nombre completo (cifrado; y el pendiente de aprobación), celular (cifrado), chapa, modelo y color de la moto, `file_id_foto_chofer`, `file_id_foto_moto` (opcional), estado (`pendiente`, `activo`, `bloqueado`), `fecha_alta`, `añadido_por`, `confirmado_por` |
 | `admins` | Permanente | `telegram_id`, `nombrado_por`, fecha (los superadmins viven solo en `.env`) |
 | `gestores` *(v2)* | Permanente | `telegram_id`, alias, celular (cifrado), estado (`pendiente`, `activo`, `bloqueado`), `fecha_alta`, `añadido_por`, `confirmado_por` |
 | `invitaciones` | Temporal | código aleatorio (10 caracteres o más), `creado_por`, `vence_en` (48 h), usado |
@@ -544,7 +544,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 35 | Botón Compartir viaje; invitaciones de un solo uso con caducidad a las 48 h; token en `.env` con permisos `600`; términos y aviso de privacidad al iniciar | 2026-10-14 |
 | 36 | Permisos: el admin gestiona choferes, bloqueos y reportes; el superadmin, además, admins y tarifas. Sin `/emergencia` por ahora | 2026-10-14 |
 | 37 | Plan en 5 fases (núcleo, subasta, confianza, comodidad, piloto), sin fase de validación previa | 2026-10-14 |
-| 38 | El chofer completa y edita su ficha desde el bot, sin volver a confirmación; foto suya obligatoria, foto de la moto opcional | 2026-10-14 |
+| 38 | El chofer completa y edita su ficha desde el bot, sin volver a confirmación; foto suya obligatoria, foto de la moto opcional (ver 88: el nombre completo sí vuelve a aprobación) | 2026-10-14 |
 | 39 | VPS y pagos de servicios (Jev, VPS) fuera de Cuba | 2026-10-14 |
 | 40 | Botones "Aplicar a ser chofer" y "Aplicar a ser gestor"; un admin aprueba | 2026-10-14 |
 | 41 | Versión 2 — Rol de gestor: crea solicitudes para sus clientes con precio para el chofer y precio para el cliente; varias solicitudes abiertas; el chofer paga la comisión directamente al gestor y el bot no asume responsabilidad | 2026-10-14 |
@@ -593,3 +593,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 84 | Contraoferta acumulativa: el monto empieza en el precio del cliente y cada toque lo cambia (arriba −100, −1k, −5k, −10k; abajo +100, +1k, +5k, +10k) (nunca por debajo del precio del cliente); el mensaje se edita con el monto. Abajo, ✅ Enviar y ❌ Cancelar; Enviar sin haber subido el monto pide subirlo o usar Aceptar en el canal. Un monto escrito se envía directamente | 2026-10-14 |
 | 85 | Al asignarse un viaje, su mensaje se borra del canal en vez de editarse a "Tomada": el canal muestra solo ofertas abiertas. "En confirmación" se mantiene, porque la solicitud puede volver al canal si el cliente no confirma | 2026-10-14 |
 | 86 | El cliente ajusta su precio con los mismos pasos que la contraoferta: arriba −100, −1k, −5k, −10k; abajo +100, +1k, +5k, +10k; nunca por debajo del mínimo | 2026-10-14 |
+| 87 | Menú 🏍 Chofer en lugar de "Mi ficha": teclado con 📊 Mis estadísticas (estrellas, calificaciones, viajes, días en el bot y etiquetas recibidas; nada de historial) y 🪪 Mi ficha | 2026-10-14 |
+| 88 | El chofer edita su ficha campo por campo con un botón por campo. Al aplicar se pide el nombre completo (al menos nombre y apellido), cifrado como el celular. Un cambio de nombre completo espera aprobación de un admin (sigue el anterior mientras); un cambio de chapa o de foto se guarda y se avisa a los admins; los demás campos, sin aviso. A los choferes de antes se les pide al abrir su ficha | 2026-10-14 |
+| 89 | El cliente ve el nombre completo del chofer, por seguridad, en la ficha para confirmarlo y al asignarse el viaje | 2026-10-14 |
+| 90 | Canal privado de alertas para el equipo (`ALERTS_CHANNEL_ID`, opcional): las alertas (solicitudes de chofer, cambios de ficha, reportes) se publican una vez ahí, en español; al actuar con un botón, el mensaje pierde los botones y dice quién hizo qué. Un admin nuevo recibe un enlace de un solo uso al canal y al quitarlo se le saca. Sin canal, las alertas llegan a cada admin por privado | 2026-10-14 |

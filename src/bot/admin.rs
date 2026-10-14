@@ -4,7 +4,7 @@
 use teloxide::prelude::*;
 
 use super::client::Ctx;
-use super::{App, chat, keyboards, now};
+use super::{App, chat, keyboards, now, support};
 use crate::db;
 use crate::db::invitations::InviteRole;
 use crate::db::moderation::BlockReason;
@@ -208,10 +208,11 @@ pub async fn redeem_admin_invite(cx: &Ctx<'_>, code: &str) -> anyhow::Result<()>
     };
     db::users::appoint_admin(&app.pool, cx.user, by, now()).await?;
     tracing::info!("admin appointed");
-    cx.bot
-        .send_message(chat(cx.user), i18n::text(cx.lang, Text::AdminWelcome))
-        .reply_markup(menu(cx.lang).await?)
-        .await?;
+    let mut welcome = i18n::text(cx.lang, Text::AdminWelcome).to_owned();
+    if let Some(link) = support::alerts_invite(cx.bot, app).await {
+        welcome.push_str(&i18n::alerts_channel_link(cx.lang, &link));
+    }
+    cx.bot.send_message(chat(cx.user), welcome).reply_markup(menu(cx.lang).await?).await?;
     Ok(())
 }
 
@@ -225,6 +226,7 @@ pub async fn remove_admin(cx: &Ctx<'_>, admin: UserId) -> anyhow::Result<Option<
         return Ok(Some(i18n::text(cx.lang, Text::AlreadyDecided).into()));
     }
     tracing::info!("admin removed");
+    support::leave_alerts(cx.bot, app, admin).await;
     let lang = app.lang_of(admin).await;
     let menu = app.menu(admin, lang).await?;
     let _ = cx.bot.send_message(chat(admin), i18n::text(lang, Text::AdminRemovedYou)).reply_markup(menu).await;

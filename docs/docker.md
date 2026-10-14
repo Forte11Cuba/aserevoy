@@ -12,6 +12,8 @@ docker compose logs -f bot
 
 El **primer arranque** descarga el mapa de Cuba de Geofabrik (unos 60 MB) y lo prepara para OSRM. En una máquina normal tarda menos de un minuto y usa hasta 1 GB de memoria mientras prepara. Los arranques siguientes reutilizan el mapa preparado.
 
+Para las alertas del equipo, crea un canal privado, añade el bot como administrador (publicar, editar, invitar y expulsar) y pon su id en `ALERTS_CHANNEL_ID`. Es opcional: sin él, cada admin recibe las alertas por privado.
+
 No hace falta poner `OSRM_URL`, `DATABASE_URL` ni `STREETS_DB` en `.env`: el compose los fija para los contenedores.
 
 ## Qué corre
