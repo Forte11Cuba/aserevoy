@@ -1,3 +1,4 @@
+use super::fare::Cup;
 use super::ids::{RequestId, UserId};
 use super::request::Point;
 
@@ -15,9 +16,11 @@ pub enum Effect {
     DeleteFromChannel { request: RequestId },
     Notify { to: UserId, notice: Notice },
     SendLocation { to: UserId, point: Point, place: Place },
-    /// Show the client the current counteroffers in their single, edited
-    /// message (or remove it when none are left).
-    RefreshOffers { request: RequestId },
+    /// Send the client a message with this driver's counteroffer (one
+    /// message per counteroffer).
+    ShowOffer { request: RequestId, driver: UserId },
+    /// Delete a counteroffer's message from the client's chat.
+    HideOffer { client: UserId, msg: i32 },
     /// The driver is now busy: drop their counteroffers on other requests.
     WithdrawDriverOffers { driver: UserId },
     /// The request reached a final state: delete its row.
@@ -59,6 +62,11 @@ pub enum Notice {
     CounterofferRejected { request: RequestId },
     /// To a driver who made a counteroffer: the request was taken or closed.
     RequestGone { request: RequestId },
+    /// To a driver whose counteroffer the client's new price made pointless.
+    OfferOutbid { request: RequestId, price: Cup },
+    /// To the client: the driver withdrew before being confirmed; the request
+    /// is back in the channel.
+    DriverWithdrew { request: RequestId },
     Completed { request: RequestId },
     /// The client cancelled the assigned trip.
     CancelledByClient { request: RequestId },

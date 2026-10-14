@@ -1,15 +1,15 @@
 //! Every 10 s: asks "still waiting?" and expires requests, releases drivers
 //! the client did not confirm, auto-completes forgotten trips, drops expired
-//! counteroffers, invitations and idle conversations.
+//! counteroffers (and their messages), invitations and idle conversations.
 //! Deadlines live in the database, so a restart loses nothing.
 
 use std::time::Duration;
 
-use teloxide::Bot;
+use teloxide::prelude::*;
+use teloxide::types::MessageId;
 
-use crate::bot::{App, AppRef, effects, now};
+use crate::bot::{App, AppRef, chat, effects, now};
 use crate::db;
-use crate::domain::effect::Effect;
 use crate::domain::request::{AUTO_COMPLETE_SECS, Request, Tick, UnixTime};
 
 const EVERY: Duration = Duration::from_secs(10);
@@ -33,12 +33,11 @@ async fn sweep(bot: &Bot, app: &App) -> anyhow::Result<()> {
             tracing::error!(request = %id, error = %e, "sweeping request failed");
         }
     }
-    for id in db::counteroffers::delete_expired(&app.pool, now).await? {
-        if let Some(mut request) = db::requests::get(&app.pool, &id).await? {
-            let refresh = vec![Effect::RefreshOffers { request: id.clone() }];
-            if let Err(e) = effects::apply(bot, app, &mut request, refresh).await {
-                tracing::error!(request = %id, error = %e, "refreshing offers failed");
-            }
+    for expired in db::counteroffers::take_expired(&app.pool, now).await? {
+        if let Some(msg) = expired.client_msg_id
+            && let Err(e) = bot.delete_message(chat(expired.client), MessageId(msg)).await
+        {
+            tracing::warn!(request = %expired.request, error = %e, "hiding expired offer failed");
         }
     }
     db::invitations::delete_expired(&app.pool, now).await?;

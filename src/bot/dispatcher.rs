@@ -123,11 +123,18 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             Some(amount) => Some(auction::counteroffer(&cx, &id, amount).await?),
             None => None,
         },
-        ("fin" | "can" | "cok" | "rai" | "kw", Some(id)) => {
+        ("fin" | "can" | "cok" | "cno" | "wd" | "rai" | "kw", Some(id)) => {
             let result = match kind {
                 "fin" => trip::complete(bot, app, cx.user, cx.lang, &id).await?,
+                "wd" => trip::withdraw(bot, app, cx.user, cx.lang, &id).await?,
                 "can" => trip::cancel(bot, app, cx.user, cx.lang, &id).await?,
-                "cok" => trip::confirm(bot, app, cx.user, cx.lang, &id).await?,
+                "cok" | "cno" => match number(arg) {
+                    Some(driver) => {
+                        let confirmed = kind == "cok";
+                        trip::confirm_or_decline(bot, app, cx.user, cx.lang, &id, UserId(driver), confirmed).await?
+                    }
+                    None => None,
+                },
                 "kw" => auction::keep_waiting(&cx, &id).await?,
                 _ => match number(arg) {
                     Some(price) => auction::raise(&cx, &id, price).await?,

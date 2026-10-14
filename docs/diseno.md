@@ -184,14 +184,15 @@ Reglas del flujo:
 - **Confirmación del cliente:** cuando un chofer pulsa Aceptar en el canal, la solicitud queda reservada para él (POR CONFIRMAR) y el cliente recibe su ficha (foto, moto, chapa y, desde la fase 3, estrellas y viajes) con los botones Confirmar y Cancelar. Tiene 5 minutos.
   - Si confirma, se asigna y se intercambian los contactos. El chofer no recibe la ubicación exacta ni el contacto del cliente hasta ese momento.
   - Si cancela o no responde a tiempo, la solicitud se cancela: se borra del canal, se avisa al chofer y el cliente tiene que volver a publicar. No cuenta como cancelación del cliente, porque el viaje no estaba asignado.
-  - Mientras espera la confirmación, el chofer cuenta como ocupado y no puede aceptar otra solicitud.
+  - Mientras espera la confirmación, el chofer cuenta como ocupado y no puede aceptar otra solicitud. Puede pulsar **Retirarme**: la solicitud vuelve a ABIERTA, reaparece en el canal con sus botones y se avisa al cliente.
   - Si los 60 minutos se cumplen durante una confirmación, se espera a que termine.
   - Aceptar una contraoferta no necesita este paso: el cliente ya eligió al chofer.
 - **Oferta inicial** con botones sugeridos, por ejemplo `[sugerido] [+50] [+100]`; no se permite bajar del precio mínimo.
 - **Método de pago:** Efectivo (por defecto) o Transferencia (Transfermóvil, EnZona). Se muestra en el canal para que solo acepte quien pueda cobrarlo. Los datos para transferir los da el chofer al cliente; no pasan por el bot.
 - **Contacto del cliente:** al pedir el viaje, si el cliente no tiene @usuario, el bot le ofrece (es opcional) escribir un número o compartir el suyo con el botón de Telegram (`request_contact`), para que el chofer pueda llamarlo. El número solo vive en la solicitud y se borra al cerrarla.
 - **Contraoferta:** en el chat privado con el bot, con botones de monto (+50, +100, +150 CUP). Vence en 5 minutos. No hay límite de contraofertas: si el cliente rechaza una, el chofer puede hacer otra. La nueva contraoferta de un chofer reemplaza a la anterior en la lista.
-- **El cliente ve las contraofertas en un único mensaje** que se va editando, con la reputación de cada chofer y los botones Aceptar y Rechazar en cada una. Al aceptar, el bot comprueba que siga vigente y, si no, avisa.
+- **Lluvia de contraofertas:** cada contraoferta le llega al cliente como un mensaje propio, con la foto, la moto y (desde la fase 3) la reputación del chofer, y los botones Aceptar y Rechazar. El mensaje se borra solo cuando la contraoferta vence, se rechaza o se reemplaza por otra del mismo chofer, y todos se borran al asignar o cerrar la solicitud. Al aceptar, el bot comprueba que siga vigente y, si no, avisa.
+- **Si el cliente sube el precio** por encima de una contraoferta, esa contraoferta se retira y se avisa al chofer de que puede aceptar el nuevo precio en el canal.
 - **Reserva atómica:** el primer chofer que acepta se queda la solicitud mientras el cliente confirma (ver [Datos](#datos)).
 - **Conexión:** al asignar, el cliente recibe los datos del chofer (incluido su celular) y el chofer recibe la ubicación exacta de la recogida y el destino (`sendVenue`, con título), la referencia y el contacto del cliente (@usuario y/o teléfono). El chat intermediado por el bot queda para más adelante.
 - **Encuentro:** el cliente tiene el botón **Ya voy** y el chofer, **Llegué**. Cada uno avisa al otro y deja registrada la hora en la solicitud, que sirve para atribuir las cancelaciones.
@@ -206,6 +207,7 @@ stateDiagram-v2
   ABIERTA --> POR_CONFIRMAR: un chofer acepta en el canal
   POR_CONFIRMAR --> ASIGNADA: el cliente confirma
   POR_CONFIRMAR --> CANCELADA: el cliente cancela o no responde en 5 min (no cuenta)
+  POR_CONFIRMAR --> ABIERTA: el chofer se retira
   ABIERTA --> ASIGNADA: el cliente acepta una contraoferta vigente
   ABIERTA --> EXPIRADA: 60 min sin chofer o sin respuesta a "¿Sigues esperando?" en 10 min
   ABIERTA --> CANCELADA: el cliente cancela
@@ -510,7 +512,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 5 | Sin botón de disponibilidad: el chofer silencia el canal si no trabaja; el bot lo marca ocupado mientras tiene viaje asignado | 2026-10-13 |
 | 6 | Basta con que el chofer o el cliente marquen Completado; cierre automático a las 2 h | 2026-10-13 |
 | 7 | Ubicación por pin o por texto: reglas (+ Jev opcional) → `calles.sqlite` → confirmación → OSRM propio → precio sugerido con tarifas configurables | 2026-10-13 |
-| 8 | Las contraofertas se muestran al cliente en un único mensaje editable | 2026-10-13 |
+| 8 | Las contraofertas se muestran al cliente en un único mensaje editable. *Sustituida por la decisión 53* | 2026-10-13 |
 | 9 | Un solo bot con roles cliente, chofer, admin y superadmin | 2026-10-13 |
 | 10 | Se elimina el estado NEGOCIANDO | 2026-10-13 |
 | 11 | Si el chofer cancela, "Republicar al mismo precio" en lugar de reasignar | 2026-10-13 |
@@ -555,3 +557,5 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 50 | "¿Sigues esperando?" a los 30 min; si el cliente no responde en 10 min, la solicitud expira | 2026-10-14 |
 | 51 | Cuando un chofer acepta en el canal, el cliente confirma o cancela en 5 min viendo su ficha (estado POR CONFIRMAR); si cancela o no responde, la solicitud se borra del canal, no cuenta como cancelación y el cliente vuelve a publicar. El chofer recibe ubicación y contacto solo tras la confirmación | 2026-10-14 |
 | 52 | Se mantiene el flujo largo para pedir el viaje (confirmación de cada pin, referencia, precio, pago y teléfono por separado) | 2026-10-14 |
+| 53 | Lluvia de contraofertas: cada una llega al cliente como un mensaje propio con Aceptar y Rechazar, y se borra cuando vence, se rechaza, se reemplaza o se cierra la solicitud | 2026-10-14 |
+| 54 | Mientras espera la confirmación, el chofer puede pulsar Retirarme: la solicitud vuelve a ABIERTA y al canal. Si el cliente no confirma en 5 min, la solicitud se sigue cancelando (decisión 51) | 2026-10-14 |

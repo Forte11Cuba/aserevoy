@@ -19,9 +19,8 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     let result = sqlx::query(
         "INSERT INTO requests (id, client_id, client_phone, pickup_lat, pickup_lon,
              dropoff_lat, dropoff_lon, reference, km, price, payment, state, driver_id,
-             channel_msg_id, offers_msg_id, created_at, assigned_at, check_at, answer_by,
-             confirm_by, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             channel_msg_id, created_at, assigned_at, check_at, answer_by, confirm_by, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id.as_str())
     .bind(r.client.0)
@@ -37,7 +36,6 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     .bind(r.state.as_str())
     .bind(r.driver.map(|d| d.0))
     .bind(r.channel_msg_id)
-    .bind(r.offers_msg_id)
     .bind(r.created_at)
     .bind(r.assigned_at)
     .bind(r.check_at)
@@ -98,13 +96,27 @@ pub async fn try_reserve(
     affected_one(result)
 }
 
-/// `confirming` → `assigned`, for the driver the client saw.
+/// `confirming` → `assigned`, for the driver the client saw and within the deadline.
 pub async fn confirm(pool: &SqlitePool, id: &RequestId, driver: UserId, now: UnixTime) -> sqlx::Result<bool> {
     let done = sqlx::query(
         "UPDATE requests SET state = 'assigned', assigned_at = ?, confirm_by = NULL
-         WHERE id = ? AND state = 'confirming' AND driver_id = ?",
+         WHERE id = ? AND state = 'confirming' AND driver_id = ? AND confirm_by > ?",
     )
     .bind(now)
+    .bind(id.as_str())
+    .bind(driver.0)
+    .bind(now)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// `confirming` → `open`: the reserved driver withdraws.
+pub async fn release(pool: &SqlitePool, id: &RequestId, driver: UserId) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE requests SET state = 'open', driver_id = NULL, confirm_by = NULL
+         WHERE id = ? AND state = 'confirming' AND driver_id = ?",
+    )
     .bind(id.as_str())
     .bind(driver.0)
     .execute(pool)
@@ -192,15 +204,6 @@ fn affected_one(result: sqlx::Result<sqlx::sqlite::SqliteQueryResult>) -> sqlx::
 
 pub async fn set_channel_msg(pool: &SqlitePool, id: &RequestId, msg_id: i32) -> sqlx::Result<()> {
     sqlx::query("UPDATE requests SET channel_msg_id = ? WHERE id = ?")
-        .bind(msg_id)
-        .bind(id.as_str())
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn set_offers_msg(pool: &SqlitePool, id: &RequestId, msg_id: Option<i32>) -> sqlx::Result<()> {
-    sqlx::query("UPDATE requests SET offers_msg_id = ? WHERE id = ?")
         .bind(msg_id)
         .bind(id.as_str())
         .execute(pool)
@@ -303,7 +306,6 @@ fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
         state: State::parse(&state).ok_or_else(|| decode_err("state"))?,
         driver: row.try_get::<Option<i64>, _>("driver_id")?.map(UserId),
         channel_msg_id: row.try_get("channel_msg_id")?,
-        offers_msg_id: row.try_get("offers_msg_id")?,
         created_at: row.try_get("created_at")?,
         assigned_at: row.try_get("assigned_at")?,
         check_at: row.try_get("check_at")?,
@@ -389,9 +391,24 @@ mod tests {
         insert(&pool, &r).await.unwrap();
         reserve(&pool, &r, 9).await;
         assert!(!confirm(&pool, &r.id, UserId(8), T0 + 2).await.unwrap());
+        assert!(!confirm(&pool, &r.id, UserId(9), T0 + 1 + CONFIRM_SECS).await.unwrap());
         assert!(confirm(&pool, &r.id, UserId(9), T0 + 2).await.unwrap());
         let stored = get(&pool, &r.id).await.unwrap().unwrap();
         assert_eq!((stored.state, stored.assigned_at, stored.confirm_by), (State::Assigned, Some(T0 + 2), None));
+    }
+
+    #[tokio::test]
+    async fn the_reserved_driver_can_release_the_request() {
+        let (pool, _dir) = test_pool().await;
+        let r = request("AB7K", 1);
+        insert(&pool, &r).await.unwrap();
+        reserve(&pool, &r, 9).await;
+        assert!(!release(&pool, &r.id, UserId(8)).await.unwrap());
+        assert!(release(&pool, &r.id, UserId(9)).await.unwrap());
+        let stored = get(&pool, &r.id).await.unwrap().unwrap();
+        assert_eq!((stored.state, stored.driver), (State::Open, None));
+        assert!(!driver_busy(&pool, UserId(9)).await.unwrap());
+        assert!(reserve(&pool, &r, 8).await);
     }
 
     #[tokio::test]

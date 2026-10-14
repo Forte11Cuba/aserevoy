@@ -3,6 +3,7 @@
 //! ```text
 //!           ┌── counteroffer / raise price / still waiting ──┐
 //!           ▼                                                │
+//! Open ◀────── driver withdraws ─┐
 //! Open ─────┴─ driver accepts ─▶ Confirming ─ client confirms ─▶ Assigned ─ complete / auto-close ─▶ Completed
 //!  │  └──── client accepts a counteroffer ─────────────────────▶ Assigned
 //!  │                              │ client cancels / no answer      │ client or driver cancels
@@ -122,6 +123,8 @@ pub struct Counteroffer {
     pub driver: UserId,
     pub amount: Cup,
     pub expires_at: UnixTime,
+    /// Its message in the client's chat, once sent.
+    pub client_msg_id: Option<i32>,
 }
 
 /// What the client fills in before publishing.
@@ -152,7 +155,6 @@ pub struct Request {
     /// Holding the request (`Confirming`) or doing the trip (`Assigned`).
     pub driver: Option<UserId>,
     pub channel_msg_id: Option<i32>,
-    pub offers_msg_id: Option<i32>,
     pub created_at: UnixTime,
     pub assigned_at: Option<UnixTime>,
     /// When to ask "still waiting?"; `None` once asked.
@@ -199,7 +201,6 @@ impl Request {
             state: State::Open,
             driver: None,
             channel_msg_id: None,
-            offers_msg_id: None,
             created_at: now,
             assigned_at: None,
             check_at: Some(now + STILL_WAITING_AFTER_SECS),
@@ -250,9 +251,9 @@ impl Request {
         ])
     }
 
-    /// The client confirms the driver who accepted.
+    /// The client confirms the driver who accepted, within the deadline.
     pub fn confirm(&mut self, by: UserId, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
-        if self.state != State::Confirming {
+        if self.state != State::Confirming || self.confirm_by.is_some_and(|by| now >= by) {
             return Err(DomainError::NotOpen);
         }
         self.check_client(by)?;
@@ -262,6 +263,25 @@ impl Request {
         self.confirm_by = None;
         let notice = Notice::DriverConfirmed { request: self.id.clone(), driver };
         Ok(self.assigned_effects(driver, notice))
+    }
+
+    /// The driver who accepted changes their mind before the client confirms:
+    /// the request goes back to the channel with its buttons.
+    pub fn withdraw(&mut self, by: UserId) -> Result<Vec<Effect>, DomainError> {
+        if self.state != State::Confirming {
+            return Err(DomainError::NotOpen);
+        }
+        if self.driver != Some(by) {
+            return Err(DomainError::NotParticipant);
+        }
+        self.state = State::Open;
+        self.driver = None;
+        self.confirm_by = None;
+        let id = self.id.clone();
+        Ok(vec![
+            Effect::UpdateChannelPost { request: id.clone() },
+            Effect::Notify { to: self.client, notice: Notice::DriverWithdrew { request: id } },
+        ])
     }
 
     /// The client takes a driver's counteroffer: assigned at that price, with
@@ -306,19 +326,23 @@ impl Request {
         effects
     }
 
-    /// Clears the counteroffers, telling every driver but `except`.
+    /// Clears the counteroffers and their messages, telling every driver but
+    /// `except` that the request is gone.
     fn dismiss_offers(&mut self, except: Option<UserId>) -> Vec<Effect> {
-        if self.counteroffers.is_empty() {
-            return Vec::new();
+        let mut effects = Vec::new();
+        for offer in std::mem::take(&mut self.counteroffers) {
+            effects.extend(self.hide(&offer));
+            if Some(offer.driver) != except {
+                let notice = Notice::RequestGone { request: self.id.clone() };
+                effects.push(Effect::Notify { to: offer.driver, notice });
+            }
         }
-        let mut effects: Vec<Effect> = self
-            .counteroffers
-            .drain(..)
-            .filter(|o| Some(o.driver) != except)
-            .map(|o| Effect::Notify { to: o.driver, notice: Notice::RequestGone { request: self.id.clone() } })
-            .collect();
-        effects.push(Effect::RefreshOffers { request: self.id.clone() });
         effects
+    }
+
+    /// Deletes the counteroffer's message from the client's chat, if it was sent.
+    fn hide(&self, offer: &Counteroffer) -> Option<Effect> {
+        offer.client_msg_id.map(|msg| Effect::HideOffer { client: self.client, msg })
     }
 
     /// A driver offers to do the trip for `amount`, above the current price.
@@ -331,9 +355,16 @@ impl Request {
         if amount <= self.price {
             return Err(DomainError::PriceNotHigher { current: self.price });
         }
-        self.counteroffers.retain(|o| o.driver != driver);
-        self.counteroffers.push(Counteroffer { driver, amount, expires_at: now + COUNTEROFFER_SECS });
-        Ok(vec![Effect::RefreshOffers { request: self.id.clone() }])
+        // The new one replaces the previous counteroffer and its message.
+        let mut effects = Vec::new();
+        if let Some(pos) = self.counteroffers.iter().position(|o| o.driver == driver) {
+            let previous = self.counteroffers.remove(pos);
+            effects.extend(self.hide(&previous));
+        }
+        let expires_at = now + COUNTEROFFER_SECS;
+        self.counteroffers.push(Counteroffer { driver, amount, expires_at, client_msg_id: None });
+        effects.push(Effect::ShowOffer { request: self.id.clone(), driver });
+        Ok(effects)
     }
 
     /// The client turns down a counteroffer; the driver may make another.
@@ -342,19 +373,16 @@ impl Request {
             return Err(DomainError::NotOpen);
         }
         self.check_client(by)?;
-        let before = self.counteroffers.len();
-        self.counteroffers.retain(|o| o.driver != driver);
-        if self.counteroffers.len() == before {
-            return Err(DomainError::OfferGone);
-        }
-        let id = self.id.clone();
-        Ok(vec![
-            Effect::Notify { to: driver, notice: Notice::CounterofferRejected { request: id.clone() } },
-            Effect::RefreshOffers { request: id },
-        ])
+        let pos = self.counteroffers.iter().position(|o| o.driver == driver).ok_or(DomainError::OfferGone)?;
+        let offer = self.counteroffers.remove(pos);
+        let mut effects: Vec<Effect> = self.hide(&offer).into_iter().collect();
+        let notice = Notice::CounterofferRejected { request: self.id.clone() };
+        effects.push(Effect::Notify { to: driver, notice });
+        Ok(effects)
     }
 
-    /// The client raises the price. Counteroffers at or below it lose their point.
+    /// The client raises the price. Counteroffers at or below it are dropped
+    /// and their drivers told they can accept the new price directly.
     /// Raising also answers a pending "still waiting?".
     pub fn raise_price(&mut self, by: UserId, price: Cup, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
         self.check_open(now)?;
@@ -369,9 +397,13 @@ impl Request {
             Effect::UpdateChannelPost { request: id.clone() },
             Effect::Notify { to: self.client, notice: Notice::PriceRaised { request: id.clone() } },
         ];
-        if self.counteroffers.iter().any(|o| o.amount <= price) {
-            self.counteroffers.retain(|o| o.amount > price);
-            effects.push(Effect::RefreshOffers { request: id });
+        let (outbid, kept): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.counteroffers).into_iter().partition(|o| o.amount <= price);
+        self.counteroffers = kept;
+        for offer in outbid {
+            effects.extend(self.hide(&offer));
+            let notice = Notice::OfferOutbid { request: id.clone(), price };
+            effects.push(Effect::Notify { to: offer.driver, notice });
         }
         Ok(effects)
     }
@@ -585,6 +617,25 @@ mod tests {
     }
 
     #[test]
+    fn the_driver_can_withdraw_before_confirmation() {
+        let mut r = confirming();
+        assert_eq!(r.withdraw(STRANGER).unwrap_err(), DomainError::NotParticipant);
+        let effects = r.withdraw(DRIVER).unwrap();
+        assert_eq!((r.state, r.driver, r.confirm_by), (State::Open, None, None));
+        assert!(matches!(effects[0], Effect::UpdateChannelPost { .. }));
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::DriverWithdrew { .. }]));
+        // Back in the channel: another driver can take it.
+        assert!(r.accept(OTHER_DRIVER, T0 + 30).is_ok());
+        assert_eq!(assigned().withdraw(DRIVER).unwrap_err(), DomainError::NotOpen);
+    }
+
+    #[test]
+    fn confirming_after_the_deadline_fails() {
+        let mut r = confirming();
+        assert_eq!(r.confirm(CLIENT, T0 + 10 + CONFIRM_SECS).unwrap_err(), DomainError::NotOpen);
+    }
+
+    #[test]
     fn unconfirmed_drivers_are_released_after_5_minutes() {
         let mut r = confirming();
         assert!(r.tick(T0 + 10 + CONFIRM_SECS - 1).is_none());
@@ -640,7 +691,7 @@ mod tests {
         let effects = r.raise_price(CLIENT, 650, T0 + 2).unwrap();
         assert_eq!(r.price, 650);
         assert!(matches!(effects[0], Effect::UpdateChannelPost { .. }));
-        assert!(effects.iter().any(|e| matches!(e, Effect::RefreshOffers { .. })));
+        assert!(matches!(notified(&effects, DRIVER)[..], [Notice::OfferOutbid { price: 650, .. }]));
         assert_eq!(r.counteroffers.len(), 1);
         assert_eq!(r.counteroffers[0].driver, OTHER_DRIVER);
     }
@@ -650,9 +701,15 @@ mod tests {
         let mut r = open();
         assert_eq!(r.counteroffer(DRIVER, 580, T0).unwrap_err(), DomainError::PriceNotHigher { current: 580 });
         assert_eq!(r.counteroffer(CLIENT, 700, T0).unwrap_err(), DomainError::OwnRequest);
-        r.counteroffer(DRIVER, 630, T0).unwrap();
-        r.counteroffer(DRIVER, 680, T0 + 5).unwrap();
-        assert_eq!(r.counteroffers, vec![Counteroffer { driver: DRIVER, amount: 680, expires_at: T0 + 5 + COUNTEROFFER_SECS }]);
+        let effects = r.counteroffer(DRIVER, 630, T0).unwrap();
+        assert_eq!(effects, vec![Effect::ShowOffer { request: r.id.clone(), driver: DRIVER }]);
+        r.counteroffers[0].client_msg_id = Some(77); // the bot sent it
+
+        // The new one replaces it, and its message goes.
+        let effects = r.counteroffer(DRIVER, 680, T0 + 5).unwrap();
+        assert_eq!(effects[0], Effect::HideOffer { client: CLIENT, msg: 77 });
+        let expected = Counteroffer { driver: DRIVER, amount: 680, expires_at: T0 + 5 + COUNTEROFFER_SECS, client_msg_id: None };
+        assert_eq!(r.counteroffers, vec![expected]);
     }
 
     #[test]
@@ -689,11 +746,13 @@ mod tests {
     }
 
     #[test]
-    fn closing_tells_drivers_with_pending_offers() {
+    fn closing_tells_drivers_with_pending_offers_and_hides_them() {
         let mut r = open();
         r.counteroffer(DRIVER, 630, T0).unwrap();
+        r.counteroffers[0].client_msg_id = Some(77);
         let effects = r.cancel(CLIENT).unwrap();
         assert!(matches!(notified(&effects, DRIVER)[..], [Notice::RequestGone { .. }]));
+        assert!(effects.contains(&Effect::HideOffer { client: CLIENT, msg: 77 }));
         assert!(matches!(effects.last(), Some(Effect::Forget { .. })));
     }
 

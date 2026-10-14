@@ -8,6 +8,7 @@ use teloxide::prelude::*;
 use super::{App, chat, effects, now};
 use crate::db;
 use crate::domain::driver::DriverStatus;
+use crate::domain::effect::Notice;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::request::{DomainError, State};
 use crate::i18n::{self, Lang, Text};
@@ -39,8 +40,35 @@ pub async fn accept(bot: &Bot, app: &App, driver: UserId, lang: Lang, id: &Reque
     Ok(i18n::text(lang, Text::AcceptedAlert).into())
 }
 
-/// ✅ Confirm: the client takes the driver who accepted.
-pub async fn confirm(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &RequestId) -> anyhow::Result<Option<String>> {
+/// ✅ Confirm (`cok`) or ❌ cancel (`cno`) on the card of `driver`. If that
+/// driver withdrew meanwhile, nothing happens: the request is back in the
+/// channel (or held by another driver, whose own card the client gets).
+pub async fn confirm_or_decline(
+    bot: &Bot,
+    app: &App,
+    by: UserId,
+    lang: Lang,
+    id: &RequestId,
+    driver: UserId,
+    confirmed: bool,
+) -> anyhow::Result<Option<String>> {
+    match db::requests::get(&app.pool, id).await? {
+        Some(r) if r.client == by && r.state != State::Assigned && r.driver != Some(driver) => {
+            Ok(Some(i18n::notice(lang, &Notice::DriverWithdrew { request: id.clone() })))
+        }
+        _ if confirmed => confirm(bot, app, by, lang, id, driver).await,
+        _ => cancel(bot, app, by, lang, id).await,
+    }
+}
+
+async fn confirm(
+    bot: &Bot,
+    app: &App,
+    by: UserId,
+    lang: Lang,
+    id: &RequestId,
+    driver: UserId,
+) -> anyhow::Result<Option<String>> {
     let Some(mut request) = db::requests::get(&app.pool, id).await? else {
         return Ok(Some(i18n::text(lang, Text::AlreadyClosed).into()));
     };
@@ -49,12 +77,31 @@ pub async fn confirm(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &RequestI
         Ok(effects) => effects,
         Err(e) => return Ok(Some(i18n::domain_error(lang, &e))),
     };
-    let driver = request.driver.expect("confirmed request has a driver");
+    // Only the driver on the card the client pressed.
     if !db::requests::confirm(&app.pool, id, driver, now).await? {
         return Ok(Some(i18n::text(lang, Text::AlreadyClosed).into()));
     }
     tracing::info!(request = %id, "assigned");
     effects::apply(bot, app, &mut request, effects).await?;
+    Ok(None)
+}
+
+/// 🚪 Withdraw: the reserved driver gives the request back to the channel.
+pub async fn withdraw(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &RequestId) -> anyhow::Result<Option<String>> {
+    let Some(mut request) = db::requests::get(&app.pool, id).await? else {
+        return Ok(Some(i18n::text(lang, Text::AlreadyClosed).into()));
+    };
+    let effects = match request.withdraw(by) {
+        Ok(effects) => effects,
+        Err(e) => return Ok(Some(i18n::domain_error(lang, &e))),
+    };
+    if !db::requests::release(&app.pool, id, by).await? {
+        // The client confirmed or cancelled at the same moment.
+        return Ok(Some(i18n::domain_error(lang, &DomainError::NotOpen)));
+    }
+    tracing::info!(request = %id, "driver withdrew");
+    effects::apply(bot, app, &mut request, effects).await?;
+    bot.send_message(chat(by), i18n::text(lang, Text::Withdrawn)).await?;
     Ok(None)
 }
 

@@ -12,7 +12,7 @@ use crate::db;
 use crate::domain::effect::{Effect, Notice};
 use crate::domain::ids::UserId;
 use crate::domain::request::Request;
-use crate::i18n::{self, Lang, OfferLine, Text};
+use crate::i18n::{self, Lang, Text};
 
 /// The channel is shared by all drivers, so it uses the default language.
 const CHANNEL_LANG: Lang = Lang::Es;
@@ -57,9 +57,16 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                 let sent = bot.send_venue(chat(to), point.lat, point.lon, title, address).await;
                 log_failure(sent, "send location");
             }
-            Effect::RefreshOffers { .. } => log_failure(refresh_offers(bot, app, request).await, "refresh offers"),
+            Effect::ShowOffer { driver, .. } => log_failure(show_offer(bot, app, request, driver).await, "show offer"),
+            Effect::HideOffer { client, msg } => {
+                log_failure(bot.delete_message(chat(client), MessageId(msg)).await, "hide offer");
+            }
             Effect::WithdrawDriverOffers { driver } => {
-                log_failure(withdraw_offers(bot, app, request, driver).await, "withdraw offers");
+                for removed in db::counteroffers::withdraw_driver(&app.pool, driver).await? {
+                    if let Some(msg) = removed.client_msg_id {
+                        log_failure(bot.delete_message(chat(removed.client), MessageId(msg)).await, "hide offer");
+                    }
+                }
             }
             Effect::Forget { request: id } => db::requests::forget(&app.pool, &id).await?,
         }
@@ -102,67 +109,24 @@ async fn publish(bot: &Bot, app: &App, request: &mut Request) -> anyhow::Result<
     Ok(())
 }
 
-/// Shows the client the valid counteroffers in one message, edited in place;
-/// deletes it when none are left.
-pub async fn refresh_offers(bot: &Bot, app: &App, request: &mut Request) -> anyhow::Result<()> {
+/// Sends the client one message with this driver's counteroffer, and records
+/// it so it can be deleted later. If the offer changed while sending, the
+/// message is already stale and goes at once.
+async fn show_offer(bot: &Bot, app: &App, request: &Request, driver: UserId) -> anyhow::Result<()> {
+    let Some(offer) = request.counteroffers.iter().find(|o| o.driver == driver) else {
+        return Ok(());
+    };
+    let profile = db::drivers::get(&app.pool, &app.cipher, driver).await?.context("driver has no profile")?.profile;
     let client = request.client;
     let lang = app.lang_of(client).await;
-    let now = now();
-    let mut drivers = Vec::new();
-    for offer in request.counteroffers.iter().filter(|o| o.expires_at > now) {
-        if let Some(d) = db::drivers::get(&app.pool, &app.cipher, offer.driver).await? {
-            drivers.push((offer, d.profile));
-        }
-    }
-
-    if drivers.is_empty() {
-        if let Some(msg) = request.offers_msg_id.take() {
-            log_failure(bot.delete_message(chat(client), MessageId(msg)).await, "delete offers");
-            db::requests::set_offers_msg(&app.pool, &request.id, None).await?;
-        }
-        return Ok(());
-    }
-
-    let lines: Vec<OfferLine> = drivers
-        .iter()
-        .map(|(o, p)| OfferLine {
-            alias: &p.alias,
-            bike_model: &p.bike_model,
-            amount: o.amount,
-            minutes_left: (o.expires_at - now + 59) / 60,
-        })
-        .collect();
-    let text = i18n::offers_list(lang, &request.id, request.price, &lines);
-    let buttons: Vec<_> = drivers.iter().map(|(o, p)| (o.driver, o.amount, p.alias.as_str())).collect();
-    let markup = keyboards::offers(lang, &request.id, &buttons);
-
-    if let Some(msg) = request.offers_msg_id {
-        let edited =
-            bot.edit_message_text(chat(client), MessageId(msg), text.clone()).reply_markup(markup.clone()).await;
-        match edited {
-            Ok(_) => return Ok(()),
-            // Same content as before: nothing to do.
-            Err(e) if e.to_string().contains("not modified") => return Ok(()),
-            // The message is gone or too old to edit: send a new one.
-            Err(_) => {}
-        }
-    }
-    let sent = bot.send_message(chat(client), text).reply_markup(markup).await?;
-    request.offers_msg_id = Some(sent.id.0);
-    db::requests::set_offers_msg(&app.pool, &request.id, Some(sent.id.0)).await?;
-    Ok(())
-}
-
-/// The driver is busy now: their counteroffers on other requests go, and
-/// those clients' lists are updated.
-async fn withdraw_offers(bot: &Bot, app: &App, current: &Request, driver: UserId) -> anyhow::Result<()> {
-    for id in db::counteroffers::withdraw_driver(&app.pool, driver).await? {
-        if id == current.id {
-            continue;
-        }
-        if let Some(mut other) = db::requests::get(&app.pool, &id).await? {
-            refresh_offers(bot, app, &mut other).await?;
-        }
+    let photo = InputFile::file_id(FileId(profile.photo_file_id.clone()));
+    let sent = bot
+        .send_photo(chat(client), photo)
+        .caption(i18n::offer_card(lang, &request.id, &profile, offer.amount))
+        .reply_markup(keyboards::offer(lang, &request.id, driver, offer.amount))
+        .await?;
+    if !db::counteroffers::set_msg(&app.pool, &request.id, driver, offer.expires_at, sent.id.0).await? {
+        log_failure(bot.delete_message(chat(client), sent.id).await, "hide stale offer");
     }
     Ok(())
 }
@@ -197,7 +161,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
             let photo = InputFile::file_id(FileId(driver.profile.photo_file_id.clone()));
             bot.send_photo(chat(to), photo)
                 .caption(i18n::confirm_driver(lang, id, &driver.profile))
-                .reply_markup(keyboards::confirm_driver(lang, id))
+                .reply_markup(keyboards::confirm_driver(lang, id, driver.id))
                 .await?;
         }
         Notice::DriverConfirmed { request: id, driver } => {
@@ -228,7 +192,15 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
             );
             bot.send_message(chat(to), text).reply_markup(keyboards::assigned_trip(lang, id)).await?;
         }
-        Notice::AwaitingClient { .. }
+        Notice::AwaitingClient { request: id } => {
+            bot.send_message(chat(to), i18n::notice(lang, notice))
+                .reply_markup(keyboards::awaiting_client(lang, id))
+                .await?;
+        }
+        Notice::DriverWithdrew { .. } => {
+            bot.send_message(chat(to), i18n::notice(lang, notice)).await?;
+        }
+        Notice::OfferOutbid { .. }
         | Notice::ClientDeclined { .. }
         | Notice::ClientDidNotConfirm { .. }
         | Notice::CounterofferRejected { .. }

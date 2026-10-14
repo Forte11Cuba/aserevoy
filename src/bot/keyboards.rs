@@ -113,11 +113,13 @@ pub fn raise_options(request: &RequestId, price: Cup) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![row])
 }
 
-/// For the client when a driver accepted: confirm them or cancel.
-pub fn confirm_driver(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
+/// For the client when a driver accepted: confirm them or cancel. The card
+/// names its driver, so a stale one (that driver withdrew, maybe another
+/// took the request) cannot cancel the request or confirm someone unseen.
+pub fn confirm_driver(lang: Lang, request: &RequestId, driver: UserId) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![
-        inline(lang, Button::Confirm, format!("cok:{request}")),
-        inline(lang, Button::CancelTrip, format!("can:{request}")),
+        inline(lang, Button::Confirm, format!("cok:{request}:{}", driver.0)),
+        inline(lang, Button::CancelTrip, format!("cno:{request}:{}", driver.0)),
     ]])
 }
 
@@ -130,18 +132,20 @@ pub fn counteroffer_amounts(request: &RequestId, price: Cup) -> InlineKeyboardMa
     InlineKeyboardMarkup::new(vec![row])
 }
 
-/// The client's list of counteroffers: accept or reject each.
-pub fn offers(lang: Lang, request: &RequestId, offers: &[(UserId, Cup, &str)]) -> InlineKeyboardMarkup {
-    let rows = offers
-        .iter()
-        .map(|(driver, amount, alias)| {
-            vec![
-                InlineKeyboardButton::callback(format!("✅ {amount} CUP · {alias}"), format!("coa:{request}:{}", driver.0)),
-                inline(lang, Button::Reject, format!("cor:{request}:{}", driver.0)),
-            ]
-        })
-        .collect::<Vec<_>>();
-    InlineKeyboardMarkup::new(rows)
+/// Under one counteroffer: accept it or reject it.
+pub fn offer(lang: Lang, request: &RequestId, driver: UserId, amount: Cup) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        InlineKeyboardButton::callback(
+            format!("{} {amount} CUP", button(lang, Button::Accept)),
+            format!("coa:{request}:{}", driver.0),
+        ),
+        inline(lang, Button::Reject, format!("cor:{request}:{}", driver.0)),
+    ]])
+}
+
+/// For the driver waiting for the client's confirmation.
+pub fn awaiting_client(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![inline(lang, Button::Withdraw, format!("wd:{request}"))]])
 }
 
 pub fn republish(lang: Lang) -> InlineKeyboardMarkup {

@@ -79,6 +79,7 @@ pub enum Button {
     KeepWaiting,
     Counteroffer,
     Republish,
+    Withdraw,
 }
 
 const REPLY_BUTTONS: [Button; 9] = [
@@ -146,6 +147,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Counteroffer) => "💬 Counteroffer",
         (Lang::Es, Republish) => "🔁 Publicar de nuevo",
         (Lang::En, Republish) => "🔁 Publish again",
+        (Lang::Es, Withdraw) => "🚪 Retirarme",
+        (Lang::En, Withdraw) => "🚪 Withdraw",
     }
 }
 
@@ -185,6 +188,7 @@ pub enum Text {
     AcceptedAlert,
     AlreadyClosed,
     KeptWaiting,
+    Withdrawn,
     CounterofferSent,
     NoActiveRequest,
     // Driver profile.
@@ -278,6 +282,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AlreadyClosed) => "This trip is already closed.",
         (Lang::Es, KeptWaiting) => "👍 Perfecto, tu solicitud sigue publicada.",
         (Lang::En, KeptWaiting) => "👍 Great, your request stays published.",
+        (Lang::Es, Withdrawn) => "🚪 Te retiraste. La solicitud volvió al canal.",
+        (Lang::En, Withdrawn) => "🚪 You withdrew. The request is back in the channel.",
         (Lang::Es, CounterofferSent) => "💬 Contraoferta enviada. Vale 5 min; te aviso si el cliente la acepta.",
         (Lang::En, CounterofferSent) => "💬 Counteroffer sent. It's valid for 5 min; I'll tell you if the client accepts.",
         (Lang::Es, NoActiveRequest) => "No tienes ninguna solicitud abierta.",
@@ -576,6 +582,18 @@ pub fn notice(lang: Lang, notice: &Notice) -> String {
         }
         (Lang::Es, RequestGone { request }) => format!("La solicitud {request} ya no está disponible."),
         (Lang::En, RequestGone { request }) => format!("Request {request} is no longer available."),
+        (Lang::Es, OfferOutbid { request, price }) => format!(
+            "⬆️ El cliente subió la solicitud {request} a {price} CUP, así que tu contraoferta se retiró. Puedes aceptarla directamente en el canal."
+        ),
+        (Lang::En, OfferOutbid { request, price }) => format!(
+            "⬆️ The client raised request {request} to {price} CUP, so your counteroffer was dropped. You can accept it directly in the channel."
+        ),
+        (Lang::Es, DriverWithdrew { request }) => {
+            format!("🚪 El chofer se retiró. Tu solicitud {request} vuelve a estar publicada.")
+        }
+        (Lang::En, DriverWithdrew { request }) => {
+            format!("🚪 The driver withdrew. Your request {request} is published again.")
+        }
         (Lang::Es, Completed { request }) => format!("🏁 Viaje {request} completado. ¡Gracias!"),
         (Lang::En, Completed { request }) => format!("🏁 Trip {request} completed. Thanks!"),
         (Lang::Es, CancelledByClient { request }) => format!("❌ El cliente canceló el viaje {request}."),
@@ -657,27 +675,18 @@ pub fn driver_confirmed(lang: Lang, request: &RequestId, p: &Profile) -> String 
     }
 }
 
-/// One line per counteroffer in the client's list.
-pub struct OfferLine<'a> {
-    pub alias: &'a str,
-    pub bike_model: &'a str,
-    pub amount: Cup,
-    pub minutes_left: i64,
-}
-
-pub fn offers_list(lang: Lang, request: &RequestId, price: Cup, offers: &[OfferLine]) -> String {
-    let mut text = match lang {
-        Lang::Es => format!("💬 Contraofertas para tu solicitud {request} (ofreces {price} CUP):\n"),
-        Lang::En => format!("💬 Counteroffers for your request {request} (you offer {price} CUP):\n"),
-    };
-    for o in offers {
-        let left = o.minutes_left.max(1);
-        text.push_str(&match lang {
-            Lang::Es => format!("\n• {} ({}): {} CUP, vence en {left} min", o.alias, o.bike_model, o.amount),
-            Lang::En => format!("\n• {} ({}): {} CUP, expires in {left} min", o.alias, o.bike_model, o.amount),
-        });
+/// One counteroffer, as its own message to the client.
+pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup) -> String {
+    match lang {
+        Lang::Es => format!(
+            "💬 {} hace tu viaje {request} por {amount} CUP.\n🏍 {}, {}\n\nVale 5 min.",
+            p.alias, p.bike_model, p.bike_color
+        ),
+        Lang::En => format!(
+            "💬 {} will do your trip {request} for {amount} CUP.\n🏍 {}, {}\n\nValid for 5 min.",
+            p.alias, p.bike_model, p.bike_color
+        ),
     }
-    text
 }
 
 /// To a driver who opened "Counteroffer" from the channel.
