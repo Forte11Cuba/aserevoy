@@ -100,6 +100,7 @@ pub enum Button {
     Back,
     StepBack,
     Publish,
+    SendOffer,
     PrevPage,
     NextPage,
     AdminPanel,
@@ -115,7 +116,7 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 17] = [
+const REPLY_BUTTONS: [Button; 18] = [
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -133,6 +134,7 @@ const REPLY_BUTTONS: [Button; 17] = [
     Button::Skip,
     Button::SendMyLocation,
     Button::SharePhone,
+    Button::SendOffer,
 ];
 
 pub fn button(lang: Lang, b: Button) -> &'static str {
@@ -252,6 +254,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, NextPage) => "Next ▶",
         (Lang::Es, Publish) => "✅ Publicar",
         (Lang::En, Publish) => "✅ Publish",
+        (Lang::Es, SendOffer) => "✅ Enviar",
+        (Lang::En, SendOffer) => "✅ Send",
     }
 }
 
@@ -298,6 +302,7 @@ pub enum Text {
     KeptWaiting,
     Withdrawn,
     CounterofferHow,
+    RaiseFirst,
     PanelHome,
     FareOutOfRange,
     FareUsage,
@@ -432,8 +437,14 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, PanelHome) => "⚙️ Administration: pick below what you want to manage.",
         (Lang::Es, FareOutOfRange) => "Ese valor no es válido (el mínimo va de 0 a 100 %, los precios deben ser mayores que 0).",
         (Lang::En, FareOutOfRange) => "That value isn't valid (the minimum goes from 0 to 100 %, prices must be above 0).",
-        (Lang::Es, CounterofferHow) => "💬 Contraoferta: elige un aumento abajo o escribe tu precio. Pulsa ❌ Cancelar para salir.",
-        (Lang::En, CounterofferHow) => "💬 Counteroffer: pick a raise below or type your price. Tap ❌ Cancel to leave.",
+        (Lang::Es, CounterofferHow) => {
+            "💬 Contraoferta: ajusta el monto con los botones + y −, o escríbelo. Cuando te cuadre, pulsa ✅ Enviar; ❌ Cancelar para salir."
+        }
+        (Lang::En, CounterofferHow) => {
+            "💬 Counteroffer: adjust the amount with the + and − buttons, or type it. When it suits you, tap ✅ Send; ❌ Cancel to leave."
+        }
+        (Lang::Es, RaiseFirst) => "Sube el monto por encima del precio del cliente, o usa Aceptar en el canal.",
+        (Lang::En, RaiseFirst) => "Raise the amount above the client's price, or use Accept in the channel.",
         (Lang::Es, ChooseCancelReason) => "¿Por qué cancelas el viaje?",
         (Lang::En, ChooseCancelReason) => "Why are you cancelling the trip?",
         (Lang::Es, SupportUnavailable) => "El soporte no está disponible ahora mismo. Inténtalo más tarde.",
@@ -1009,15 +1020,21 @@ pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup, dri
 }
 
 /// To a driver who opened "Counteroffer" from the channel.
-pub fn counteroffer_prompt(lang: Lang, post: &Post) -> String {
+/// The request, and the counteroffer so far (it starts at the client's price).
+pub fn counteroffer_prompt(lang: Lang, post: &Post, amount: Cup) -> String {
     let price = post.price;
     let post = channel_post(lang, post);
     match lang {
-        Lang::Es => format!(
-            "{post}\n\n¿Por cuánto lo harías? Elige un aumento o escribe tu precio (más de {price} CUP)."
-        ),
-        Lang::En => format!("{post}\n\nWhat would you do it for? Pick a raise or type your price (above {price} CUP)."),
+        Lang::Es => format!("{post}\n\n💬 Tu contraoferta: {amount} CUP (el cliente ofrece {price} CUP)"),
+        Lang::En => format!("{post}\n\n💬 Your counteroffer: {amount} CUP (the client offers {price} CUP)"),
     }
+}
+
+/// "+50", "−500", "+1k", "+10k": what a counteroffer button adds.
+pub fn amount_step(delta: Cup) -> String {
+    let sign = if delta < 0 { "−" } else { "+" };
+    let n = delta.abs();
+    if n >= 1000 && n % 1000 == 0 { format!("{sign}{}k", n / 1000) } else { format!("{sign}{n}") }
 }
 
 pub fn counteroffer_sent(lang: Lang, amount: Cup) -> String {
@@ -1363,6 +1380,15 @@ mod tests {
     fn candidates_are_listed_in_full_and_numbered() {
         let text = choose_address(Lang::Es, &["Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este", "78 en Habana del Este"]);
         assert!(text.contains("\n1. Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este\n2. 78"), "{text}");
+    }
+
+    #[test]
+    fn counteroffer_steps_are_short() {
+        assert_eq!(amount_step(50), "+50");
+        assert_eq!(amount_step(-500), "−500");
+        assert_eq!(amount_step(1000), "+1k");
+        assert_eq!(amount_step(-1000), "−1k");
+        assert_eq!(amount_step(10000), "+10k");
     }
 
     #[test]
