@@ -230,15 +230,15 @@ async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> an
     let Some(text) = driver::clean_field(text, ADDRESS_MAX) else {
         return cx.say_plain(Text::InvalidField).await;
     };
-    let found: Vec<Candidate> = cx
-        .app
-        .streets
-        .candidates(&text)
-        .into_iter()
-        .map(|c| Candidate { label: c.label, point: c.point })
-        .collect();
+    let candidates = cx.app.streets.candidates(&text);
+    let inferred_any = candidates.iter().any(|c| c.inferred);
+    let found: Vec<Candidate> =
+        candidates.into_iter().map(|c| Candidate { label: c.label, point: c.point }).collect();
     let decision = match found.len() {
         0 => Decision::Nothing,
+        // Deduced from the cross streets: the client knows which street it is
+        // and Jev has no name to go by.
+        n if inferred_any => Decision::Offer((0..n).collect()),
         1 => Decision::Use(0),
         _ => match &cx.app.jev {
             Some(jev) => {

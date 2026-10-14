@@ -54,6 +54,9 @@ pub struct Candidate {
     pub label: String,
     pub point: Point,
     pub municipality: String,
+    /// Deduced from the cross streets: the written street name is unknown
+    /// ("doble vía e/ 160c y 160d"), so the client must pick it.
+    pub inferred: bool,
 }
 
 #[derive(Debug, Default)]
@@ -124,7 +127,10 @@ impl Streets {
         if let Some(area) = &area {
             found.retain(|c| area.contains(c));
         }
-        dedup_nearby(&mut found);
+        // Parallel streets deduced from cross streets are close but distinct.
+        if !found.iter().any(|c| c.inferred) {
+            dedup_nearby(&mut found);
+        }
         found.truncate(MAX_CANDIDATES);
         found
     }
@@ -144,6 +150,7 @@ impl Streets {
             label: format!("Esquina de {} y {} en {}", c.a, c.b, c.municipality),
             point: c.point,
             municipality: c.municipality.clone(),
+            inferred: false,
         }
     }
 
@@ -161,12 +168,55 @@ impl Streets {
                         label: format!("{street_name} entre {cross_a} y {cross_b} en {}", x.municipality),
                         point: Point { lat: (x.point.lat + y.point.lat) / 2.0, lon: (x.point.lon + y.point.lon) / 2.0 },
                         municipality: x.municipality.clone(),
+                        inferred: false,
                     });
                 }
             }
         }
+        if found.is_empty() && first.is_empty() && second.is_empty() {
+            // The street's name is unknown (a popular one, like "Doble Vía"):
+            // it must be one that crosses both cross streets on one block.
+            return self.crossing_both(a, b);
+        }
         if found.is_empty() {
             found = first.into_iter().chain(second).map(|c| self.corner_candidate(c)).collect();
+        }
+        found
+    }
+
+    /// The blocks of every street that crosses both `a` and `b` close together.
+    fn crossing_both(&self, a: &str, b: &str) -> Vec<Candidate> {
+        let side = |c: &Corner, name: &str| -> Option<(String, String)> {
+            if name_matches(&c.a_norm, name) {
+                Some((c.b.clone(), c.b_norm.clone()))
+            } else if name_matches(&c.b_norm, name) {
+                Some((c.a.clone(), c.a_norm.clone()))
+            } else {
+                None
+            }
+        };
+        let mut found: Vec<Candidate> = Vec::new();
+        let mut seen: Vec<(String, String)> = Vec::new();
+        for x in &self.corners {
+            let Some((street, street_norm)) = side(x, a) else { continue };
+            if name_matches(&street_norm, b) || seen.contains(&(street_norm.clone(), x.municipality.clone())) {
+                continue;
+            }
+            let other_end = self.corners.iter().find(|y| {
+                y.municipality == x.municipality
+                    && km_between(x.point, y.point) <= BLOCK_MAX_KM
+                    && side(y, b).is_some_and(|(_, norm)| norm == street_norm)
+            });
+            if let Some(y) = other_end {
+                let label = format!("{street} entre {} y {} en {}", other(x, &street_norm), other(y, &street_norm), x.municipality);
+                seen.push((street_norm, x.municipality.clone()));
+                found.push(Candidate {
+                    label,
+                    point: Point { lat: (x.point.lat + y.point.lat) / 2.0, lon: (x.point.lon + y.point.lon) / 2.0 },
+                    municipality: x.municipality.clone(),
+                    inferred: true,
+                });
+            }
         }
         found
     }
@@ -185,6 +235,7 @@ impl Streets {
                 label: format!("{} ({}) en {}", p.name, kind_label(&p.kind), p.municipality),
                 point: p.point,
                 municipality: p.municipality.clone(),
+                inferred: false,
             })
             .collect()
     }
@@ -595,6 +646,12 @@ mod tests {
         assert!(found.iter().any(|c| c.label.contains("Hermanos Ameijeiras") && c.municipality == "Centro Habana"));
 
         assert!(s.candidates("la casa azul detrás del policlínico").is_empty());
+
+        // Found in a live test: "Doble Vía" is not in OSM, but the streets
+        // crossing both 160C and 160D are, Avenida Séptima among them.
+        let found = s.candidates("doble via entre 160c y 160d");
+        assert!(found.iter().all(|c| c.inferred && c.municipality == "Habana del Este"), "{found:?}");
+        assert!(found.iter().any(|c| c.label.contains("Séptima")), "{found:?}");
 
         // Found in a live test: "3era" and "a y" typed as "ay".
         let found = s.candidates("160e entre 3era ay 3b");

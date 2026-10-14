@@ -577,3 +577,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 68 | La oferta inicial se ajusta con botones −1000, −500, −100, +100, +500 y +1000 sobre el precio sugerido (nunca por debajo del mínimo), mostrando el precio por km | 2026-10-14 |
 | 69 | Sin margen para las distancias aproximadas: la ruta desde el reparto se usa tal cual; la subasta corrige el precio | 2026-10-14 |
 | 70 | Además de pins y direcciones, se aceptan coordenadas escritas (decimales o grados, minutos y segundos) y enlaces de mapas (Google Maps, OpenStreetMap, Apple Maps); los enlaces cortos de Google se resuelven con una consulta a Google desde el servidor. El punto se confirma con "¿Es aquí?", se rechaza fuera de La Habana y nunca se escribe en los logs | 2026-10-14 |
+| 71 | Si la calle de "X entre A y B" no existe en OSM (un nombre popular como "Doble Vía"), se deducen las calles que cruzan A y B en una misma cuadra y se ofrecen como botones, sin Jev | 2026-10-14 |
