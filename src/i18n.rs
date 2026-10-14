@@ -360,10 +360,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, NotAllowed) => "You are not allowed to do this.",
 
         (Lang::Es, AskPickup) => {
-            "📍 ¿Dónde te recogemos? Pulsa «Enviar mi ubicación», marca otro punto con 📎 → Ubicación, o escribe la dirección o un lugar conocido (por ejemplo: 23 e/ L y M, Vedado, o Hotel Nacional)."
+            "📍 ¿Dónde te recogemos? Pulsa «Enviar mi ubicación», marca otro punto con 📎 → Ubicación, o escribe la dirección o un lugar conocido (por ejemplo: 23 e/ L y M, Vedado, o Coppelia)."
         }
         (Lang::En, AskPickup) => {
-            "📍 Where should we pick you up? Tap \"Send my location\", mark another point with 📎 → Location, or type the address or a known place (for example: 23 e/ L y M, Vedado, or Hotel Nacional)."
+            "📍 Where should we pick you up? Tap \"Send my location\", mark another point with 📎 → Location, or type the address or a known place (for example: 23 e/ L y M, Vedado, or Coppelia)."
         }
         (Lang::Es, ConfirmPickup) => "¿Es aquí la recogida?",
         (Lang::En, ConfirmPickup) => "Is this the pickup point?",
@@ -374,10 +374,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
             "✍️ Write a landmark for the driver (for example: in front of the corner store) or tap Skip."
         }
         (Lang::Es, AskDropoff) => {
-            "🏁 ¿A dónde vas? Marca el punto con 📎 → Ubicación, o escribe la dirección o un lugar conocido (por ejemplo: 23 e/ L y M, Vedado, o Hotel Nacional)."
+            "🏁 ¿A dónde vas? Marca el punto con 📎 → Ubicación, o escribe la dirección o un lugar conocido (por ejemplo: 23 e/ L y M, Vedado, o Coppelia)."
         }
         (Lang::En, AskDropoff) => {
-            "🏁 Where are you going? Mark the point with 📎 → Location, or type the address or a known place (for example: 23 e/ L y M, Vedado, or Hotel Nacional)."
+            "🏁 Where are you going? Mark the point with 📎 → Location, or type the address or a known place (for example: 23 e/ L y M, Vedado, or Coppelia)."
         }
         (Lang::Es, ConfirmDropoff) => "¿Es aquí el destino?",
         (Lang::En, ConfirmDropoff) => "Is this the destination?",
