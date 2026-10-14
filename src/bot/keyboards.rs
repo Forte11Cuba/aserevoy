@@ -203,14 +203,18 @@ pub fn repartos(lang: Lang, names: &[&str], page: usize) -> InlineKeyboardMarkup
         }
         rows.push(nav);
     }
+    rows.push(vec![inline(lang, Button::StepBack, "dback")]);
     InlineKeyboardMarkup::new(rows)
 }
 
-/// The municipalities, two per row, for a description without a pin.
-pub fn municipalities(names: &[&str]) -> InlineKeyboardMarkup {
+/// The municipalities, two per row, for a description without a pin, and
+/// Back (to the choices, or to typing the address).
+pub fn municipalities(lang: Lang, names: &[&str]) -> InlineKeyboardMarkup {
     let buttons: Vec<_> =
         names.iter().enumerate().map(|(i, n)| InlineKeyboardButton::callback(*n, format!("mun:{i}"))).collect();
-    InlineKeyboardMarkup::new(buttons.chunks(2).map(<[_]>::to_vec).collect::<Vec<_>>())
+    let mut rows: Vec<Vec<_>> = buttons.chunks(2).map(<[_]>::to_vec).collect();
+    rows.push(vec![inline(lang, Button::StepBack, "dback")]);
+    InlineKeyboardMarkup::new(rows)
 }
 
 pub fn republish(lang: Lang) -> InlineKeyboardMarkup {
@@ -355,8 +359,9 @@ mod tests {
         assert_eq!(last.iter().filter(|c| c.starts_with("zone:")).count(), 5);
         assert!(last.contains(&"zone:64".to_owned()) && last.contains(&"zpg:4".to_owned()));
 
-        // A small municipality: one page, no navigation.
+        // A small municipality: one page, no navigation, and Back.
         let few = callbacks(&repartos(Lang::Es, &names[..6], 0));
-        assert_eq!(few.len(), 6);
+        assert_eq!(few.len(), 7);
+        assert_eq!(few.last().map(String::as_str), Some("dback"));
     }
 }
