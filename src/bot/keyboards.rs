@@ -162,12 +162,15 @@ pub fn awaiting_client(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup 
 }
 
 /// The places found for a written address, and "none of these".
-/// Buttons carry only the number: the full addresses are in the message,
-/// because Telegram cuts long button labels.
-pub fn candidates(lang: Lang, count: usize) -> InlineKeyboardMarkup {
-    let numbers: Vec<_> =
-        (0..count).map(|i| InlineKeyboardButton::callback((i + 1).to_string(), format!("cand:{i}"))).collect();
-    let mut rows: Vec<Vec<_>> = numbers.chunks(4).map(<[_]>::to_vec).collect();
+/// One button per place: its number, the reparto first and then the address
+/// ("1 · Miramar · Calle 12 entre …"). Telegram shows a single line and cuts
+/// the end, so the reparto stays visible; the message lists them in full.
+pub fn candidates(lang: Lang, shorts: &[&str]) -> InlineKeyboardMarkup {
+    let mut rows: Vec<Vec<_>> = shorts
+        .iter()
+        .enumerate()
+        .map(|(i, short)| vec![InlineKeyboardButton::callback(format!("{} · {short}", i + 1), format!("cand:{i}"))])
+        .collect();
     rows.push(vec![inline(lang, Button::NoneOfThese, "cand:none")]);
     InlineKeyboardMarkup::new(rows)
 }

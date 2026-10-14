@@ -43,9 +43,16 @@ struct Corner {
 struct Place {
     name: String,
     norm: String,
+    /// "suburb" (a big reparto), "neighborhood" (a smaller one) or a landmark type.
     kind: String,
     point: Point,
     municipality: String,
+}
+
+impl Place {
+    fn is_reparto(&self) -> bool {
+        self.kind == "suburb" || self.kind == "neighborhood"
+    }
 }
 
 /// A point the text may refer to, with a description for Jev and the client.
@@ -57,6 +64,9 @@ pub struct Candidate {
     /// Deduced from the cross streets: the written street name is unknown
     /// ("doble vía e/ 160c y 160d"), so the client must pick it.
     pub inferred: bool,
+    /// The label with the reparto first ("Miramar · Calle 12 entre …"): a
+    /// button cut at the end still shows what tells the options apart.
+    pub short: String,
 }
 
 #[derive(Debug, Default)]
@@ -140,7 +150,27 @@ impl Streets {
             dedup_nearby(&mut found);
         }
         found.truncate(MAX_CANDIDATES);
+        for c in &mut found {
+            let area = self.nearest_reparto(c.point, &c.municipality).unwrap_or_else(|| c.municipality.clone());
+            c.short = format!("{area} · {}", c.label);
+        }
         found
+    }
+
+    /// The reparto people would name: the nearest big one (Vedado, Miramar,
+    /// Alamar) in the same municipality within 3.5 km, else the nearest small
+    /// one. OSM has a point per reparto, not its limits.
+    fn nearest_reparto(&self, p: Point, municipality: &str) -> Option<String> {
+        let nearest = |big: bool| {
+            self.places
+                .iter()
+                .filter(|r| r.is_reparto() && (r.kind == "suburb") == big && r.municipality == municipality)
+                .map(|r| (km_between(p, r.point), r))
+                .filter(|(km, _)| *km <= NEAR_REPARTO_KM)
+                .min_by(|x, y| x.0.total_cmp(&y.0))
+                .map(|(_, r)| r.name.clone())
+        };
+        nearest(true).or_else(|| nearest(false))
     }
 
     fn corners_of(&self, street: &str, cross: &str) -> Vec<&Corner> {
@@ -159,6 +189,7 @@ impl Streets {
             point: c.point,
             municipality: c.municipality.clone(),
             inferred: false,
+            short: String::new(),
         }
     }
 
@@ -177,6 +208,7 @@ impl Streets {
                         point: Point { lat: (x.point.lat + y.point.lat) / 2.0, lon: (x.point.lon + y.point.lon) / 2.0 },
                         municipality: x.municipality.clone(),
                         inferred: false,
+                        short: String::new(),
                     });
                 }
             }
@@ -223,6 +255,7 @@ impl Streets {
                     point: Point { lat: (x.point.lat + y.point.lat) / 2.0, lon: (x.point.lon + y.point.lon) / 2.0 },
                     municipality: x.municipality.clone(),
                     inferred: true,
+                    short: String::new(),
                 });
             }
         }
@@ -234,7 +267,7 @@ impl Streets {
             return Vec::new();
         }
         let mut found: Vec<&Place> =
-            self.places.iter().filter(|p| p.kind != "neighborhood" && name_matches(&p.norm, name)).collect();
+            self.places.iter().filter(|p| !p.is_reparto() && name_matches(&p.norm, name)).collect();
         // Exact names first, then shorter ones (closer to what was written).
         found.sort_by_key(|p| (p.norm != name, p.norm.len()));
         found
@@ -244,6 +277,7 @@ impl Streets {
                 point: p.point,
                 municipality: p.municipality.clone(),
                 inferred: false,
+                short: String::new(),
             })
             .collect()
     }
@@ -251,7 +285,7 @@ impl Streets {
     /// The repartos of a municipality, by name (one point per name).
     pub fn repartos_in(&self, municipality: &str) -> Vec<Reparto> {
         let mut found: Vec<Reparto> = Vec::new();
-        for p in self.places.iter().filter(|p| p.kind == "neighborhood" && p.municipality == municipality) {
+        for p in self.places.iter().filter(|p| p.is_reparto() && p.municipality == municipality) {
             if !found.iter().any(|r| r.name == p.name) {
                 found.push(Reparto { name: p.name.clone(), point: p.point });
             }
@@ -275,7 +309,7 @@ impl Streets {
         let repartos: Vec<(Reparto, String)> = self
             .places
             .iter()
-            .filter(|p| p.kind == "neighborhood")
+            .filter(|p| p.is_reparto())
             .map(|p| (Reparto { name: p.name.clone(), point: p.point }, p.municipality.clone()))
             .collect();
         let best = best_named(&repartos, &written, |(r, _)| normalize(&r.name));
@@ -293,7 +327,7 @@ impl Streets {
             if let Some((_, m)) = self.municipalities.iter().find(|(norm, _)| norm == hint) {
                 return Some(Area::Municipality(m.clone()));
             }
-            if let Some(p) = self.places.iter().find(|p| p.kind == "neighborhood" && &p.norm == hint) {
+            if let Some(p) = self.places.iter().find(|p| p.is_reparto() && &p.norm == hint) {
                 return Some(Area::Near(p.point, p.municipality.clone()));
             }
         }
@@ -692,6 +726,13 @@ mod tests {
         let found = s.candidates("doble via entre 160c y 160d");
         assert!(found.iter().all(|c| c.inferred && c.municipality == "Habana del Este"), "{found:?}");
         assert!(found.iter().any(|c| c.label.contains("Séptima")), "{found:?}");
+
+        // Buttons say the reparto first: the two "12 e/ 3ra y 5ta" of Miramar
+        // and the Vedado are told apart at a glance.
+        let found = s.candidates("12 entre 3era y 5ta");
+        let short = |m: &str| found.iter().find(|c| c.municipality == m).map(|c| c.short.clone()).unwrap_or_default();
+        assert!(short("Playa").starts_with("Miramar · Calle 12 entre"), "{found:?}");
+        assert!(short("Plaza de la Revolución").starts_with("Vedado · Calle 12 entre"), "{found:?}");
 
         // Found in a live test: "3era" and "a y" typed as "ay".
         let found = s.candidates("160e entre 3era ay 3b");

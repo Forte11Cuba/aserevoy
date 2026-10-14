@@ -218,7 +218,7 @@ async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> an
         }
         Ok(Some(point)) => {
             let label = i18n::text(cx.lang, Text::MapPoint).to_owned();
-            return show_found(cx, leg, pickup, Candidate { label, point }).await;
+            return show_found(cx, leg, pickup, Candidate { short: label.clone(), label, point }).await;
         }
         Ok(None) => {}
         Err(e) => {
@@ -233,7 +233,7 @@ async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> an
     let candidates = cx.app.streets.candidates(&text);
     let inferred_any = candidates.iter().any(|c| c.inferred);
     let found: Vec<Candidate> =
-        candidates.into_iter().map(|c| Candidate { label: c.label, point: c.point }).collect();
+        candidates.into_iter().map(|c| Candidate { label: c.label, point: c.point, short: c.short }).collect();
     let decision = match found.len() {
         0 => Decision::Nothing,
         // Deduced from the cross streets: the client knows which street it is
@@ -259,7 +259,7 @@ async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> an
         Decision::Use(i) => show_found(cx, leg, pickup, found[i].clone()).await,
         Decision::Offer(indices) => {
             let options: Vec<Candidate> = indices.into_iter().map(|i| found[i].clone()).collect();
-            let markup = keyboards::candidates(cx.lang, options.len());
+            let markup = keyboards::candidates(cx.lang, &options.iter().map(|c| c.short.as_str()).collect::<Vec<_>>());
             let question = i18n::choose_address(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>());
             match pickup {
                 None => cx.save(Ride::ChoosePickup { text, options }).await?,
@@ -270,7 +270,7 @@ async fn resolve(cx: &Ctx<'_>, leg: Leg, pickup: Option<Spot>, text: &str) -> an
         }
         Decision::Nothing => match cx.app.streets.reparto_in_text(&text) {
             // The description names a reparto ("…, Alamar"): place it there.
-            Some((reparto, _)) => described_at(cx, pickup, text, Candidate { label: reparto.name, point: reparto.point }).await,
+            Some((reparto, _)) => described_at(cx, pickup, text, Candidate { short: reparto.name.clone(), label: reparto.name, point: reparto.point }).await,
             None => ask_description(cx, pickup, text).await,
         },
     }
@@ -425,7 +425,7 @@ async fn ask_reparto(cx: &Ctx<'_>, pickup: Option<Spot>, text: String, index: Op
         .streets
         .repartos_in(&municipality)
         .into_iter()
-        .map(|r| Candidate { label: r.name, point: r.point })
+        .map(|r| Candidate { short: r.name.clone(), label: r.name, point: r.point })
         .collect();
     let markup = keyboards::repartos(cx.lang, &options.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), 0);
     let question = Text::AskReparto;
@@ -451,7 +451,7 @@ async fn reparto_typed(
         .find_repartos(&municipality, typed)
         .into_iter()
         .take(8)
-        .map(|r| Candidate { label: r.name, point: r.point })
+        .map(|r| Candidate { short: r.name.clone(), label: r.name, point: r.point })
         .collect();
     match found.len() {
         0 => {

@@ -61,6 +61,9 @@ pub enum Ride {
 pub struct Candidate {
     pub label: String,
     pub point: Point,
+    /// What the button shows: the reparto, then the label ("Miramar · Calle 12 entre …").
+    #[serde(default)]
+    pub short: String,
 }
 
 /// Pickup or destination.
