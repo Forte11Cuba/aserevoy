@@ -46,7 +46,8 @@ pub enum Ride {
     ChooseDropoff { pickup: Spot, text: String, options: Vec<Candidate> },
     DescribeDropoff { pickup: Spot, text: String },
     ConfirmDropoff { pickup: Spot, dropoff: Point, label: Option<String> },
-    Price { trip: Trip },
+    /// The client adjusts their offer, starting at the suggested price.
+    Price { trip: Trip, offer: Cup },
     Payment { trip: Trip, price: Cup },
 }
 
@@ -74,6 +75,8 @@ pub struct Trip {
     pub dropoff: Spot,
     /// Already increased if a point is approximate.
     pub km: f64,
+    #[serde(default)]
+    pub minutes: f64,
     pub suggested: Cup,
     pub minimum: Cup,
 }

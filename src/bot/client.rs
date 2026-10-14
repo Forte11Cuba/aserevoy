@@ -126,7 +126,7 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
                 None => cx.say_plain(Text::InvalidField).await,
             }
         }
-        Ride::Price { trip } => match text.map(|t| t.parse::<Cup>()) {
+        Ride::Price { trip, .. } => match text.map(|t| t.parse::<Cup>()) {
             Some(Ok(price)) if price >= trip.minimum => ask_payment(cx, trip, price).await,
             Some(Ok(offered)) => {
                 let error = DomainError::PriceBelowMinimum { offered, minimum: trip.minimum };
@@ -281,13 +281,22 @@ pub async fn on_callback(
             Some(dropoff) => confirm_route(cx, pickup, dropoff).await?,
             None => false,
         },
-        (Ride::Price { trip }, "price", amount) => match amount.parse::<Cup>() {
-            Ok(price) if price >= trip.minimum => {
-                ask_payment(cx, trip, price).await?;
-                true
+        (Ride::Price { trip, offer }, "padj", delta) => {
+            // Never below the minimum; the message shows it.
+            if let Ok(delta) = delta.parse::<Cup>() {
+                let offer = (offer + delta).max(trip.minimum);
+                if let Some(msg) = pressed {
+                    let (text, markup) = (price_text(cx, &trip, offer), keyboards::price_adjust(cx.lang, offer));
+                    let _ = cx.bot.edit_message_text(chat(cx.user), msg, text).reply_markup(markup).await;
+                }
+                cx.save(Ride::Price { trip, offer }).await?;
             }
-            _ => false,
-        },
+            false
+        }
+        (Ride::Price { trip, offer }, "pok", _) => {
+            ask_payment(cx, trip, offer).await?;
+            true
+        }
         (Ride::Payment { trip, price }, "pay", method) => match PaymentMethod::parse(method) {
             Some(payment) => {
                 publish(cx, trip, price, payment).await?;
@@ -331,11 +340,16 @@ async fn confirm_route(cx: &Ctx<'_>, pickup: Spot, dropoff: Spot) -> anyhow::Res
     let fares = db::fares::load(&cx.app.pool).await?;
     let suggested = fare::suggested_price(km, &fares);
     let minimum = fare::minimum_price(suggested, &fares);
-    let trip = Trip { pickup, dropoff, km, suggested, minimum };
-    cx.save(Ride::Price { trip }).await?;
-    let prompt = i18n::price_prompt(cx.lang, km, minutes, suggested, minimum, approx);
-    cx.bot.send_message(chat(cx.user), prompt).reply_markup(keyboards::prices(suggested)).await?;
+    let trip = Trip { pickup, dropoff, km, minutes, suggested, minimum };
+    let text = price_text(cx, &trip, suggested);
+    cx.save(Ride::Price { trip, offer: suggested }).await?;
+    cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::price_adjust(cx.lang, suggested)).await?;
     Ok(true)
+}
+
+fn price_text(cx: &Ctx<'_>, trip: &Trip, offer: Cup) -> String {
+    let approx = trip.pickup.approx || trip.dropoff.approx;
+    i18n::price_prompt(cx.lang, trip.km, trip.minutes, trip.suggested, trip.minimum, offer, approx)
 }
 
 /// 🔁 Publish again: the same trip and price as the request that closed.
@@ -349,6 +363,7 @@ pub async fn republish(cx: &Ctx<'_>, again: Republish) -> anyhow::Result<()> {
         pickup: again.pickup,
         dropoff: again.dropoff,
         km: again.km,
+        minutes: 0.0,
         suggested,
         minimum: fare::minimum_price(suggested, &fares),
     };

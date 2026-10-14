@@ -472,16 +472,38 @@ pub fn already_active(lang: Lang, request: &RequestId) -> String {
     }
 }
 
-pub fn price_prompt(lang: Lang, km: f64, minutes: f64, suggested: Cup, minimum: Cup, approx: bool) -> String {
-    let minutes = minutes.round().max(1.0);
+/// The offer being adjusted, with the trip, the suggested price and the minimum.
+pub fn price_prompt(
+    lang: Lang,
+    km: f64,
+    minutes: f64,
+    suggested: Cup,
+    minimum: Cup,
+    offer: Cup,
+    approx: bool,
+) -> String {
     let about = if approx { "≈" } else { "" };
+    // The whole offer over the km (the base fare included): easy to compare.
+    let per_km = if km > 0.0 { (offer as f64 / km).round() as Cup } else { offer };
+    let time = match (lang, minutes > 0.0) {
+        (Lang::Es, true) => format!(" (unos {} min)", minutes.round().max(1.0)),
+        (Lang::En, true) => format!(" (about {} min)", minutes.round().max(1.0)),
+        (_, false) => String::new(),
+    };
     match lang {
         Lang::Es => format!(
-            "📏 {about}{km:.1} km (unos {minutes} min)\n💰 Precio sugerido: {suggested} CUP\n\nElige tu oferta o escribe un monto (mínimo {minimum} CUP)."
+            "📏 {about}{km:.1} km{time}\n💰 Tu oferta: {offer} CUP (≈{per_km} CUP por km)\n(sugerido {suggested} CUP · mínimo {minimum} CUP)\n\nAjústala con los botones o escribe un monto."
         ),
         Lang::En => format!(
-            "📏 {about}{km:.1} km (about {minutes} min)\n💰 Suggested price: {suggested} CUP\n\nPick your offer or type an amount (minimum {minimum} CUP)."
+            "📏 {about}{km:.1} km{time}\n💰 Your offer: {offer} CUP (≈{per_km} CUP per km)\n(suggested {suggested} CUP · minimum {minimum} CUP)\n\nAdjust it with the buttons or type an amount."
         ),
+    }
+}
+
+pub fn offer_button(lang: Lang, offer: Cup) -> String {
+    match lang {
+        Lang::Es => format!("✅ Ofrecer {offer} CUP"),
+        Lang::En => format!("✅ Offer {offer} CUP"),
     }
 }
 
@@ -1146,6 +1168,13 @@ pub fn admins_list(lang: Lang, names: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_offer_shows_its_price_per_km() {
+        let text = price_prompt(Lang::Es, 52.8, 68.0, 8010, 6410, 8010, true);
+        assert!(text.contains("8010 CUP (≈152 CUP por km)"), "{text}");
+        assert!(text.contains("≈52.8 km (unos 68 min)"), "{text}");
+    }
 
     #[test]
     fn spanish_is_the_default() {

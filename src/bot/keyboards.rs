@@ -58,13 +58,17 @@ pub fn confirm_point(lang: Lang, which: &str) -> InlineKeyboardMarkup {
     ]])
 }
 
-/// The suggested price and two higher ones.
-pub fn prices(suggested: Cup) -> InlineKeyboardMarkup {
-    let row = [suggested, suggested + 50, suggested + 100]
-        .into_iter()
-        .map(|p| InlineKeyboardButton::callback(format!("{p} CUP"), format!("price:{p}")))
-        .collect::<Vec<_>>();
-    InlineKeyboardMarkup::new(vec![row])
+/// Steps to adjust the offer, and the button to make it.
+pub fn price_adjust(lang: Lang, offer: Cup) -> InlineKeyboardMarkup {
+    let step = |delta: Cup| {
+        let label = if delta > 0 { format!("+{delta}") } else { format!("−{}", -delta) };
+        InlineKeyboardButton::callback(label, format!("padj:{delta}"))
+    };
+    InlineKeyboardMarkup::new(vec![
+        vec![step(-1000), step(-500), step(-100)],
+        vec![step(100), step(500), step(1000)],
+        vec![InlineKeyboardButton::callback(i18n::offer_button(lang, offer), "pok")],
+    ])
 }
 
 pub fn payment(lang: Lang) -> InlineKeyboardMarkup {
