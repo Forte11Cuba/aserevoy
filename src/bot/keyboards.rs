@@ -156,9 +156,10 @@ pub fn awaiting_client(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup 
 }
 
 /// The places found for a written address, and "none of these".
-/// One button per place: its number, the reparto first and then the address
-/// ("1 · Miramar · Calle 12 entre …"). Telegram shows a single line and cuts
-/// the end, so the reparto stays visible; the message lists them in full.
+/// One button per place: its number, then municipality, reparto and the
+/// rest ("1 · Playa · Miramar · 12 entre …"). Telegram shows a single line
+/// and cuts the end, so what tells them apart goes first; the message lists
+/// them in full.
 pub fn candidates(lang: Lang, shorts: &[&str]) -> InlineKeyboardMarkup {
     let mut rows: Vec<Vec<_>> = shorts
         .iter()

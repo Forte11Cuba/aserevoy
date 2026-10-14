@@ -64,8 +64,9 @@ pub struct Candidate {
     /// Deduced from the cross streets: the written street name is unknown
     /// ("doble vía e/ 160c y 160d"), so the client must pick it.
     pub inferred: bool,
-    /// The label with the reparto first ("Miramar · Calle 12 entre …"): a
-    /// button cut at the end still shows what tells the options apart.
+    /// For the button: municipality, reparto, then the rest ("Playa ·
+    /// Miramar · 12 entre …"). A button cut at the end still shows what
+    /// tells the options apart. See `button_label`.
     pub short: String,
 }
 
@@ -150,9 +151,11 @@ impl Streets {
             dedup_nearby(&mut found);
         }
         found.truncate(MAX_CANDIDATES);
+        // When all are in one municipality, it tells nothing apart.
+        let one_municipality = found.windows(2).all(|w| w[0].municipality == w[1].municipality);
         for c in &mut found {
-            let area = self.nearest_reparto(c.point, &c.municipality).unwrap_or_else(|| c.municipality.clone());
-            c.short = format!("{area} · {}", c.label);
+            let reparto = self.nearest_reparto(c.point, &c.municipality);
+            c.short = button_label(c, reparto.as_deref(), !one_municipality);
         }
         found
     }
@@ -396,6 +399,39 @@ fn kind_label(kind: &str) -> String {
 }
 
 /// "Calle 23" → "23", for the short corner shown in the channel.
+/// "Playa · Miramar · 12 entre 3ra y 5ta": the municipality (short name,
+/// left out when `with_municipality` is false), the reparto unless it is
+/// named like the municipality, and the label without "Calle" at the start
+/// or "en <municipality>" at the end.
+fn button_label(c: &Candidate, reparto: Option<&str>, with_municipality: bool) -> String {
+    let municipality = short_municipality(&c.municipality);
+    let rest = c.label.strip_suffix(&format!(" en {}", c.municipality)).unwrap_or(&c.label);
+    let rest = rest.strip_prefix("Calle ").unwrap_or(rest);
+    let mut parts = Vec::new();
+    if with_municipality {
+        parts.push(municipality);
+    }
+    if let Some(reparto) = reparto
+        && reparto != c.municipality
+        && reparto != municipality
+    {
+        parts.push(reparto);
+    }
+    parts.push(rest);
+    parts.join(" · ")
+}
+
+/// The name people say, shorter for a button.
+fn short_municipality(name: &str) -> &str {
+    match name {
+        "Plaza de la Revolución" => "Plaza",
+        "Diez de Octubre" => "10 de Octubre",
+        "San Miguel del Padrón" => "San Miguel",
+        "La Habana Vieja" => "Habana Vieja",
+        other => other,
+    }
+}
+
 fn short(name: &str) -> &str {
     name.strip_prefix("Calle ").unwrap_or(name)
 }
@@ -727,12 +763,16 @@ mod tests {
         assert!(found.iter().all(|c| c.inferred && c.municipality == "Habana del Este"), "{found:?}");
         assert!(found.iter().any(|c| c.label.contains("Séptima")), "{found:?}");
 
-        // Buttons say the reparto first: the two "12 e/ 3ra y 5ta" of Miramar
-        // and the Vedado are told apart at a glance.
+        // Buttons say municipality, reparto, then the rest: the "12 e/ 3ra
+        // y 5ta" of Miramar and of the Vedado are told apart at a glance.
         let found = s.candidates("12 entre 3era y 5ta");
         let short = |m: &str| found.iter().find(|c| c.municipality == m).map(|c| c.short.clone()).unwrap_or_default();
-        assert!(short("Playa").starts_with("Miramar · Calle 12 entre"), "{found:?}");
-        assert!(short("Plaza de la Revolución").starts_with("Vedado · Calle 12 entre"), "{found:?}");
+        assert!(short("Playa").starts_with("Playa · Miramar · 12 entre"), "{found:?}");
+        assert!(short("Plaza de la Revolución").starts_with("Plaza · Vedado · 12 entre"), "{found:?}");
+        assert!(!short("Playa").ends_with("en Playa"), "{found:?}");
+        // All in one municipality: it is left out.
+        let found = s.candidates("7ma entre 160c y 160d, Alamar");
+        assert!(found.iter().all(|c| !c.short.starts_with("Habana del Este")), "{found:?}");
 
         // Found in a live test: "3era" and "a y" typed as "ay".
         let found = s.candidates("160e entre 3era ay 3b");
