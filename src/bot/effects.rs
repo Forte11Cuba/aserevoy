@@ -246,8 +246,20 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 .reply_markup(keyboards::awaiting_client(lang, id))
                 .await?;
         }
-        Notice::DriverWithdrew { .. } | Notice::ClientOnTheWay { .. } | Notice::DriverArrived { .. } => {
+        Notice::DriverWithdrew { .. } => {
             bot.send_message(chat(to), i18n::notice(lang, notice)).await?;
+        }
+        // The trip's buttons again, on the latest message: the first ones
+        // are far up the chat by now.
+        Notice::ClientOnTheWay { request: id } => {
+            bot.send_message(chat(to), i18n::notice(lang, notice))
+                .reply_markup(keyboards::driver_trip(lang, id))
+                .await?;
+        }
+        Notice::DriverArrived { request: id } => {
+            bot.send_message(chat(to), i18n::notice(lang, notice))
+                .reply_markup(keyboards::client_trip(lang, id))
+                .await?;
         }
         Notice::OfferOutbid { .. }
         | Notice::ClientDeclined { .. }
