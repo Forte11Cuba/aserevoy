@@ -118,7 +118,15 @@ impl Streets {
         let mut found = match &address.kind {
             AddressKind::Between { street, a, b } => self.between(street, a, b),
             AddressKind::Corner { street, cross } => {
-                self.corners_of(street, cross).into_iter().map(|c| self.corner_candidate(c)).collect()
+                let corners: Vec<Candidate> =
+                    self.corners_of(street, cross).into_iter().map(|c| self.corner_candidate(c)).collect();
+                if corners.is_empty() {
+                    // No such corner: two parallel streets ("21 D y 21 C")
+                    // mean the block of a street crossing both.
+                    self.crossing_both(street, cross)
+                } else {
+                    corners
+                }
             }
             AddressKind::Place(name) => self.places_named(name),
         };
@@ -381,27 +389,49 @@ fn parse(text: &str) -> Address {
     let main = parts.next().unwrap_or_default();
     let hints: Vec<String> = parts.map(|p| normalize(&p)).filter(|h| !h.is_empty()).collect();
 
-    let main = format!(" {} ", unglue_y(&main));
+    // Streets, without a trailing landmark ("23 e/ L y M por la cafetería");
+    // if there are no streets, the whole text may name a place.
+    let kind = streets_in(&without_landmark(&main)).unwrap_or_else(|| AddressKind::Place(normalize(&main)));
+    Address { kind, hints }
+}
 
+/// "X entre A y B" or "X esquina A" in the (cleaned) text, if any.
+fn streets_in(text: &str) -> Option<AddressKind> {
+    let main = format!(" {} ", unglue_y(text));
     for marker in [" e/ ", " entre ", " e ", " e. "] {
         if let Some((street, rest)) = main.split_once(marker)
             && let Some((a, b)) = rest.split_once(" y ")
         {
-            return Address {
-                kind: AddressKind::Between { street: normalize(street), a: normalize(a), b: normalize(b) },
-                hints,
-            };
+            return Some(AddressKind::Between { street: normalize(street), a: normalize(a), b: normalize(b) });
         }
     }
     for marker in [" esquina a ", " esquina ", " esq. ", " esq ", " y "] {
         if let Some((street, cross)) = main.split_once(marker) {
             let (street, cross) = (normalize(street), normalize(cross));
             if !street.is_empty() && !cross.is_empty() {
-                return Address { kind: AddressKind::Corner { street, cross }, hints };
+                return Some(AddressKind::Corner { street, cross });
             }
         }
     }
-    Address { kind: AddressKind::Place(normalize(&main)), hints }
+    None
+}
+
+/// Phrases that start a landmark ("por la cafetería el Riki", "frente al
+/// parque"): what follows describes the surroundings, not the streets.
+const LANDMARK_STARTS: [&str; 12] = [
+    " por la ", " por el ", " por los ", " por las ", " frente a", " cerca de", " cerca del", " al lado de",
+    " al lado del", " detras de", " detrás de", " junto a",
+];
+
+/// The address without a trailing landmark. A text that is only a landmark
+/// ("frente al Coppelia") is kept: then the landmark is the place.
+fn without_landmark(main: &str) -> String {
+    let padded = format!(" {main} ");
+    let cut = LANDMARK_STARTS.iter().filter_map(|m| padded.find(m)).filter(|&at| at > 0).min();
+    match cut {
+        Some(at) => padded[..at].trim().to_owned(),
+        None => main.to_owned(),
+    }
 }
 
 /// "3ra ay 3b": a street letter typed together with "y" ("ay" for "a y").
@@ -602,6 +632,10 @@ mod tests {
         assert_eq!(parse("Calle 23 #1052 apto 4 e/ L y M").kind, between);
         assert_eq!(parse("23 nro 1052 piso 2 altos e/ L y M").kind, between);
         assert_eq!(parse("edif 12 apt 4b, 23 e/ L y M").kind, between);
+        // A landmark after the streets is not part of them.
+        assert_eq!(parse("23 e/ L y M por la cafeteria el riki").kind, between);
+        assert_eq!(parse("infanta y san lazaro frente al parque").kind, corner);
+        assert_eq!(parse("frente al Coppelia").kind, AddressKind::Place("coppelia".into()));
         let glued = AddressKind::Between { street: "160e".into(), a: "3a".into(), b: "3b".into() };
         assert_eq!(parse("160e entre 3era ay 3b").kind, glued);
     }
@@ -646,6 +680,12 @@ mod tests {
         assert!(found.iter().any(|c| c.label.contains("Hermanos Ameijeiras") && c.municipality == "Centro Habana"));
 
         assert!(s.candidates("la casa azul detrás del policlínico").is_empty());
+
+        // Found in a live test: 21 D and 21 C are parallel (no corner), and a
+        // landmark followed them. The streets crossing both are offered.
+        let found = s.candidates("21 d y 21 c por la cafeteria el riki");
+        assert!(!found.is_empty() && found.iter().all(|c| c.inferred), "{found:?}");
+        assert!(found.iter().any(|c| c.label.contains("Avenida Cuarta")), "{found:?}");
 
         // Found in a live test: "Doble Vía" is not in OSM, but the streets
         // crossing both 160C and 160D are, Avenida Séptima among them.
