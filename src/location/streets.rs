@@ -125,10 +125,24 @@ impl Streets {
     /// The points a written address may refer to, best first.
     pub fn candidates(&self, text: &str) -> Vec<Candidate> {
         let address = parse(text);
-        let area = self.area_hint(&address.hints);
+        let mut area = self.area_hint(&address.hints);
         let mut found = match &address.kind {
             // "entre 5ta B y 5ta C Avenida de los Cocos": no street before.
-            AddressKind::Between { street, a, b } if street.is_empty() => self.street_last(a, b),
+            // Or after a comma: "entre 5ta B y 5ta C, Avenida de los Cocos".
+            AddressKind::Between { street, a, b } if street.is_empty() => {
+                let found = self.street_last(a, b);
+                if found.is_empty() {
+                    let blocks: Vec<Candidate> =
+                        address.hints.iter().flat_map(|street| self.blocks(street, a, b)).collect();
+                    // The hint was the street ("Los Cocos" is a reparto too).
+                    if !blocks.is_empty() {
+                        area = None;
+                    }
+                    blocks
+                } else {
+                    found
+                }
+            }
             AddressKind::Between { street, a, b } => self.between(street, a, b),
             AddressKind::Corner { street, cross } => {
                 let corners: Vec<Candidate> =
@@ -149,6 +163,20 @@ impl Streets {
         // none is left: better to ask for the pin than to suggest the wrong one.
         if let Some(area) = &area {
             found.retain(|c| area.contains(c));
+        }
+        // A hint that is no area may be the street itself ("5 y Calzada,
+        // Avenida de los Presidentes"): if some places name it, keep those.
+        if area.is_none() {
+            for hint in &address.hints {
+                let names_it = |c: &Candidate| {
+                    let label = normalize(&c.label);
+                    let words: Vec<&str> = label.split(' ').collect();
+                    hint.split(' ').all(|w| words.contains(&w))
+                };
+                if found.iter().any(names_it) {
+                    found.retain(names_it);
+                }
+            }
         }
         // Parallel streets deduced from cross streets are close but distinct.
         if !found.iter().any(|c| c.inferred) {
@@ -607,6 +635,27 @@ const GENERIC: [&str; 18] = [
 /// ordinals as numbers: "Calle 23" → "23", "5ta Avenida" → "5",
 /// "Calzada de Infanta" → "infanta", "Quinta" → "5".
 pub fn normalize(text: &str) -> String {
+    // "Calzada (7)": the name before the brackets is all generic words, but
+    // it is what people say ("5ta y Calzada"); keep it after the number, so
+    // both "Calzada" and "7" match.
+    if let Some((head, rest)) = text.split_once('(') {
+        let head = words_of(head);
+        if !head.is_empty() && head.iter().all(|w| GENERIC.contains(&w.as_str())) {
+            let rest = normalize(rest);
+            return if rest.is_empty() { head.join(" ") } else { format!("{rest} {}", head.join(" ")) };
+        }
+    }
+    let words = words_of(text);
+    let meaningful: Vec<&String> = words.iter().filter(|w| !GENERIC.contains(&w.as_str())).collect();
+    // "Paseo" or "La Rampa" alone are names: keep the words if all are generic.
+    if meaningful.is_empty() {
+        return words.join(" ");
+    }
+    meaningful.iter().map(|w| w.as_str()).collect::<Vec<_>>().join(" ")
+}
+
+/// Lowercase words without accents or punctuation, ordinals as numbers.
+fn words_of(text: &str) -> Vec<String> {
     let plain: String = text
         .to_lowercase()
         .chars()
@@ -621,13 +670,7 @@ pub fn normalize(text: &str) -> String {
             _ => ' ',
         })
         .collect();
-    let words = join_letter_suffixes(plain.split_whitespace().map(ordinal).collect());
-    let meaningful: Vec<&String> = words.iter().filter(|w| !GENERIC.contains(&w.as_str())).collect();
-    // "Paseo" or "La Rampa" alone are names: keep the words if all are generic.
-    if meaningful.is_empty() {
-        return words.join(" ");
-    }
-    meaningful.iter().map(|w| w.as_str()).collect::<Vec<_>>().join(" ")
+    join_letter_suffixes(plain.split_whitespace().map(ordinal).collect())
 }
 
 /// A number followed by a single letter is one name, however it is written:
@@ -712,6 +755,8 @@ mod tests {
         assert_eq!(normalize("Calle 23"), "23");
         assert_eq!(normalize("5ta Avenida"), "5");
         assert_eq!(normalize("Quinta Avenida"), "5");
+        assert_eq!(normalize("Calzada (7)"), "7 calzada");
+        assert_eq!(normalize("Avenida de los Presidentes (Calle G)"), "presidentes g");
         assert_eq!(normalize("Calzada de Infanta"), "infanta");
         assert_eq!(normalize("Calle San Lázaro"), "san lazaro");
         assert_eq!(normalize("Paseo"), "paseo");
@@ -828,8 +873,19 @@ mod tests {
         let found = s.candidates("circunvalacion entre 1ero de mayo y 24 de febrero");
         assert_eq!(found.len(), 1, "{found:?}");
 
+        // Found in a live test: "Calzada (7)" is Calzada, and Calle 5ta runs
+        // parallel to it, so the street is a third one, maybe after a comma.
+        let found = s.candidates("calle 5 y calzada, avenida los presidentes");
+        assert!(found.len() == 1 && found[0].label.starts_with("Avenida de los Presidentes (Calle G) entre Calle 5ta y Calzada"), "{found:?}");
+        assert!(s.candidates("calle 5 y calzada").len() > 1);
+        assert_eq!(s.candidates("calzada y L").len(), 1);
+
         // Found in a live test: the cross streets first, then the street.
-        for text in ["5ta b y 5ta c avenida de los cocos", "entre 5ta b y 5ta c avenida de los cocos"] {
+        for text in [
+            "5ta b y 5ta c avenida de los cocos",
+            "entre 5ta b y 5ta c avenida de los cocos",
+            "entre 5ta b y 5ta c, avenida de los cocos",
+        ] {
             let found = s.candidates(text);
             assert!(found.len() == 1 && found[0].label.starts_with("Avenida de Los Cocos (164) entre 5ta B y 5ta C"), "{found:?}");
             assert!(found[0].short.starts_with("Alamar · "), "{found:?}");
