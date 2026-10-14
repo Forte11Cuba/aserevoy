@@ -174,7 +174,12 @@ pub struct NewRequest {
     pub client_phone: Option<String>,
     pub pickup: Point,
     pub dropoff: Point,
+    /// No exact location: the municipality's centre (see `fare::approximate_km`).
+    pub pickup_approx: bool,
+    pub dropoff_approx: bool,
     pub reference: Option<String>,
+    /// The client's description of the destination, if they wrote one.
+    pub dropoff_note: Option<String>,
     pub km: f64,
     pub price: Cup,
     pub payment: PaymentMethod,
@@ -187,9 +192,14 @@ pub struct Request {
     pub client_phone: Option<String>,
     pub pickup: Point,
     pub dropoff: Point,
+    pub pickup_approx: bool,
+    pub dropoff_approx: bool,
     pub reference: Option<String>,
+    pub dropoff_note: Option<String>,
     pub km: f64,
     pub price: Cup,
+    /// The suggested price when published.
+    pub suggested: Cup,
     pub payment: PaymentMethod,
     pub state: State,
     /// Holding the request (`Confirming`) or doing the trip (`Assigned`).
@@ -227,7 +237,8 @@ impl Request {
         fares: &Fares,
         now: UnixTime,
     ) -> Result<(Request, Vec<Effect>), DomainError> {
-        let minimum = fare::minimum_price(fare::suggested_price(new.km, fares), fares);
+        let suggested = fare::suggested_price(new.km, fares);
+        let minimum = fare::minimum_price(suggested, fares);
         if new.price < minimum {
             return Err(DomainError::PriceBelowMinimum { offered: new.price, minimum });
         }
@@ -237,9 +248,13 @@ impl Request {
             client_phone: new.client_phone,
             pickup: new.pickup,
             dropoff: new.dropoff,
+            pickup_approx: new.pickup_approx,
+            dropoff_approx: new.dropoff_approx,
             reference: new.reference,
+            dropoff_note: new.dropoff_note,
             km: new.km,
             price: new.price,
+            suggested,
             payment: new.payment,
             state: State::Open,
             driver: None,
@@ -629,6 +644,9 @@ mod tests {
             client_phone: None,
             pickup: Point { lat: 23.13, lon: -82.38 },
             dropoff: Point { lat: 23.12, lon: -82.40 },
+            pickup_approx: false,
+            dropoff_approx: false,
+            dropoff_note: None,
             reference: Some("frente a la bodega".into()),
             km: 3.2, // suggested 580, minimum 460
             price,

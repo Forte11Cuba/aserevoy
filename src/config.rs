@@ -20,11 +20,11 @@ pub struct Config {
     /// The human Telegram account that answers support (without the @).
     pub support_username: Option<String>,
     pub osrm_url: String,
-    // Jev (typed addresses) arrives in phase 4.
-    #[allow(dead_code)]
+    /// Jev (TypeSafe) picks among candidate places for written addresses.
     pub typesafe_api_key: Option<String>,
-    #[allow(dead_code)]
     pub jev_enabled: bool,
+    /// Streets, corners and places from OSM (`scripts/prepare_osm.py`).
+    pub streets_path: String,
     pub default_fares: Fares,
 }
 
@@ -58,6 +58,7 @@ impl Config {
             osrm_url: optional("OSRM_URL").unwrap_or_else(|| "http://localhost:5000".into()),
             typesafe_api_key: optional("TYPESAFE_API_KEY"),
             jev_enabled: parse_or("JEV_ENABLED", false)?,
+            streets_path: optional("STREETS_DB").unwrap_or_else(|| "data/streets.sqlite".into()),
             default_fares: Fares {
                 base: parse_or("FARE_BASE", 100)?,
                 per_km: parse_or("FARE_PER_KM", 150)?,

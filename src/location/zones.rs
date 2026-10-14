@@ -3,7 +3,7 @@
 //! OpenStreetMap). The channel shows this instead of the exact location.
 
 use anyhow::{Context, bail};
-use geo::{Contains, Coord, LineString, MultiPolygon, Polygon};
+use geo::{Contains, Coord, InteriorPoint, LineString, MultiPolygon, Polygon};
 use serde::Deserialize;
 
 use crate::domain::request::Point;
@@ -68,6 +68,18 @@ impl Zones {
             })
             .collect::<anyhow::Result<_>>()?;
         Ok(Zones(zones))
+    }
+
+    /// The municipalities, in the file's (alphabetical) order.
+    pub fn names(&self) -> Vec<&str> {
+        self.0.iter().map(|z| z.municipality.as_str()).collect()
+    }
+
+    /// Where a free description without a pin is placed: a point inside the
+    /// municipality, near its middle.
+    pub fn centre(&self, municipality: &str) -> Option<Point> {
+        let zone = self.0.iter().find(|z| z.municipality == municipality)?;
+        zone.area.interior_point().map(|c| Point { lat: c.y(), lon: c.x() })
     }
 
     /// The municipality containing the pin, or `None` outside all of them.
@@ -138,6 +150,11 @@ mod tests {
             Some("Plaza de la Revolución")
         );
         assert_eq!(zones.municipality(at(-82.4091, 22.9892)), Some("Boyeros"));
+        // Centres fall in their own municipality.
+        for name in zones.names() {
+            let centre = zones.centre(name).unwrap();
+            assert_eq!(zones.municipality(centre), Some(name), "{name}");
+        }
         // Varadero is outside the province.
         assert_eq!(zones.municipality(at(-81.2440, 23.1530)), None);
     }

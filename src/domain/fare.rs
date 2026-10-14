@@ -22,6 +22,14 @@ pub fn minimum_price(suggested: Cup, fares: &Fares) -> Cup {
     round_to_10(suggested as f64 * f64::from(fares.min_percent) / 100.0)
 }
 
+/// Without an exact location (a written description), the route goes to the
+/// municipality's centre; the driver's uncertainty is paid with 50 % more km.
+pub const APPROX_KM_FACTOR: f64 = 1.5;
+
+pub fn approximate_km(km: f64) -> f64 {
+    km * APPROX_KM_FACTOR
+}
+
 /// Which fare a superadmin changes with `/tarifa <name> <value>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FareKey {

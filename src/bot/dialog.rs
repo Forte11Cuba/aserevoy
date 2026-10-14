@@ -23,32 +23,56 @@ pub enum Dialog {
 /// A closed request's trip, without the client's phone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Republish {
-    pub pickup: Point,
-    pub reference: Option<String>,
-    pub dropoff: Point,
+    pub pickup: Spot,
+    pub dropoff: Spot,
     pub km: f64,
     pub price: Cup,
     pub payment: PaymentMethod,
 }
 
-/// A client requesting a ride, step by step.
+/// A client requesting a ride, step by step. Pickup and destination are each
+/// a pin, a written address the bot understood, or (as a last resort) a free
+/// description with the municipality chosen by hand.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Ride {
     Pickup,
-    ConfirmPickup { pickup: Point },
+    /// Several places match what the client wrote: they pick one.
+    ChoosePickup { text: String, options: Vec<Candidate> },
+    /// Nothing matched: the client picks a municipality for their description.
+    DescribePickup { text: String },
+    ConfirmPickup { pickup: Point, label: Option<String> },
     Reference { pickup: Point },
-    Dropoff { pickup: Point, reference: Option<String> },
-    ConfirmDropoff { pickup: Point, reference: Option<String>, dropoff: Point },
+    Dropoff { pickup: Spot },
+    ChooseDropoff { pickup: Spot, text: String, options: Vec<Candidate> },
+    DescribeDropoff { pickup: Spot, text: String },
+    ConfirmDropoff { pickup: Spot, dropoff: Point, label: Option<String> },
     Price { trip: Trip },
     Payment { trip: Trip, price: Cup },
+}
+
+/// A place the bot found for a written address.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Candidate {
+    pub label: String,
+    pub point: Point,
+}
+
+/// Pickup or destination.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Spot {
+    pub point: Point,
+    /// No exact location: the point is the municipality's centre.
+    pub approx: bool,
+    /// The landmark (pickup) or the client's own description.
+    pub note: Option<String>,
 }
 
 /// The route once both points are confirmed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trip {
-    pub pickup: Point,
-    pub reference: Option<String>,
-    pub dropoff: Point,
+    pub pickup: Spot,
+    pub dropoff: Spot,
+    /// Already increased if a point is approximate.
     pub km: f64,
     pub suggested: Cup,
     pub minimum: Cup,

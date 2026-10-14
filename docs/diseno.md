@@ -572,3 +572,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 61 | @usuario de Telegram obligatorio para clientes y choferes, con guía para ponerlo; ya no se pide ni se guarda el teléfono del cliente | 2026-10-14 |
 | 62 | Precio por km fijo, editable por los superadmins con `/tarifa`; se descartan el modo combustible y la tasa de elTOQUE | 2026-10-14 |
 | 63 | Direcciones escritas: reglas sobre `data/streets.sqlite` (calles, esquinas, repartos y lugares de OSM) y Jev elige entre los candidatos con umbral de confianza 0,7; por debajo, o si no reconoce ninguno, se pide el pin o la descripción libre | 2026-10-14 |
+| 64 | Con varios candidatos para una dirección escrita: si Jev elige con confianza ≥ 0,7 se usa esa; si no, se ofrecen como botones las opciones con probabilidad ≥ 0,3 (máximo 4) más "Ninguna de estas"; sin ninguna, se pide el pin o la descripción con municipio | 2026-10-14 |
