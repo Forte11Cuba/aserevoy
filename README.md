@@ -36,7 +36,7 @@ Mientras esperas puedes **subir el precio** o cancelar. Una solicitud dura hasta
 
 ### Privacidad
 
-- **No se guarda historial de viajes**: cada solicitud se borra al cerrarse.
+- **Historial de 45 días:** cada uno ve sus viajes completados en 🧾 Mis viajes (lugares como texto, nunca coordenadas, cifrado) y puede borrarlo; pasados 45 días se borran solos. Las solicitudes activas se borran al cerrarse.
 - De cada persona solo queda su reputación agregada (estrellas, viajes, días en el bot) y, si el cliente quiere, su nombre, celular y foto, que borra cuando quiera.
 - Los celulares y los nombres se guardan cifrados.
 - Los logs no tienen ubicaciones, direcciones ni teléfonos.

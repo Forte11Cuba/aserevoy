@@ -13,7 +13,7 @@ use crate::db::moderation::BlockReason;
 use crate::domain::effect::{Alert, Effect, Notice, Place};
 use crate::domain::reputation::{CANCELLATION_BLOCK_SECS, Reputation, Role, Shown, cancellation_blocks};
 use crate::domain::ids::UserId;
-use crate::domain::request::Request;
+use crate::domain::request::{Point, Request};
 use crate::i18n::{self, Lang, Post, Text};
 
 /// The channel is shared by all drivers, so it uses the default language.
@@ -93,9 +93,10 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
             Effect::CountCancellation { client } => {
                 log_failure(count_cancellation(bot, app, client).await, "count cancellation");
             }
-            Effect::StartRating { client, driver } => {
-                log_failure(rating::start(bot, app, client, driver).await, "start rating");
-            }
+            Effect::StartRating { client, driver } => match rating::start(bot, app, client, driver).await {
+                Ok(code) => log_failure(record_history(app, request, client, driver, &code).await, "history"),
+                Err(e) => tracing::warn!(error = %e, "start rating failed"),
+            },
             Effect::Alert { alert } => log_failure(send_alert(bot, app, &alert).await, "alert"),
             Effect::Forget { request: id } => {
                 db::requests::forget(&app.pool, &id).await?;
@@ -183,6 +184,44 @@ async fn show_offer(bot: &Bot, app: &App, request: &Request, driver: UserId) -> 
     if !db::counteroffers::set_msg(&app.pool, &request.id, driver, offer.expires_at, sent.id.0).await? {
         log_failure(bot.delete_message(chat(client), sent.id).await, "hide stale offer");
     }
+    Ok(())
+}
+
+/// A completed trip into both histories (45 days) and the driver's month.
+/// Places as text, never coordinates.
+async fn record_history(app: &App, request: &Request, client: UserId, driver: UserId, code: &str) -> anyhow::Result<()> {
+    let now = now();
+    let place = |point: Point, approx: bool, note: Option<&str>| {
+        let municipality = app.zones.municipality(point).unwrap_or("?");
+        match (approx, note) {
+            (true, Some(note)) => note.to_owned(),
+            _ => match app.streets.nearest_corner(point) {
+                Some(corner) => format!("{municipality} ({corner})"),
+                None => municipality.to_owned(),
+            },
+        }
+    };
+    let origin = place(request.pickup, request.pickup_approx, request.reference.as_deref());
+    let destination = place(request.dropoff, request.dropoff_approx, request.dropoff_note.as_deref());
+    let driver_alias = db::drivers::get(&app.pool, &app.cipher, driver).await?.map(|d| d.profile.alias).unwrap_or_default();
+    let client_name = app.client_contact(client).await?.name.unwrap_or_default();
+    for (user, role, counterpart) in [(client, Role::Client, driver_alias), (driver, Role::Driver, client_name)] {
+        let number = db::reputation::get(&app.pool, user, role).await?.map_or(1, |r| r.trips);
+        let entry = db::history::Entry {
+            number,
+            request_id: request.id.as_str().to_owned(),
+            completed_at: now,
+            origin: origin.clone(),
+            destination: destination.clone(),
+            price: request.price,
+            payment: request.payment,
+            counterpart,
+            stars: None,
+        };
+        db::history::record(&app.pool, &app.cipher, user, role, &entry, code).await?;
+    }
+    let month: String = local_date(now).chars().take(7).collect();
+    db::history::add_driver_month(&app.pool, driver, &month, request.price).await?;
     Ok(())
 }
 

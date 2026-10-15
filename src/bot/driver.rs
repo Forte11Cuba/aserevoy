@@ -106,7 +106,10 @@ pub async fn stats(cx: &Ctx<'_>) -> anyhow::Result<()> {
     }
     let reputation = db::reputation::get(&cx.app.pool, cx.user, Role::Driver).await?;
     let tags = db::reputation::tags(&cx.app.pool, cx.user, Role::Driver).await?;
-    cx.bot.send_message(chat(cx.user), i18n::driver_stats(cx.lang, reputation.as_ref(), &tags, now())).await?;
+    let months = db::history::driver_months(&cx.app.pool, cx.user).await?;
+    let this_month: String = super::local_date(now()).chars().take(7).collect();
+    let text = i18n::driver_stats(cx.lang, reputation.as_ref(), &tags, &months, &this_month, now());
+    cx.bot.send_message(chat(cx.user), text).await?;
     Ok(())
 }
 

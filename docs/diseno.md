@@ -16,14 +16,14 @@ El 14 de octubre de 2026, `@AsereVoyBot` no tenía página pública en Telegram,
 
 ## Visión
 
-Asere Voy es un bot de Telegram que conecta clientes y choferes de moto-taxi en una zona piloto de Cuba mediante una subasta de precio al estilo inDrive. No se guarda historial de viajes: de cada persona solo se conserva su reputación agregada (viajes, estrellas, cancelaciones). El pago es en CUP, directo al chofer.
+Asere Voy es un bot de Telegram que conecta clientes y choferes de moto-taxi en una zona piloto de Cuba mediante una subasta de precio al estilo inDrive. Cada persona ve su historial de viajes de los últimos 45 días (decisión 110); además se conserva su reputación agregada (viajes, estrellas, cancelaciones) y, de los choferes, sus totales por mes. El pago es en CUP, directo al chofer.
 
 Principios de diseño:
 
 - El cliente propone el precio a partir de un precio sugerido por distancia; el chofer acepta o contraoferta.
 - Todo corre en Telegram: un solo bot con roles (cliente, chofer, admin, superadmin; gestor en la versión 2) y un canal de ofertas para los choferes. WhatsApp está descartado.
 - El estado de los viajes es temporal: cada solicitud vive en SQLite mientras está activa y se borra al cerrarse.
-- Datos mínimos: se guardan de forma permanente el registro de choferes, la reputación agregada, los bloqueos, las cancelaciones recientes y las tarifas. Nunca rutas ni historial de viajes.
+- Datos mínimos: se guardan de forma permanente el registro de choferes, la reputación agregada, los totales mensuales de los choferes, los bloqueos, las cancelaciones recientes y las tarifas. El historial de viajes dura 45 días, guarda los lugares como texto (nunca coordenadas) y va cifrado (decisión 110).
 - El bot no maneja dinero ni datos bancarios. El pago (efectivo, transferencia o Bitcoin) se arregla entre cliente y chofer.
 - La lógica de viajes no depende de Telegram: devuelve efectos que la capa del bot ejecuta.
 
@@ -543,7 +543,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 21 | Rust (`teloxide`, `tokio`, `sqlx`); el script de OSM puede quedarse en Python | 2026-10-13 |
 | 22 | Superadmins solo en `.env`; nombran y quitan admins y pueden quitar choferes en cualquier momento; cada acción guarda quién la hizo | 2026-10-14 |
 | 23 | Botón 💬 Soporte para todos los usuarios; los admins responden desde el bot. *Mecanismo fijado en la decisión 60* | 2026-10-14 |
-| 24 | Reputación de nivel A (solo agregados), calificación ciega en ambas direcciones, sin historial de viajes | 2026-10-13 |
+| 24 | Reputación de nivel A (solo agregados), calificación ciega en ambas direcciones, sin historial de viajes (lo del historial, sustituido por la 110) | 2026-10-13 |
 | 25 | Alta de choferes por selector de contactos o por enlace de invitación de un solo uso. *Sustituida por la decisión 65* | 2026-10-13 |
 | 26 | Canal de ofertas con ✅ Aceptar (callback) y 💬 Contraofertar (enlace al bot) | 2026-10-13 |
 | 27 | Tarifas: valores iniciales en `.env`, después editables desde el bot; `tarifa_km` en modo fijo para el MVP, con un modo basado en combustible por definir. *El modo combustible se descarta (decisión 62)* | 2026-10-13 |
@@ -629,3 +629,5 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 107 | Los minutos estimados por carretera (OSRM) se guardan con la solicitud y se muestran junto a la distancia, igual en todas partes: "📏 3.5 km · ⏱ unos 9 min en moto" (precio, canal y fichas del viaje) | 2026-10-15 |
 | 108 | 📢 Canal de ofertas en el menú 🏍 Chofer: a un chofer activo que no está en el canal le manda otra vez el enlace (el de la aprobación puede perderse, y tras un desbloqueo hay que volver a entrar); si ya está, se lo dice; si no está activo, explica por qué no puede entrar | 2026-10-15 |
 | 109 | 🏁 Completado pide confirmación en un mensaje propio ("¿El viaje terminó? Al confirmarlo se cierra y te pido que califiques", con ✅ Sí, terminó y ↩️ Volver), desde el mensaje del viaje y desde el menú del viaje. Cancelar no lleva otra confirmación: elegir el motivo ya lo es. Los textos del bot van siempre en tú (español de Cuba), nunca en vosotros | 2026-10-15 |
+| 110 | Historial de viajes: cada cliente y cada chofer ven en 🧾 Mis viajes sus viajes completados de los últimos 45 días, el más reciente primero, con su número de viaje (fijado al completarlo), el ID, la fecha, origen y destino como texto (sin coordenadas), lo que pagó o cobró y cómo, la otra persona y la nota que dio. Cifrado; solo lo ve su dueño (ni los admins); se puede borrar; se borra solo a los 45 días. Los cancelados no entran | 2026-10-15 |
+| 111 | Totales por mes de cada chofer (viajes y CUP), permanentes y sin detalles de viajes, en 📊 Mis estadísticas: los últimos 6 meses y el año | 2026-10-15 |
