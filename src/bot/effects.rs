@@ -112,6 +112,7 @@ pub async fn post_of<'a>(app: &'a App, request: &'a Request) -> anyhow::Result<P
         to_corner: (!request.dropoff_approx).then(|| app.streets.nearest_corner(request.dropoff)).flatten(),
         approx: request.pickup_approx || request.dropoff_approx,
         client: Some(shown(app, request.client, Role::Client).await?),
+        cancellations: Some(db::moderation::recent_cancellations(&app.pool, request.client, now()).await?),
     })
 }
 

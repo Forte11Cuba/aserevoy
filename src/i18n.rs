@@ -801,6 +801,8 @@ pub struct Post<'a> {
     pub approx: bool,
     /// The client's reputation.
     pub client: Option<Shown>,
+    /// The client's cancellations of the last 30 days.
+    pub cancellations: Option<i64>,
 }
 
 /// The offer as drivers see it in the channel: approximate zones (the
@@ -817,7 +819,8 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
             Some(c) => format!("{} ({c})", m.unwrap_or("?")),
             None => m.unwrap_or("?").to_owned(),
         };
-        post.push_str(&format!("📍 {} → {}\n", zone(p.from, &p.from_corner), zone(p.to, &p.to_corner)));
+        // Pickup, an arrow down, and the finish flag for the destination.
+        post.push_str(&format!("📍 {}\n⬇️\n🏁 {}\n", zone(p.from, &p.from_corner), zone(p.to, &p.to_corner)));
     }
     let about = if p.approx { "≈" } else { "" };
     post.push_str(&format!("📏 {about}{km:.1} km\n💰 {price} CUP · {pay}"));
@@ -829,6 +832,12 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
     }
     if let Some(client) = &p.client {
         post.push_str(&format!("\n👤 {}", reputation(lang, client, true)));
+    }
+    if let Some(n) = p.cancellations {
+        post.push_str(&match lang {
+            Lang::Es => format!("\n❌ Cancelaciones (30 días): {n}"),
+            Lang::En => format!("\n❌ Cancellations (30 days): {n}"),
+        });
     }
     post
 }
@@ -1715,6 +1724,27 @@ mod tests {
     fn candidates_are_listed_in_full_and_numbered() {
         let text = choose_address(Lang::Es, &["Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este", "78 en Habana del Este"]);
         assert!(text.contains("\n1. Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este\n2. 78"), "{text}");
+    }
+
+    #[test]
+    fn the_offer_shows_pickup_then_destination_and_the_client() {
+        let id = RequestId::parse("K7X2").unwrap();
+        let post = Post {
+            request: &id,
+            km: 3.5,
+            price: 600,
+            payment: PaymentMethod::Cash,
+            from: Some("Plaza de la Revolución"),
+            to: Some("Habana del Este"),
+            from_corner: Some("23 y L".into()),
+            to_corner: None,
+            approx: false,
+            client: Some(Shown { stars: Some(4.7), trips: 23, days: 120 }),
+            cancellations: Some(1),
+        };
+        let text = channel_post(Lang::Es, &post);
+        assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
+        assert!(text.contains("👤 ⭐4.7 · 23 viajes · 120 días en el bot\n❌ Cancelaciones (30 días): 1"), "{text}");
     }
 
     #[test]
