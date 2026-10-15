@@ -252,7 +252,7 @@ Solo se guardan agregados por persona: nunca qué viaje hizo, con quién ni a d�
 - **La calificación es ciega:** se guarda en una `calificacion_pendiente` temporal y solo se suma a los agregados cuando ambos calificaron o pasaron 24 h. Después se borra.
 - **Contra viajes falsos:** se guarda una huella temporal del par cliente-chofer (HMAC con clave secreta, no un hash simple, porque los IDs de Telegram se pueden adivinar por fuerza bruta) que vence a los 7 días. Entre el mismo par solo cuenta una calificación por semana.
 - **Qué se muestra:**
-  - **del cliente**, en el mensaje del canal: estrellas, viajes completados y días usando el bot (⭐4.7 · 23 viajes · 120 días). Con menos de 5 viajes las estrellas se muestran como "Nuevo";
+  - **del cliente**, en el mensaje del canal: estrellas, viajes completados y días usando el bot (⭐4.7 · 23 viajes · 120 días). La media de estrellas se muestra desde la primera calificación ("⭐ sin calificaciones" si no hay ninguna), siempre con los viajes y los días (decisión 103);
   - **del chofer**, en las contraofertas y en la asignación: estrellas y viajes completados.
 
   Los días usando el bot ayudan al chofer a distinguir una cuenta recién creada.
@@ -622,3 +622,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 100 | Donde se pone un monto, siempre se puede escribir uno propio además de los botones, y el mensaje lo dice: precio del cliente, subir el precio ("Selecciona uno o escribe uno tú"), contraoferta y tarifas del panel (con `/tarifa`) | 2026-10-15 |
 | 101 | Mientras un viaje está asignado, el menú de abajo es el del viaje. Cliente: 🚶 Ya voy, 📤 Compartir viaje, 🏁 Completado, ❌ Cancelar viaje y 🛵 Mi viaje. Chofer: 📍 Llegué, 🏁 Completado, ❌ Cancelar viaje y 🛵 Mi viaje. Aparece al asignarse y vuelve el menú normal al cerrarse, también en el cierre automático. Los botones no llevan el ID: se busca el viaje activo; sin viaje, se repone el menú. Los botones dentro de los mensajes siguen | 2026-10-15 |
 | 102 | Al asignarse el viaje (y en 🛵 Mi viaje), el cliente y el chofer reciben una ficha con las mismas líneas y emojis, cada dato una vez: 🛵 el viaje; 👤 la otra persona (emoji sin sexo) con su reputación; 🏍 moto y chapa (solo el cliente); 📝 referencia (solo el chofer); 📞 el teléfono si lo hay; 💰 cuánto se paga o se cobra al terminar y cómo; 💬 "Escríbele a @usuario para terminar de coordinar el viaje" (el @ solo ahí) | 2026-10-15 |
+| 103 | La reputación se muestra siempre igual en todo el bot: media de estrellas desde la primera calificación ("⭐ sin calificaciones" si no hay), viajes completados y días usando el bot. Se quita "🆕 Nuevo" | 2026-10-15 |

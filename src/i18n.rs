@@ -850,7 +850,7 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
         });
     }
     if let Some(client) = &p.client {
-        post.push_str(&format!("\n👤 {}", reputation(lang, client, true)));
+        post.push_str(&format!("\n👤 {}", reputation(lang, client)));
     }
     if let Some(n) = p.cancellations {
         post.push_str(&match lang {
@@ -940,7 +940,7 @@ fn trip_card(lang: Lang, title: String, c: &TripCard, extra: &[String], money: S
         Lang::En => "Client",
     };
     let names = if c.names.is_empty() { fallback.to_owned() } else { c.names.join(" · ") };
-    let mut lines = vec![title, format!("👤 {names} · {}", reputation(lang, c.reputation, false))];
+    let mut lines = vec![title, format!("👤 {names} · {}", reputation(lang, c.reputation))];
     lines.extend(extra.iter().cloned());
     if let Some(phone) = c.phone {
         lines.push(format!("📞 {phone}"));
@@ -1346,7 +1346,7 @@ pub fn channel_confirming(lang: Lang, request: &RequestId) -> String {
 /// To the client when a driver accepts: who wants the trip, without the
 /// phone until they confirm.
 pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown) -> String {
-    let rep = reputation(lang, driver, false);
+    let rep = reputation(lang, driver);
     let name = full_name_line(p);
     match lang {
         Lang::Es => format!(
@@ -1368,7 +1368,7 @@ fn full_name_line(p: &Profile) -> String {
 
 /// One counteroffer, as its own message to the client.
 pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup, driver: &Shown) -> String {
-    let rep = reputation(lang, driver, false);
+    let rep = reputation(lang, driver);
     match lang {
         Lang::Es => format!(
             "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n🧑 {} · {rep}\n🏍 {}, {}\n\nVale 5 min.",
@@ -1456,23 +1456,26 @@ Map data © OpenStreetMap contributors (ODbL license)."
     }
 }
 
-/// "⭐4.7 · 23 trips · 120 days", or "New" instead of the stars.
-pub fn reputation(lang: Lang, shown: &Shown, with_days: bool) -> String {
+/// "⭐4.7 · 23 viajes · 120 días en el bot": the average stars (from the
+/// first rating), trips completed and days using the bot.
+pub fn reputation(lang: Lang, shown: &Shown) -> String {
     let stars = match (lang, shown.stars) {
         (_, Some(avg)) => format!("⭐{avg:.1}"),
-        (Lang::Es, None) => "🆕 Nuevo".to_owned(),
-        (Lang::En, None) => "🆕 New".to_owned(),
+        (Lang::Es, None) => "⭐ sin calificaciones".to_owned(),
+        (Lang::En, None) => "⭐ no ratings yet".to_owned(),
     };
-    let trips = match lang {
-        Lang::Es => format!("{} viajes", shown.trips),
-        Lang::En => format!("{} trips", shown.trips),
+    let (trips, days) = (shown.trips, shown.days);
+    let trips = match (lang, trips) {
+        (Lang::Es, 1) => "1 viaje".to_owned(),
+        (Lang::Es, n) => format!("{n} viajes"),
+        (Lang::En, 1) => "1 trip".to_owned(),
+        (Lang::En, n) => format!("{n} trips"),
     };
-    if !with_days {
-        return format!("{stars} · {trips}");
-    }
-    let days = match lang {
-        Lang::Es => format!("{} días en el bot", shown.days),
-        Lang::En => format!("{} days in the bot", shown.days),
+    let days = match (lang, days) {
+        (Lang::Es, 1) => "1 día en el bot".to_owned(),
+        (Lang::Es, n) => format!("{n} días en el bot"),
+        (Lang::En, 1) => "1 day in the bot".to_owned(),
+        (Lang::En, n) => format!("{n} days in the bot"),
     };
     format!("{stars} · {trips} · {days}")
 }
@@ -1563,7 +1566,7 @@ pub fn case_summary(
         Lang::Es => "sin viajes",
         Lang::En => "no trips",
     };
-    let rep = |s: Option<&Shown>| s.map(|s| reputation(lang, s, true)).unwrap_or_else(|| none.into());
+    let rep = |s: Option<&Shown>| s.map(|s| reputation(lang, s)).unwrap_or_else(|| none.into());
     let mut lines = vec![match lang {
         Lang::Es => format!("🔎 Código {code}"),
         Lang::En => format!("🔎 Code {code}"),
@@ -1612,7 +1615,7 @@ pub fn alert_cancellations(lang: Lang) -> String {
 }
 
 pub fn alert_low_rating(lang: Lang, role: Role, shown: &Shown) -> String {
-    let rep = reputation(lang, shown, false);
+    let rep = reputation(lang, shown);
     match (lang, role) {
         (Lang::Es, Role::Client) => format!("📉 Un cliente bajó de 3.5 estrellas ({rep})."),
         (Lang::En, Role::Client) => format!("📉 A client fell below 3.5 stars ({rep})."),
@@ -1661,7 +1664,7 @@ pub fn driver_admin_card(
         card.push_str(&format!("\n💬 @{u}"));
     }
     let rep = match (lang, shown) {
-        (_, Some(s)) => reputation(lang, s, true),
+        (_, Some(s)) => reputation(lang, s),
         (Lang::Es, None) => "sin viajes".into(),
         (Lang::En, None) => "no trips".into(),
     };
@@ -1814,14 +1817,14 @@ mod tests {
         let client = client_trip_card(Lang::Es, &card, &p, false);
         assert_eq!(
             client,
-            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n👤 Pepe · José Pérez Díaz · ⭐4.8 · 23 viajes\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje."
+            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n👤 Pepe · José Pérez Díaz · ⭐4.8 · 23 viajes · 100 días en el bot\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje."
         );
         assert_eq!(client.matches("@pepe").count(), 1);
 
         let rep = Shown { stars: None, trips: 2, days: 3 };
         let card = TripCard { names: vec![], reputation: &rep, phone: None, username: Some("ana"), ..card };
         let driver = driver_trip_card(Lang::Es, &card, Some("frente a la bodega"));
-        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n👤 Cliente · 🆕 Nuevo · 2 viajes\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
+        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n👤 Cliente · ⭐ sin calificaciones · 2 viajes · 3 días en el bot\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
         assert!(!driver.contains("📞"), "{driver}");
     }
 

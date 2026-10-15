@@ -7,8 +7,6 @@ use super::request::UnixTime;
 pub const RATING_WINDOW_SECS: i64 = 24 * 60 * 60;
 /// The same client-driver pair counts once per this period.
 pub const PAIR_WINDOW_SECS: i64 = 7 * 24 * 60 * 60;
-/// Below this many trips, stars are shown as "New".
-pub const NEW_UNTIL_TRIPS: i64 = 5;
 /// An average below this, with at least `LOW_RATING_MIN_COUNT` ratings, alerts the admins.
 pub const LOW_RATING_AVERAGE: f64 = 3.5;
 pub const LOW_RATING_MIN_COUNT: i64 = 10;
@@ -101,7 +99,7 @@ pub struct Reputation {
 /// What others see.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shown {
-    /// `None` while the person is "New".
+    /// The average, from the first rating; `None` with no ratings yet.
     pub stars: Option<f64>,
     pub trips: i64,
     pub days: i64,
@@ -113,8 +111,7 @@ impl Reputation {
     }
 
     pub fn shown(&self, now: UnixTime) -> Shown {
-        let stars = if self.trips < NEW_UNTIL_TRIPS { None } else { self.average() };
-        Shown { stars, trips: self.trips, days: ((now - self.first_use).max(0)) / 86_400 }
+        Shown { stars: self.average(), trips: self.trips, days: ((now - self.first_use).max(0)) / 86_400 }
     }
 
     fn is_low(&self) -> bool {
@@ -153,11 +150,11 @@ mod tests {
     const DAY: i64 = 86_400;
 
     #[test]
-    fn new_people_show_no_stars() {
-        let r = Reputation { first_use: 0, trips: 4, stars_sum: 20, stars_count: 4 };
-        assert_eq!(r.shown(3 * DAY + 5), Shown { stars: None, trips: 4, days: 3 });
-        let r = Reputation { trips: 5, ..r };
-        assert_eq!(r.shown(0).stars, Some(5.0));
+    fn stars_show_from_the_first_rating() {
+        let r = Reputation { first_use: 0, trips: 1, stars_sum: 4, stars_count: 1 };
+        assert_eq!(r.shown(3 * DAY + 5), Shown { stars: Some(4.0), trips: 1, days: 3 });
+        let r = Reputation { stars_sum: 0, stars_count: 0, ..r };
+        assert_eq!(r.shown(0).stars, None);
     }
 
     #[test]
