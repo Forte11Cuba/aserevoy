@@ -135,7 +135,7 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 23] = [
+const REPLY_BUTTONS: [Button; 24] = [
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -146,6 +146,7 @@ const REPLY_BUTTONS: [Button; 23] = [
     Button::RequestRide,
     Button::ApplyDriver,
     Button::WorkWithUs,
+    Button::ApplyManager,
     Button::MyProfile,
     Button::DriverMenu,
     Button::MyStats,
@@ -588,10 +589,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::Es, NameRejected) => "❌ Tu cambio de nombre no fue aprobado. Si crees que es un error, escribe a soporte.",
         (Lang::En, NameRejected) => "❌ Your name change wasn't approved. If you think it's a mistake, write to support.",
         (Lang::Es, WorkWithUs) => {
-            "🤝 Trabaja con nosotros\n\n🧑‍✈️ Chofer: recibe ofertas de viaje en el canal y pon tu precio.\n🏢 Gestor: si tienes tu agencia, conecta a tus clientes con nuestros choferes (próximamente)."
+            "🤝 Trabaja con nosotros\n\n🧑‍✈️ Chofer: recibe ofertas de viaje en el canal, acepta las que te convengan o propón tu precio.\n\n🏢 Gestor (próximamente): conecta a tus clientes con nuestros choferes. Pones tu tarifa para el chofer y la de tu cliente, y cuando un chofer acepta, ganas la diferencia.\n\nElige abajo."
         }
         (Lang::En, WorkWithUs) => {
-            "🤝 Work with us\n\n🧑‍✈️ Driver: get trip offers in the channel and set your price.\n🏢 Manager: if you run an agency, connect your clients with our drivers (coming soon)."
+            "🤝 Work with us\n\n🧑‍✈️ Driver: get trip offers in the channel, take the ones that suit you or propose your price.\n\n🏢 Manager (coming soon): connect your clients with our drivers. You set your rate for the driver and the one for your client, and when a driver accepts, you keep the difference.\n\nChoose below."
         }
         (Lang::Es, ManagerSoon) => "🏢 Los gestores llegan pronto. Ya avisé al equipo de que te interesa; te escribiremos.",
         (Lang::En, ManagerSoon) => "🏢 Managers are coming soon. I've told the team you're interested; we'll write to you.",

@@ -99,6 +99,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::RequestRide) => client::start(&cx).await,
         Some(Button::ApplyDriver) => driver::apply(&cx).await,
         Some(Button::WorkWithUs) => driver::work_with_us(&cx).await,
+        Some(Button::ApplyManager) => driver::manager_interest(&cx, from.username.as_deref()).await,
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
         Some(Button::DriverMenu) => driver::menu(&cx).await,
         Some(Button::MyStats) => driver::stats(&cx).await,
@@ -318,6 +319,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             settings::on_callback(&cx, arg).await?;
             None
         }
+        // Buttons of the old inline "Work with us" message.
         ("work", _) => {
             spend(pressed).await;
             match arg {

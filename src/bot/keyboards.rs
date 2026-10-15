@@ -481,14 +481,16 @@ pub fn client_details(lang: Lang, any: bool) -> InlineKeyboardMarkup {
 }
 
 /// "🤝 Work with us": apply as a driver, or as a manager (coming soon).
-/// A driver is not offered to apply as one again.
-pub fn work_with_us(lang: Lang, is_driver: bool) -> InlineKeyboardMarkup {
+/// "🤝 Work with us" below, like the other sections: apply as a driver
+/// (not offered to one already), as a manager (coming soon), or go back.
+pub fn work_with_us(lang: Lang, is_driver: bool) -> KeyboardMarkup {
     let mut rows = Vec::new();
     if !is_driver {
-        rows.push(vec![inline(lang, Button::ApplyDriver, "work:drv")]);
+        rows.push(vec![reply(lang, Button::ApplyDriver)]);
     }
-    rows.push(vec![inline(lang, Button::ApplyManager, "work:mgr")]);
-    InlineKeyboardMarkup::new(rows)
+    rows.push(vec![reply(lang, Button::ApplyManager)]);
+    rows.push(vec![reply(lang, Button::MainMenu)]);
+    KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
 /// For staff: approve or reject a driver's new full name.
