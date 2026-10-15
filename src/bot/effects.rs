@@ -347,6 +347,17 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 .reply_markup(keyboards::awaiting_client(lang, id))
                 .await?;
         }
+        Notice::SuggestRaise { request: id } => {
+            let options = crate::domain::request::raise_options(request.price, request.suggested);
+            let lowest = request.counteroffers.iter().map(|o| o.amount).min();
+            let text = i18n::suggest_raise(lang, id, request.price, request.suggested, request.counteroffers.len(), lowest);
+            let markup = keyboards::suggest_raise(lang, id, request.price, &options);
+            bot.send_message(chat(to), text).reply_markup(markup).await?;
+            // A typed amount counts too, unless the client is in the middle of something.
+            if db::dialogs::get::<Dialog>(&app.pool, to).await?.is_none() {
+                db::dialogs::set(&app.pool, to, &Dialog::Raise { request: id.as_str().to_owned() }, now()).await?;
+            }
+        }
         Notice::DriverWithdrew { request: id } => {
             // The card to confirm that driver no longer applies.
             if let Some(msg) = request.confirm_msg_id {

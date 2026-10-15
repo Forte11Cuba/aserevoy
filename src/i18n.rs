@@ -1439,6 +1439,8 @@ pub fn notice(lang: Lang, notice: &Notice) -> String {
         (Lang::En, Published { request }) => format!(
             "📣 Your request {request} is live (up to 60 min). I'll let you know when a driver accepts or counteroffers."
         ),
+        (Lang::Es, SuggestRaise { request }) => format!("⏳ Ningún chofer ha tomado aún tu viaje {request}."),
+        (Lang::En, SuggestRaise { request }) => format!("⏳ No driver has taken your trip {request} yet."),
         (Lang::Es, PriceRaised { request }) => format!("⬆️ Precio actualizado en la solicitud {request}."),
         (Lang::En, PriceRaised { request }) => format!("⬆️ Price updated on request {request}."),
         (Lang::Es, StillWaiting { request }) => format!(
@@ -1627,6 +1629,44 @@ pub fn counteroffer_sent(lang: Lang, amount: Cup) -> String {
     match lang {
         Lang::Es => format!("💬 Contraoferta de {amount} CUP enviada. Vale 5 min; te aviso si el cliente la acepta."),
         Lang::En => format!("💬 Counteroffer of {amount} CUP sent. It's valid for 5 min; I'll tell you if the client accepts."),
+    }
+}
+
+/// 5 min with no driver: suggest a higher price.
+pub fn suggest_raise(lang: Lang, request: &RequestId, price: Cup, suggested: Cup, offers: usize, lowest: Option<Cup>) -> String {
+    let mut text = match lang {
+        Lang::Es => format!("⏳ Han pasado 5 min y ningún chofer ha tomado tu viaje {request}."),
+        Lang::En => format!("⏳ 5 min have passed and no driver has taken your trip {request}."),
+    };
+    if let Some(lowest) = lowest {
+        text.push_str(&match (lang, offers) {
+            (Lang::Es, 1) => format!("\nTienes 1 contraoferta en el chat ({lowest} CUP): puedes aceptarla."),
+            (Lang::Es, n) => format!("\nTienes {n} contraofertas en el chat (desde {lowest} CUP): puedes aceptar una."),
+            (Lang::En, 1) => format!("\nYou have 1 counteroffer in the chat ({lowest} CUP): you can accept it."),
+            (Lang::En, n) => format!("\nYou have {n} counteroffers in the chat (from {lowest} CUP): you can accept one."),
+        });
+    }
+    text.push_str(&match (lang, price < suggested) {
+        (Lang::Es, true) => format!(
+            "\n\nOfreces {price} CUP y el precio sugerido es {suggested} CUP. Si lo subes, es más fácil que un chofer lo acepte. Selecciona uno o escribe uno tú."
+        ),
+        (Lang::En, true) => format!(
+            "\n\nYou offer {price} CUP and the suggested price is {suggested} CUP. If you raise it, a driver is more likely to accept. Pick one or type your own."
+        ),
+        (Lang::Es, false) => {
+            format!("\n\nOfreces {price} CUP. Si lo subes un poco, es más fácil que un chofer lo acepte. Selecciona uno o escribe uno tú.")
+        }
+        (Lang::En, false) => {
+            format!("\n\nYou offer {price} CUP. If you raise it a little, a driver is more likely to accept. Pick one or type your own.")
+        }
+    });
+    text
+}
+
+pub fn keep_price(lang: Lang, price: Cup) -> String {
+    match lang {
+        Lang::Es => format!("Mantener {price} CUP"),
+        Lang::En => format!("Keep {price} CUP"),
     }
 }
 

@@ -350,6 +350,14 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             }
             None
         }
+        // "Keep the price" under the 5-minute suggestion: the buttons go.
+        ("rkp", Some(_)) => {
+            spend(pressed).await;
+            if let Some(Dialog::Raise { .. }) = db::dialogs::get(&app.pool, cx.user).await? {
+                db::dialogs::clear(&app.pool, cx.user).await?;
+            }
+            None
+        }
         ("hist", _) => {
             history::on_callback(&cx, arg, pressed).await?;
             None

@@ -25,6 +25,8 @@ pub type UnixTime = i64;
 pub const REQUEST_TTL_SECS: i64 = 60 * 60;
 /// When the client is asked "still waiting?".
 pub const STILL_WAITING_AFTER_SECS: i64 = 30 * 60;
+/// With no driver yet this long after publishing, suggest a higher price (once).
+pub const RAISE_NUDGE_AFTER_SECS: i64 = 5 * 60;
 /// How long the client has to answer it.
 pub const STILL_WAITING_ANSWER_SECS: i64 = 10 * 60;
 /// How long the client has to confirm the driver who accepted.
@@ -219,6 +221,8 @@ pub struct Request {
     pub assigned_at: Option<UnixTime>,
     /// When to ask "still waiting?"; `None` once asked.
     pub check_at: Option<UnixTime>,
+    /// When to suggest a higher price; `None` once done or if already raised.
+    pub nudge_at: Option<UnixTime>,
     /// Deadline to answer "still waiting?" while the question is pending.
     pub answer_by: Option<UnixTime>,
     /// Deadline to confirm the driver while `Confirming`.
@@ -238,6 +242,25 @@ pub enum Tick {
     Close(Vec<Effect>),
     /// Ask "still waiting?": save the new deadline and run the effects.
     AskStillWaiting(Vec<Effect>),
+    /// Suggest a higher price (once): mark it done and run the effects.
+    SuggestRaise(Vec<Effect>),
+}
+
+/// The prices to suggest when nobody took the request: below the suggested
+/// price, the suggested one and 10 % and 20 % above it; otherwise 10 %, 20 %
+/// and 30 % above the current price. Rounded up to 50 CUP, each higher than
+/// the one before and than the current price.
+pub fn raise_options(price: Cup, suggested: Cup) -> [Cup; 3] {
+    let up_to_50 = |x: f64| ((x / 50.0).ceil() as Cup) * 50;
+    let (base, steps) = if price < suggested { (suggested, [0.0, 0.1, 0.2]) } else { (price, [0.1, 0.2, 0.3]) };
+    let mut options = [0; 3];
+    let mut last = price;
+    for (i, step) in steps.iter().enumerate() {
+        let option = up_to_50(base as f64 * (1.0 + step)).max(last + 50);
+        options[i] = option;
+        last = option;
+    }
+    options
 }
 
 impl Request {
@@ -274,6 +297,7 @@ impl Request {
             created_at: now,
             assigned_at: None,
             check_at: Some(now + STILL_WAITING_AFTER_SECS),
+            nudge_at: Some(now + RAISE_NUDGE_AFTER_SECS),
             answer_by: None,
             confirm_by: None,
             on_my_way_at: None,
@@ -464,6 +488,8 @@ impl Request {
         }
         self.price = price;
         self.answer_by = None;
+        // Raised already: no need to suggest it.
+        self.nudge_at = None;
         let id = self.id.clone();
         let mut effects = vec![
             Effect::UpdateChannelPost { request: id.clone() },
@@ -602,6 +628,11 @@ impl Request {
                 self.state = State::Expired;
                 let notify = vec![Effect::Notify { to: self.client, notice: Notice::Expired { request: id } }];
                 Some(Tick::Close(self.close_effects(notify)))
+            }
+            State::Open if self.nudge_at.is_some_and(|at| now >= at) => {
+                self.nudge_at = None;
+                let nudge = Effect::Notify { to: self.client, notice: Notice::SuggestRaise { request: id } };
+                Some(Tick::SuggestRaise(vec![nudge]))
             }
             State::Open if self.answer_by.is_none() && self.check_at.is_some_and(|at| now >= at) => {
                 self.check_at = None;
@@ -803,6 +834,7 @@ mod tests {
     #[test]
     fn still_waiting_is_asked_at_30_minutes_and_expires_without_answer() {
         let mut r = open();
+        r.nudge_at = None; // the 5-minute suggestion has its own test
         assert!(r.tick(T0 + STILL_WAITING_AFTER_SECS - 1).is_none());
         let asked = T0 + STILL_WAITING_AFTER_SECS;
         let Some(Tick::AskStillWaiting(effects)) = r.tick(asked) else { panic!("should ask") };
@@ -818,6 +850,7 @@ mod tests {
     #[test]
     fn answering_keeps_the_request_until_60_minutes() {
         let mut r = open();
+        r.nudge_at = None;
         let asked = T0 + STILL_WAITING_AFTER_SECS;
         r.tick(asked).unwrap();
         assert_eq!(r.keep_waiting(DRIVER, asked + 1).unwrap_err(), DomainError::NotParticipant);
@@ -1012,6 +1045,30 @@ mod tests {
         assert!(effects.contains(&Effect::StartRating { client: CLIENT, driver: DRIVER }));
         let effects = assigned().cancel(CLIENT, Some(CancelReason::ChangedMind), T0 + 30).unwrap();
         assert!(!effects.iter().any(|e| matches!(e, Effect::StartRating { .. })));
+    }
+
+    #[test]
+    fn raise_options_reach_the_suggested_price_or_go_up_by_tenths() {
+        // Below the suggested 800: the suggested price, +10 %, +20 %.
+        assert_eq!(raise_options(600, 800), [800, 900, 1000]);
+        // At or above it: +10 %, +20 %, +30 % of the price, in 50s.
+        assert_eq!(raise_options(500, 450), [550, 600, 650]);
+        assert_eq!(raise_options(3300, 3000), [3650, 4000, 4300]);
+        // Small prices still go up by at least 50 each time.
+        assert_eq!(raise_options(100, 100), [150, 200, 250]);
+    }
+
+    #[test]
+    fn five_minutes_without_a_driver_suggests_raising_once() {
+        let mut r = open();
+        assert!(r.tick(T0 + RAISE_NUDGE_AFTER_SECS - 1).is_none());
+        let Some(Tick::SuggestRaise(effects)) = r.tick(T0 + RAISE_NUDGE_AFTER_SECS) else { panic!("no nudge") };
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::SuggestRaise { .. }]));
+        assert!(r.tick(T0 + RAISE_NUDGE_AFTER_SECS + 1).is_none());
+        // Raising first: no suggestion.
+        let mut r = open();
+        r.raise_price(CLIENT, r.price + 100, T0 + 60).unwrap();
+        assert!(r.tick(T0 + RAISE_NUDGE_AFTER_SECS).is_none());
     }
 
     #[test]

@@ -85,6 +85,8 @@ pub enum Notice {
     /// To the client: the driver withdrew before being confirmed; the request
     /// is back in the channel.
     DriverWithdrew { request: RequestId },
+    /// To the client: nobody took the request in 5 minutes; raise the price?
+    SuggestRaise { request: RequestId },
     Completed { request: RequestId },
     /// The client cancelled the assigned trip.
     CancelledByClient { request: RequestId },
