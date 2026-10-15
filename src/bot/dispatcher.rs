@@ -86,6 +86,13 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
     match db::dialogs::get::<Dialog>(&app.pool, cx.user).await? {
         Some(Dialog::Ride(ride)) => return client::on_message(&cx, ride, &msg).await,
         Some(Dialog::DriverForm(form)) => return driver::on_message(&cx, form, &msg).await,
+        Some(Dialog::Raise { request }) => {
+            match text.map(|t| t.trim().trim_end_matches("CUP").trim().parse::<i64>()) {
+                Some(Ok(amount)) => return auction::raise_typed(&cx, &request, amount).await,
+                // Something else: the question is dropped and it is handled as usual.
+                _ => db::dialogs::clear(&app.pool, cx.user).await?,
+            }
+        }
         Some(Dialog::EditField { field }) => return driver::on_edit_message(&cx, field, &msg).await,
         Some(Dialog::EditClient { field }) => return settings::on_message(&cx, field, &msg).await,
         Some(Dialog::Counteroffer { request, amount }) if pressed == Some(Button::SendOffer) => {

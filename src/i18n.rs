@@ -1391,8 +1391,8 @@ pub fn counteroffer_sent(lang: Lang, amount: Cup) -> String {
 
 pub fn raise_prompt(lang: Lang, price: Cup) -> String {
     match lang {
-        Lang::Es => format!("Ahora ofreces {price} CUP. ¿A cuánto lo subes?"),
-        Lang::En => format!("You're offering {price} CUP. How much do you raise it to?"),
+        Lang::Es => format!("Ahora ofreces {price} CUP. ¿A cuánto lo subes?\nSelecciona uno o escribe uno tú."),
+        Lang::En => format!("You're offering {price} CUP. How much do you raise it to?\nPick one or type your own."),
     }
 }
 
@@ -1644,11 +1644,11 @@ pub fn driver_admin_card(
 pub fn fares_panel(lang: Lang, f: &Fares) -> String {
     match lang {
         Lang::Es => format!(
-            "💰 Tarifas (precio sugerido = base + precio por km × km)\n\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nCámbialas con los botones. Afectan a las solicitudes nuevas.",
+            "💰 Tarifas (precio sugerido = base + precio por km × km)\n\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nCámbialas con los botones o escribe un valor exacto: /tarifa base 120, /tarifa km 160 o /tarifa minimo 75. Afectan a las solicitudes nuevas.",
             f.base, f.per_km, f.min_percent
         ),
         Lang::En => format!(
-            "💰 Fares (suggested price = base + price per km × km)\n\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nChange them with the buttons. They apply to new requests.",
+            "💰 Fares (suggested price = base + price per km × km)\n\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nChange them with the buttons or type an exact value: /tarifa base 120, /tarifa km 160 or /tarifa minimo 75. They apply to new requests.",
             f.base, f.per_km, f.min_percent
         ),
     }

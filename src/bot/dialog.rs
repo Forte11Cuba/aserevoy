@@ -14,6 +14,9 @@ pub enum Dialog {
     /// After a request closed without a trip: what "Publish again" reuses.
     /// Any other message leaves it in place.
     Republish(Republish),
+    /// The client was asked how much to raise the price to: a typed amount
+    /// counts too. Any other message leaves it.
+    Raise { request: String },
     /// A driver changing one field of their profile.
     EditField { field: FormStep },
     /// A client changing one of their optional details (🔧 Settings).

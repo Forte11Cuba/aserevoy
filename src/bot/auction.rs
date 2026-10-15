@@ -31,11 +31,27 @@ pub async fn ask_raise(cx: &Ctx<'_>, id: &RequestId) -> anyhow::Result<Option<St
         Ok(r) => r,
         Err(alert) => return Ok(Some(alert)),
     };
+    db::dialogs::set(&cx.app.pool, cx.user, &Dialog::Raise { request: id.as_str().to_owned() }, now()).await?;
     cx.bot
         .send_message(chat(cx.user), i18n::raise_prompt(cx.lang, request.price))
         .reply_markup(keyboards::raise_options(id, request.price))
         .await?;
     Ok(None)
+}
+
+/// A typed amount after "How much do you raise it to?". The problem, if
+/// any, is said as a message (there is no button to alert on).
+pub async fn raise_typed(cx: &Ctx<'_>, request: &str, amount: Cup) -> anyhow::Result<()> {
+    let Some(id) = RequestId::parse(request) else {
+        return Ok(());
+    };
+    match raise(cx, &id, amount).await? {
+        Some(problem) => {
+            cx.bot.send_message(chat(cx.user), problem).await?;
+        }
+        None => db::dialogs::clear(&cx.app.pool, cx.user).await?,
+    }
+    Ok(())
 }
 
 /// `rai:<id>:<price>`: the client picked a new price.
@@ -51,6 +67,9 @@ pub async fn raise(cx: &Ctx<'_>, id: &RequestId, price: Cup) -> anyhow::Result<O
         return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
     }
     tracing::info!(request = %id, "price raised");
+    if let Some(Dialog::Raise { .. }) = db::dialogs::get(&cx.app.pool, cx.user).await? {
+        db::dialogs::clear(&cx.app.pool, cx.user).await?;
+    }
     effects::apply(cx.bot, cx.app, &mut request, effects).await?;
     Ok(None)
 }
