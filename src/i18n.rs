@@ -95,6 +95,13 @@ pub enum Button {
     Withdraw,
     NoneOfThese,
     Support,
+    Settings,
+    MyDetails,
+    DetailName,
+    DetailPhone,
+    DetailPhoto,
+    DeleteDetails,
+    Language,
     HowItWorks,
     OnMyWay,
     Arrived,
@@ -128,7 +135,7 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 22] = [
+const REPLY_BUTTONS: [Button; 23] = [
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -144,6 +151,7 @@ const REPLY_BUTTONS: [Button; 22] = [
     Button::MyStats,
     Button::InviteDriver,
     Button::Support,
+    Button::Settings,
     Button::HowItWorks,
     Button::SwitchLang,
     Button::Cancel,
@@ -232,6 +240,20 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Withdraw) => "🚪 Withdraw",
         (Lang::Es, NoneOfThese) => "❌ Ninguna de estas",
         (Lang::En, NoneOfThese) => "❌ None of these",
+        (Lang::Es, Settings) => "🔧 Ajustes",
+        (Lang::En, Settings) => "🔧 Settings",
+        (Lang::Es, MyDetails) => "👤 Mis datos",
+        (Lang::En, MyDetails) => "👤 My details",
+        (Lang::Es, DetailName) => "Nombre",
+        (Lang::En, DetailName) => "Name",
+        (Lang::Es, DetailPhone) => "Celular",
+        (Lang::En, DetailPhone) => "Phone",
+        (Lang::Es, DetailPhoto) => "Foto",
+        (Lang::En, DetailPhoto) => "Photo",
+        (Lang::Es, DeleteDetails) => "🗑 Borrar mis datos",
+        (Lang::En, DeleteDetails) => "🗑 Delete my details",
+        (Lang::Es, Language) => "🌐 English",
+        (Lang::En, Language) => "🌐 Español",
         (Lang::Es, HowItWorks) => "❓ Cómo funciona",
         (Lang::En, HowItWorks) => "❓ How it works",
         (Lang::Es, Support) => "💬 Soporte",
@@ -365,6 +387,15 @@ pub enum Text {
     NoActiveRequest,
     // Driver profile.
     AskAlias,
+    Settings,
+    DetailsSaved,
+    DetailsDeleted,
+    AskClientName,
+    AskClientPhone,
+    AskClientPhoto,
+    AskRidePhone,
+    RidePhoneSaved,
+    RidePhoneSkipped,
     WorkWithUs,
     ManagerSoon,
     AskFullName,
@@ -564,6 +595,28 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         }
         (Lang::Es, ManagerSoon) => "🏢 Los gestores llegan pronto. Ya avisé al equipo de que te interesa; te escribiremos.",
         (Lang::En, ManagerSoon) => "🏢 Managers are coming soon. I've told the team you're interested; we'll write to you.",
+        (Lang::Es, Settings) => "🔧 Ajustes",
+        (Lang::En, Settings) => "🔧 Settings",
+        (Lang::Es, DetailsSaved) => "✅ Guardado.",
+        (Lang::En, DetailsSaved) => "✅ Saved.",
+        (Lang::Es, DetailsDeleted) => "🗑 Tus datos se borraron.",
+        (Lang::En, DetailsDeleted) => "🗑 Your details were deleted.",
+        (Lang::Es, AskClientName) => "🙋 ¿Cómo te llamas? Así te reconoce el chofer.",
+        (Lang::En, AskClientName) => "🙋 What's your name? So the driver knows who to look for.",
+        (Lang::Es, AskClientPhone) => "📞 Tu celular, para que el chofer te llame. Compártelo con el botón o escríbelo.",
+        (Lang::En, AskClientPhone) => "📞 Your phone, so the driver can call you. Share it with the button or type it.",
+        (Lang::Es, AskClientPhoto) => "📷 Manda una foto tuya, para que el chofer te reconozca al recogerte.",
+        (Lang::En, AskClientPhoto) => "📷 Send a photo of yourself, so the driver recognizes you at the pickup.",
+        (Lang::Es, AskRidePhone) => {
+            "📞 ¿Quieres poner tu celular para que el chofer te contacte más fácil? Lo guardamos en 🔧 Ajustes para tus próximos viajes y puedes borrarlo cuando quieras. Si no, pulsa Omitir: te contactará por Telegram."
+        }
+        (Lang::En, AskRidePhone) => {
+            "📞 Would you like to add your phone so the driver can reach you more easily? We keep it in 🔧 Settings for your next trips and you can delete it anytime. Otherwise tap Skip: they'll reach you on Telegram."
+        }
+        (Lang::Es, RidePhoneSaved) => "📞 Guardado. El chofer lo recibirá cuando lo confirmes.",
+        (Lang::En, RidePhoneSaved) => "📞 Saved. The driver will get it once you confirm them.",
+        (Lang::Es, RidePhoneSkipped) => "Sin celular: el chofer te contactará por Telegram.",
+        (Lang::En, RidePhoneSkipped) => "No phone: the driver will reach you on Telegram.",
         (Lang::Es, AskAlias) => "🧑 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
         (Lang::En, AskAlias) => "🧑 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
@@ -748,6 +801,8 @@ pub struct Post<'a> {
     pub approx: bool,
     /// The client's reputation.
     pub client: Option<Shown>,
+    /// The client's cancellations of the last 30 days.
+    pub cancellations: Option<i64>,
 }
 
 /// The offer as drivers see it in the channel: approximate zones (the
@@ -764,7 +819,8 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
             Some(c) => format!("{} ({c})", m.unwrap_or("?")),
             None => m.unwrap_or("?").to_owned(),
         };
-        post.push_str(&format!("📍 {} → {}\n", zone(p.from, &p.from_corner), zone(p.to, &p.to_corner)));
+        // Pickup, an arrow down, and the finish flag for the destination.
+        post.push_str(&format!("📍 {}\n⬇️\n🏁 {}\n", zone(p.from, &p.from_corner), zone(p.to, &p.to_corner)));
     }
     let about = if p.approx { "≈" } else { "" };
     post.push_str(&format!("📏 {about}{km:.1} km\n💰 {price} CUP · {pay}"));
@@ -776,6 +832,12 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
     }
     if let Some(client) = &p.client {
         post.push_str(&format!("\n👤 {}", reputation(lang, client, true)));
+    }
+    if let Some(n) = p.cancellations {
+        post.push_str(&match lang {
+            Lang::Es => format!("\n❌ Cancelaciones (30 días): {n}"),
+            Lang::En => format!("\n❌ Cancellations (30 days): {n}"),
+        });
     }
     post
 }
@@ -809,15 +871,23 @@ pub fn driver_assigned(lang: Lang, request: &RequestId, p: &Profile, driver: &Sh
 }
 
 /// To the driver who won: the client's contact and the details of the trip.
+/// How the driver reaches the client: whatever the client shared.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ClientContact<'a> {
+    pub username: Option<&'a str>,
+    pub name: Option<&'a str>,
+    pub phone: Option<&'a str>,
+}
+
 pub fn trip_assigned(
     lang: Lang,
     request: &RequestId,
     price: Cup,
     pay: PaymentMethod,
     reference: Option<&str>,
-    username: Option<&str>,
-    phone: Option<&str>,
+    client: &ClientContact<'_>,
 ) -> String {
+    let ClientContact { username, name, phone } = *client;
     let pay = payment(lang, pay);
     let mut lines = match lang {
         Lang::Es => vec![format!("🛵 El viaje {request} es tuyo.\n💰 {price} CUP · {pay}")],
@@ -828,6 +898,9 @@ pub fn trip_assigned(
             Lang::Es => format!("📝 Referencia: {r}"),
             Lang::En => format!("📝 Landmark: {r}"),
         });
+    }
+    if let Some(n) = name {
+        lines.push(format!("🙋 {n}"));
     }
     if let Some(u) = username {
         lines.push(format!("👤 @{u}"));
@@ -940,13 +1013,13 @@ pub fn guide(lang: Lang, g: Option<Guide>) -> &'static str {
         (Lang::Es, Some(Guide::About)) => "🤔 ¿Qué es Asere Voy?\n\n\
 Un bot de Telegram que conecta pasajeros y choferes de moto-taxi en La Habana.\n\n\
 • Tú propones el precio: los choferes lo aceptan o te hacen una contraoferta.\n\
-• El pago es en CUP, directo al chofer (efectivo, transferencia o Bitcoin). El bot no maneja dinero.\n\
+• El pago es en CUP, directo al chofer (efectivo, transferencia o bitcoin). El bot no maneja dinero.\n\
 • Ves la foto, la moto, la chapa, el nombre y la reputación del chofer antes de confirmarlo.\n\
 • No guardamos historial de viajes: cada solicitud se borra al terminar.",
         (Lang::En, Some(Guide::About)) => "🤔 What is Asere Voy?\n\n\
 A Telegram bot that connects passengers and moto-taxi drivers in Havana.\n\n\
 • You set the price: drivers accept it or send you a counteroffer.\n\
-• You pay in CUP, directly to the driver (cash, transfer or Bitcoin). The bot handles no money.\n\
+• You pay in CUP, directly to the driver (cash, transfer or bitcoin). The bot handles no money.\n\
 • You see the driver's photo, bike, plate, name and reputation before confirming them.\n\
 • We keep no trip history: each request is deleted when it ends.",
         (Lang::Es, Some(Guide::Ride)) => "🛵 Pedir un viaje\n\n\
@@ -956,7 +1029,7 @@ A Telegram bot that connects passengers and moto-taxi drivers in Havana.\n\n\
 4. Publica. Los choferes ven solo la zona, nunca tu ubicación exacta.\n\
 5. Un chofer acepta o te hace una contraoferta. Mira su ficha y confírmalo.\n\
 6. Recibes su contacto. Al terminar, pulsa «🏁 Completado» y califícalo.\n\n\
-Mientras esperas puedes subir el precio o cancelar.",
+Mientras esperas puedes subir el precio o cancelar. En «🔧 Ajustes» puedes poner tu nombre, celular y foto para que el chofer te encuentre más fácil.",
         (Lang::En, Some(Guide::Ride)) => "🛵 Requesting a ride\n\n\
 1. Tap \"🛵 Request a ride\".\n\
 2. Mark the pickup and the destination: your location, a point on the map, an address (\"23 e/ L y M, Vedado\") or a place (\"Coppelia\"). Confirm each point on the map.\n\
@@ -964,7 +1037,7 @@ Mientras esperas puedes subir el precio o cancelar.",
 4. Publish. Drivers only see the area, never your exact location.\n\
 5. A driver accepts or sends a counteroffer. Check their profile and confirm them.\n\
 6. You get their contact. When you arrive, tap \"🏁 Completed\" and rate them.\n\n\
-While you wait you can raise the price or cancel.",
+While you wait you can raise the price or cancel. In \"🔧 Settings\" you can add your name, phone and photo so the driver finds you more easily.",
         (Lang::Es, Some(Guide::Driver)) => "🧑‍✈️ Ser chofer\n\n\
 1. En «🤝 Trabaja con nosotros», pulsa «Aplicar a ser chofer» y completa tu ficha: alias, nombre completo, celular, chapa, moto y fotos.\n\
 2. Un admin la revisa. Al aprobarte, el bot te manda el enlace del canal de ofertas.\n\
@@ -991,6 +1064,25 @@ If you run an agency, you'll be able to connect your clients with our drivers:\n
 • You agree with your client what they pay and set what you pay the driver.\n\
 • The driver charges your client and hands you the difference. Example: your client pays 3500 CUP and the trip closes at 3300; the driver hands you 200.\n\n\
 If you're interested, tap \"🤝 Work with us\" → \"Apply as a manager\" and we'll let you know.",
+    }
+}
+
+/// "👤 My details": what the driver of a trip gets (all optional).
+pub fn client_details(lang: Lang, name: Option<&str>, phone: Option<&str>, has_photo: bool) -> String {
+    let none = "—";
+    let photo = match (lang, has_photo) {
+        (Lang::Es, true) => "sí",
+        (Lang::En, true) => "yes",
+        (_, false) => none,
+    };
+    let (name, phone) = (name.unwrap_or(none), phone.unwrap_or(none));
+    match lang {
+        Lang::Es => format!(
+            "👤 Mis datos\n\n🙋 Nombre: {name}\n📞 Celular: {phone}\n📷 Foto: {photo}\n\nTodo es opcional. Solo los ve el chofer de tu viaje, cuando lo confirmas."
+        ),
+        Lang::En => format!(
+            "👤 My details\n\n🙋 Name: {name}\n📞 Phone: {phone}\n📷 Photo: {photo}\n\nAll optional. Only the driver of your trip sees them, once you confirm them."
+        ),
     }
 }
 
@@ -1312,7 +1404,7 @@ pub fn terms(lang: Lang) -> &'static str {
         Lang::Es => {
             "📜 Términos y privacidad de Asere Voy\n\n\
 1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de las motos y no asegura los viajes. El precio y el pago (efectivo o transferencia) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
-2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, moto, chapa y fotos). De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste.\n\n\
+2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, moto, chapa y fotos). De los clientes que quieran, su nombre, su celular (cifrados) y su foto, hasta que los borren en 🔧 Ajustes. De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste.\n\n\
 3. Qué no guardamos: no hay historial de viajes. Cada solicitud (ubicaciones y referencia) se borra al cerrarse, y nunca guardamos el teléfono de los clientes. Las calificaciones son ciegas y solo se suman a los totales.\n\n\
 4. Quién ve qué: en el canal de ofertas los choferes ven el municipio, la distancia, el precio y tu reputación, nunca tu ubicación exacta ni tu contacto. Esos datos solo los recibe el chofer que confirmes.\n\n\
 5. Normas: respeto mutuo y nada ilegal. Tres cancelaciones en 7 días bloquean la cuenta 24 horas. Los admins pueden bloquear cuentas o quitar choferes.\n\n\
@@ -1323,7 +1415,7 @@ Datos del mapa © colaboradores de OpenStreetMap (licencia ODbL)."
         Lang::En => {
             "📜 Asere Voy terms and privacy\n\n\
 1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the motorbikes and does not insure the trips. Price and payment (cash or transfer) are agreed directly between client and driver; the bot handles no money.\n\n\
-2. What we keep: for drivers, their profile (alias, encrypted full name and phone, motorbike, plate and photos). For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it.\n\n\
+2. What we keep: for drivers, their profile (alias, encrypted full name and phone, motorbike, plate and photos). For clients who choose to, their name, phone (encrypted) and photo, until they delete them in 🔧 Settings. For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it.\n\n\
 3. What we don't keep: there is no trip history. Each request (locations and landmark) is deleted when it closes, and we never keep clients' phone numbers. Ratings are blind and only added to the totals.\n\n\
 4. Who sees what: in the offers channel drivers see the municipality, distance, price and your reputation, never your exact location or contact. Only the driver you confirm gets those.\n\n\
 5. Rules: mutual respect and nothing illegal. Three cancellations in 7 days block the account for 24 hours. Admins can block accounts or remove drivers.\n\n\
@@ -1632,6 +1724,27 @@ mod tests {
     fn candidates_are_listed_in_full_and_numbered() {
         let text = choose_address(Lang::Es, &["Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este", "78 en Habana del Este"]);
         assert!(text.contains("\n1. Avenida Cuarta (92) entre 21 D (12) y 21 C (13) en Habana del Este\n2. 78"), "{text}");
+    }
+
+    #[test]
+    fn the_offer_shows_pickup_then_destination_and_the_client() {
+        let id = RequestId::parse("K7X2").unwrap();
+        let post = Post {
+            request: &id,
+            km: 3.5,
+            price: 600,
+            payment: PaymentMethod::Cash,
+            from: Some("Plaza de la Revolución"),
+            to: Some("Habana del Este"),
+            from_corner: Some("23 y L".into()),
+            to_corner: None,
+            approx: false,
+            client: Some(Shown { stars: Some(4.7), trips: 23, days: 120 }),
+            cancellations: Some(1),
+        };
+        let text = channel_post(Lang::Es, &post);
+        assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
+        assert!(text.contains("👤 ⭐4.7 · 23 viajes · 120 días en el bot\n❌ Cancelaciones (30 días): 1"), "{text}");
     }
 
     #[test]

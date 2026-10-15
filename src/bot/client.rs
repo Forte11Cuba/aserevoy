@@ -9,7 +9,7 @@ use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardMarkup, MessageId};
 
 use super::dialog::{Candidate, Dialog, Republish, Ride, Spot, Trip};
-use super::{App, chat, effects, keyboards, now};
+use super::{App, chat, effects, keyboards, now, settings};
 use crate::db;
 use crate::db::requests::InsertOutcome;
 use crate::domain::fare::{self, Cup};
@@ -157,8 +157,34 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
         }
         Ride::ConfirmApprox { pickup, spot } => ask_approx(cx, pickup, spot).await,
         Ride::Payment { .. } => cx.say(Text::AskPayment, keyboards::payment(cx.lang)).await,
+        // The phone is saved in the client's details, for the next trips too.
+        Ride::Phone { trip, price, payment } => {
+            // The note puts the usual Back and Cancel below again.
+            if skipped {
+                cx.say(Text::RidePhoneSkipped, keyboards::step(cx.lang, &[])).await?;
+                return show_summary(cx, trip, price, payment).await;
+            }
+            match settings::contact_phone(msg) {
+                Some(phone) => {
+                    settings::remember_phone(cx, phone).await?;
+                    cx.say(Text::RidePhoneSaved, keyboards::step(cx.lang, &[])).await?;
+                    show_summary(cx, trip, price, payment).await
+                }
+                None => cx.say_plain(Text::InvalidPhone).await,
+            }
+        }
         Ride::Summary { trip, price, payment } => show_summary(cx, trip, price, payment).await,
     }
+}
+
+/// After the payment: the phone step, unless the client already gave one.
+async fn ask_phone_or_summary(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -> anyhow::Result<()> {
+    if cx.app.client_contact(cx.user).await?.phone.is_some() {
+        return show_summary(cx, trip, price, payment).await;
+    }
+    cx.save(Ride::Phone { trip, price, payment }).await?;
+    let extra = [keyboards::share_phone(cx.lang), keyboards::skip(cx.lang)];
+    cx.say(Text::AskRidePhone, keyboards::step(cx.lang, &extra)).await
 }
 
 /// ↩️ Back: the previous step, keeping what was already chosen. From the
@@ -195,6 +221,7 @@ async fn back(cx: &Ctx<'_>, ride: Ride) -> anyhow::Result<()> {
         }
         Ride::Price { trip, .. } => ask_dropoff(cx, trip.pickup).await,
         Ride::Payment { trip, price } => show_price(cx, trip, price).await,
+        Ride::Phone { trip, price, .. } => ask_payment(cx, trip, price).await,
         Ride::Summary { trip, price, .. } => ask_payment(cx, trip, price).await,
     }
 }
@@ -437,7 +464,7 @@ pub async fn on_callback(
         }
         (Ride::Payment { trip, price }, "pay", method) => match PaymentMethod::parse(method) {
             Some(payment) => {
-                show_summary(cx, trip, price, payment).await?;
+                ask_phone_or_summary(cx, trip, price, payment).await?;
                 true
             }
             None => false,

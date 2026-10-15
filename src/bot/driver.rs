@@ -25,12 +25,10 @@ pub async fn apply(cx: &Ctx<'_>) -> anyhow::Result<()> {
 
 /// "🤝 Work with us": what each role is, with a button to apply.
 pub async fn work_with_us(cx: &Ctx<'_>) -> anyhow::Result<()> {
-    if cx.app.driver_status(cx.user).await?.is_some() {
-        return menu(cx).await;
-    }
+    let is_driver = cx.app.driver_status(cx.user).await?.is_some();
     cx.bot
         .send_message(chat(cx.user), i18n::text(cx.lang, Text::WorkWithUs))
-        .reply_markup(keyboards::work_with_us(cx.lang))
+        .reply_markup(keyboards::work_with_us(cx.lang, is_driver))
         .await?;
     Ok(())
 }
@@ -317,7 +315,7 @@ const PHOTO_MAX_SIDE: u32 = 640;
 
 /// Of Telegram's sizes of a photo, the biggest one up to `PHOTO_MAX_SIDE`,
 /// or the smallest if all are bigger.
-fn medium_size(dims: &[(u32, u32)]) -> Option<usize> {
+pub(super) fn medium_size(dims: &[(u32, u32)]) -> Option<usize> {
     let side = |i: usize| dims[i].0.max(dims[i].1);
     let fitting = (0..dims.len()).filter(|&i| side(i) <= PHOTO_MAX_SIDE).max_by_key(|&i| side(i));
     fitting.or_else(|| (0..dims.len()).min_by_key(|&i| side(i)))

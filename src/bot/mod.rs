@@ -11,6 +11,7 @@ pub mod effects;
 pub mod keyboards;
 pub mod panel;
 pub mod rating;
+pub mod settings;
 pub mod support;
 pub mod trip;
 
@@ -134,6 +135,13 @@ impl App {
 
     pub async fn driver_status(&self, user: UserId) -> anyhow::Result<Option<DriverStatus>> {
         Ok(db::drivers::status(&self.pool, user).await?)
+    }
+
+    /// What the driver of this user's trip gets about them: their optional
+    /// client details. A driver requesting a ride is a client like any other:
+    /// their driver profile is kept apart.
+    pub async fn client_contact(&self, user: UserId) -> anyhow::Result<db::clients::ClientProfile> {
+        Ok(db::clients::get(&self.pool, &self.cipher, user).await?.unwrap_or_default())
     }
 }
 

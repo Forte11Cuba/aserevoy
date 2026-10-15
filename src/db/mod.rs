@@ -1,6 +1,7 @@
 //! SQLite persistence. A single file holds both temporary state (open and
 //! assigned requests) and the few permanent tables.
 
+pub mod clients;
 pub mod counteroffers;
 pub mod dialogs;
 pub mod drivers;

@@ -19,13 +19,18 @@ fn inline(lang: Lang, b: Button, data: impl Into<String>) -> InlineKeyboardButto
 }
 
 pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup {
-    let profile = if is_driver { Button::DriverMenu } else { Button::WorkWithUs };
-    let mut rows = vec![vec![reply(lang, Button::RequestRide)], vec![reply(lang, profile)]];
+    // The roles the user has, in one row (🏢 Manager will go next to 🏍
+    // Driver), then "Work with us", always there to apply for another one.
+    let mut rows = vec![vec![reply(lang, Button::RequestRide)]];
+    if is_driver {
+        rows.push(vec![reply(lang, Button::DriverMenu)]);
+    }
+    rows.push(vec![reply(lang, Button::WorkWithUs)]);
     if is_staff {
         rows.push(vec![reply(lang, Button::AdminPanel)]);
     }
     rows.push(vec![reply(lang, Button::HowItWorks)]);
-    rows.push(vec![reply(lang, Button::Support), reply(lang, Button::SwitchLang)]);
+    rows.push(vec![reply(lang, Button::Support), reply(lang, Button::Settings)]);
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
@@ -454,12 +459,36 @@ pub fn guides(lang: Lang, open: Option<i18n::Guide>) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(rows)
 }
 
-/// "🤝 Work with us": apply as a driver, or as a manager (coming soon).
-pub fn work_with_us(lang: Lang) -> InlineKeyboardMarkup {
+/// "🔧 Settings": my details and the language.
+pub fn settings(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
-        vec![inline(lang, Button::ApplyDriver, "work:drv")],
-        vec![inline(lang, Button::ApplyManager, "work:mgr")],
+        vec![inline(lang, Button::MyDetails, "set:me")],
+        vec![inline(lang, Button::Language, "set:lang")],
     ])
+}
+
+/// Under "👤 My details": a button per detail, and delete them all.
+pub fn client_details(lang: Lang, any: bool) -> InlineKeyboardMarkup {
+    let mut rows = vec![vec![
+        inline(lang, Button::DetailName, "set:name"),
+        inline(lang, Button::DetailPhone, "set:phone"),
+        inline(lang, Button::DetailPhoto, "set:photo"),
+    ]];
+    if any {
+        rows.push(vec![inline(lang, Button::DeleteDetails, "set:del")]);
+    }
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// "🤝 Work with us": apply as a driver, or as a manager (coming soon).
+/// A driver is not offered to apply as one again.
+pub fn work_with_us(lang: Lang, is_driver: bool) -> InlineKeyboardMarkup {
+    let mut rows = Vec::new();
+    if !is_driver {
+        rows.push(vec![inline(lang, Button::ApplyDriver, "work:drv")]);
+    }
+    rows.push(vec![inline(lang, Button::ApplyManager, "work:mgr")]);
+    InlineKeyboardMarkup::new(rows)
 }
 
 /// For staff: approve or reject a driver's new full name.

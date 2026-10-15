@@ -16,6 +16,8 @@ pub enum Dialog {
     Republish(Republish),
     /// A driver changing one field of their profile.
     EditField { field: FormStep },
+    /// A client changing one of their optional details (🔧 Settings).
+    EditClient { field: ClientField },
     /// A driver making a counteroffer: `amount` is what the +/− buttons have
     /// reached (it starts at the client's price); ✅ Send sends it, and a
     /// typed amount is sent at once.
@@ -87,6 +89,9 @@ pub enum Ride {
     /// The client adjusts their offer, starting at the suggested price.
     Price { trip: Trip, offer: Cup },
     Payment { trip: Trip, price: Cup },
+    /// No phone saved: the client may give one for the driver (it is saved
+    /// in their details) or skip.
+    Phone { trip: Trip, price: Cup, payment: PaymentMethod },
     /// The last look: publish or go back.
     Summary { trip: Trip, price: Cup, payment: PaymentMethod },
 }
@@ -134,6 +139,14 @@ pub enum FormStep {
     BikeColor,
     Photo,
     BikePhoto,
+}
+
+/// A client's optional details.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientField {
+    Name,
+    Phone,
+    Photo,
 }
 
 impl FormStep {

@@ -12,7 +12,7 @@ use teloxide::types::{ChatJoinRequest, MessageId, User};
 use super::admin::{self, Action};
 use super::client::{self, Ctx};
 use super::dialog::Dialog;
-use super::{AppRef, HandlerResult, auction, chat, driver, keyboards, now, panel, rating, support, trip, user_id};
+use super::{AppRef, HandlerResult, auction, chat, driver, keyboards, now, panel, rating, settings, support, trip, user_id};
 use crate::db;
 use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
@@ -87,6 +87,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Dialog::Ride(ride)) => return client::on_message(&cx, ride, &msg).await,
         Some(Dialog::DriverForm(form)) => return driver::on_message(&cx, form, &msg).await,
         Some(Dialog::EditField { field }) => return driver::on_edit_message(&cx, field, &msg).await,
+        Some(Dialog::EditClient { field }) => return settings::on_message(&cx, field, &msg).await,
         Some(Dialog::Counteroffer { request, amount }) if pressed == Some(Button::SendOffer) => {
             return auction::send_counteroffer(&cx, &request, amount).await;
         }
@@ -103,6 +104,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::MyStats) => driver::stats(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
+        Some(Button::Settings) => settings::show(&cx).await,
         Some(Button::HowItWorks) => {
             bot.send_message(chat(cx.user), i18n::guide(cx.lang, None))
                 .reply_markup(keyboards::guides(cx.lang, None))
@@ -310,6 +312,10 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
                 let markup = keyboards::guides(cx.lang, Some(guide));
                 let _ = bot.edit_message_text(chat(cx.user), msg, text).reply_markup(markup).await;
             }
+            None
+        }
+        ("set", _) => {
+            settings::on_callback(&cx, arg).await?;
             None
         }
         ("work", _) => {

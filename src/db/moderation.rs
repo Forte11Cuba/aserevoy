@@ -23,6 +23,18 @@ pub async fn count_cancellation(pool: &SqlitePool, client: UserId, now: UnixTime
     .await
 }
 
+/// The client's cancellations that still count (the last 30 days), for the
+/// offers channel.
+pub async fn recent_cancellations(pool: &SqlitePool, client: UserId, now: UnixTime) -> sqlx::Result<i64> {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM cancellations WHERE telegram_id = ? AND role = 'client' AND created_at > ?",
+    )
+    .bind(client.0)
+    .bind(now - CANCELLATION_TTL_SECS)
+    .fetch_one(pool)
+    .await
+}
+
 pub async fn delete_old_cancellations(pool: &SqlitePool, now: UnixTime) -> sqlx::Result<()> {
     sqlx::query("DELETE FROM cancellations WHERE created_at <= ?")
         .bind(now - CANCELLATION_TTL_SECS)
