@@ -248,9 +248,20 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
         }
         ("omw" | "arr", Some(id)) => trip::on_my_way_or_arrived(bot, app, cx.user, cx.lang, &id, kind == "arr").await?,
         ("shr", Some(id)) => trip::share(bot, app, cx.user, cx.lang, &id).await?,
-        ("fin" | "cr" | "cok" | "cno" | "wd" | "rai" | "kw", Some(id)) => {
+        // 🏁 Completed asks first; ✅ Yes, it's over completes.
+        ("fin", Some(id)) => {
+            trip::ask_finished(bot, cx.lang, cx.user, &id).await?;
+            None
+        }
+        ("fno", Some(_)) => {
+            if let Some(msg) = pressed {
+                let _ = bot.delete_message(chat(cx.user), msg).await;
+            }
+            None
+        }
+        ("fok" | "cr" | "cok" | "cno" | "wd" | "rai" | "kw", Some(id)) => {
             let result = match kind {
-                "fin" => trip::complete(bot, app, cx.user, cx.lang, &id).await?,
+                "fok" => trip::complete(bot, app, cx.user, cx.lang, &id).await?,
                 "wd" => trip::withdraw(bot, app, cx.user, cx.lang, &id).await?,
                 "cr" => {
                     let reason = arg.split_once(':').and_then(|(_, r)| CancelReason::parse(r));
@@ -269,9 +280,16 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
                     None => None,
                 },
             };
-            // Done: the buttons of the pressed message are spent.
+            // Done: the buttons of the pressed message are spent; the
+            // "is the trip over?" question goes away.
             if result.is_none() {
-                spend(pressed).await;
+                if kind == "fok"
+                    && let Some(msg) = pressed
+                {
+                    let _ = bot.delete_message(chat(cx.user), msg).await;
+                } else {
+                    spend(pressed).await;
+                }
             }
             result
         }

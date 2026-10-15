@@ -146,7 +146,10 @@ pub async fn from_menu(bot: &Bot, app: &App, by: UserId, lang: Lang, pressed: Bu
             problem
         }
         Button::ShareTrip => share(bot, app, by, lang, &id).await?,
-        Button::Complete => complete(bot, app, by, lang, &id).await?,
+        Button::Complete => {
+            ask_finished(bot, lang, by, &id).await?;
+            None
+        }
         Button::CancelTrip => {
             let reasons: &[CancelReason] =
                 if by == trip.client { &CancelReason::FOR_CLIENT } else { &CancelReason::FOR_DRIVER };
@@ -200,6 +203,15 @@ pub async fn cancel_pressed(
 }
 
 /// ↩️ Back from the reasons: the trip's buttons again.
+/// 🏁 Completed (on a trip message or in the trip menu): asks first, in a
+/// message of its own that goes away once answered.
+pub async fn ask_finished(bot: &Bot, lang: Lang, by: UserId, id: &RequestId) -> anyhow::Result<()> {
+    bot.send_message(chat(by), i18n::text(lang, Text::ConfirmFinished))
+        .reply_markup(keyboards::confirm_finished(lang, id))
+        .await?;
+    Ok(())
+}
+
 pub async fn cancel_back(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &RequestId, pressed: Option<MessageId>) -> anyhow::Result<()> {
     if let (Some(msg), Some(request)) = (pressed, db::requests::get(&app.pool, id).await?) {
         let markup = if by == request.client { keyboards::client_trip(lang, id) } else { keyboards::driver_trip(lang, id) };

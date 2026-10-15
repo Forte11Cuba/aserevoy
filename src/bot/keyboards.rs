@@ -271,6 +271,14 @@ pub fn driver_trip(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
     ])
 }
 
+/// "Is the trip over?": Yes completes it; Back drops the question.
+pub fn confirm_finished(lang: Lang, request: &RequestId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        inline(lang, Button::YesFinished, format!("fok:{request}")),
+        inline(lang, Button::Back, format!("fno:{request}")),
+    ]])
+}
+
 /// Why cancel an assigned trip; replaces the trip's buttons until one is picked.
 pub fn cancel_reasons(lang: Lang, request: &RequestId, reasons: &[CancelReason]) -> InlineKeyboardMarkup {
     let mut rows: Vec<_> = reasons
