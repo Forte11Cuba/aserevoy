@@ -114,6 +114,7 @@ pub async fn post_of<'a>(app: &'a App, request: &'a Request) -> anyhow::Result<P
         km: request.km,
         minutes: request.minutes,
         price: request.price,
+        suggested: request.suggested,
         payment: request.payment,
         from: app.zones.municipality(request.pickup),
         to: app.zones.municipality(request.dropoff),
