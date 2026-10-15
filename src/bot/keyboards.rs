@@ -282,9 +282,14 @@ pub fn cancel_reasons(lang: Lang, request: &RequestId, reasons: &[CancelReason])
 }
 
 /// ⭐1 to ⭐5 for a pending rating.
+/// One row per rating, 5 stars on top down to 1: centred in their buttons,
+/// they make a triangle.
 pub fn stars(code: &str) -> InlineKeyboardMarkup {
-    let row = (1..=5).map(|n| InlineKeyboardButton::callback("⭐".repeat(n), format!("rs:{code}:{n}"))).collect::<Vec<_>>();
-    InlineKeyboardMarkup::new(vec![row[..3].to_vec(), row[3..].to_vec()])
+    let rows = (1..=5)
+        .rev()
+        .map(|n| vec![InlineKeyboardButton::callback("⭐".repeat(n), format!("rs:{code}:{n}"))])
+        .collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(rows)
 }
 
 /// Optional tags (✓ when chosen) and Done.
