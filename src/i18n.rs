@@ -871,93 +871,89 @@ pub fn place(lang: Lang, place: Place) -> &'static str {
     }
 }
 
-/// To the client when a driver accepts: who is coming and how to reach them.
-pub fn driver_assigned(
-    lang: Lang,
-    request: &RequestId,
-    p: &Profile,
-    driver: &Shown,
-    username: Option<&str>,
-    price: Cup,
-    pay: PaymentMethod,
-) -> String {
-    let rep = reputation(lang, driver, false);
-    let name = full_name_line(p);
-    let contact = username.map(|u| format!("\n💬 @{u}")).unwrap_or_default();
-    let card = match lang {
-        Lang::Es => format!(
-            "✅ ¡Un chofer aceptó tu viaje {request}!\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Chapa: {}\n📞 {}",
-            p.alias, p.bike_model, p.bike_color, p.plate, p.phone
-        ),
-        Lang::En => format!(
-            "✅ A driver accepted your trip {request}!\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Plate: {}\n📞 {}",
-            p.alias, p.bike_model, p.bike_color, p.plate, p.phone
-        ),
-    };
-    card + &contact + &client_pays(lang, price, pay, username)
-}
 
-/// To the driver who won: the client's contact and the details of the trip.
-/// How the driver reaches the client: whatever the client shared.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ClientContact<'a> {
-    pub username: Option<&'a str>,
-    pub name: Option<&'a str>,
+/// The two trip cards (the client's and the driver's) use the same lines
+/// and emojis, each detail once: 🛵 the trip, 👤 the other person with their
+/// reputation, 📞 their phone, 💰 what is paid at the end, 💬 who to write to.
+pub struct TripCard<'a> {
+    pub request: &'a RequestId,
+    pub price: Cup,
+    pub pay: PaymentMethod,
+    /// The other person's names: the driver's alias and full name, or the
+    /// client's name (none: "Client").
+    pub names: Vec<&'a str>,
+    pub reputation: &'a Shown,
     pub phone: Option<&'a str>,
+    pub username: Option<&'a str>,
 }
 
-pub fn trip_assigned(
-    lang: Lang,
-    request: &RequestId,
-    price: Cup,
-    pay: PaymentMethod,
-    reference: Option<&str>,
-    client: &ClientContact<'_>,
-) -> String {
-    let ClientContact { username, name, phone } = *client;
-    let pay = payment(lang, pay);
-    let mut lines = match lang {
-        Lang::Es => vec![format!("🛵 El viaje {request} es tuyo.\n💰 Al terminar, cobras al cliente {price} CUP ({pay}).")],
-        Lang::En => vec![format!("🛵 Trip {request} is yours.\n💰 When it ends, you charge the client {price} CUP ({pay}).")],
+/// What the client sees once their driver is set: `accepted` when it came
+/// from a counteroffer (or a driver they had not confirmed yet).
+pub fn client_trip_card(lang: Lang, c: &TripCard, p: &Profile, accepted: bool) -> String {
+    let request = c.request;
+    let title = match (lang, accepted) {
+        (Lang::Es, false) => format!("🛵 Viaje {request} confirmado: tu chofer va hacia ti."),
+        (Lang::Es, true) => format!("🛵 ¡Un chofer aceptó tu viaje {request}! Va hacia ti."),
+        (Lang::En, false) => format!("🛵 Trip {request} confirmed: your driver is on the way."),
+        (Lang::En, true) => format!("🛵 A driver accepted your trip {request}! They're on the way."),
     };
-    if let Some(r) = reference {
-        lines.push(match lang {
+    let bike = match lang {
+        Lang::Es => format!("🏍 {}, {} · Chapa {}", p.bike_model, p.bike_color, p.plate),
+        Lang::En => format!("🏍 {}, {} · Plate {}", p.bike_model, p.bike_color, p.plate),
+    };
+    let money = match lang {
+        Lang::Es => format!("💰 Al terminar le pagas {} CUP · {}", c.price, payment(lang, c.pay)),
+        Lang::En => format!("💰 When it ends you pay {} CUP · {}", c.price, payment(lang, c.pay)),
+    };
+    trip_card(lang, title, c, &[bike], money)
+}
+
+/// What the driver sees once the trip is theirs.
+pub fn driver_trip_card(lang: Lang, c: &TripCard, reference: Option<&str>) -> String {
+    let request = c.request;
+    let title = match lang {
+        Lang::Es => format!("🛵 Viaje {request}: es tuyo."),
+        Lang::En => format!("🛵 Trip {request}: it's yours."),
+    };
+    let extra: Vec<String> = reference
+        .map(|r| match lang {
             Lang::Es => format!("📝 Referencia: {r}"),
             Lang::En => format!("📝 Landmark: {r}"),
-        });
+        })
+        .into_iter()
+        .collect();
+    let money = match lang {
+        Lang::Es => format!("💰 Al terminar cobras {} CUP · {}", c.price, payment(lang, c.pay)),
+        Lang::En => format!("💰 When it ends you charge {} CUP · {}", c.price, payment(lang, c.pay)),
+    };
+    let mut card = trip_card(lang, title, c, &extra, money);
+    card.push_str(match lang {
+        Lang::Es => "\nAbajo tienes la recogida y el destino.",
+        Lang::En => "\nThe pickup and destination are below.",
+    });
+    card
+}
+
+fn trip_card(lang: Lang, title: String, c: &TripCard, extra: &[String], money: String) -> String {
+    let fallback = match lang {
+        Lang::Es => "Cliente",
+        Lang::En => "Client",
+    };
+    let names = if c.names.is_empty() { fallback.to_owned() } else { c.names.join(" · ") };
+    let mut lines = vec![title, format!("👤 {names} · {}", reputation(lang, c.reputation, false))];
+    lines.extend(extra.iter().cloned());
+    if let Some(phone) = c.phone {
+        lines.push(format!("📞 {phone}"));
     }
-    if let Some(n) = name {
-        lines.push(format!("🙋 {n}"));
-    }
-    if let Some(u) = username {
-        lines.push(format!("👤 @{u}"));
-    }
-    if let Some(p) = phone {
-        lines.push(format!("📞 {p}"));
-    }
-    if username.is_none() && phone.is_none() {
-        lines.push(
-            match lang {
-                Lang::Es => "El cliente no dejó contacto: te esperará en el punto de recogida.",
-                Lang::En => "The client left no contact: they'll wait at the pickup point.",
-            }
-            .into(),
-        );
-    }
-    match (lang, username, phone) {
-        (Lang::Es, Some(u), _) => lines.push(format!("👉 Escríbele a @{u} para terminar de coordinar el viaje.")),
-        (Lang::En, Some(u), _) => lines.push(format!("👉 Write to @{u} to finish arranging the trip.")),
-        (Lang::Es, None, Some(_)) => lines.push("👉 Llama al cliente para terminar de coordinar el viaje.".into()),
-        (Lang::En, None, Some(_)) => lines.push("👉 Call the client to finish arranging the trip.".into()),
-        (_, None, None) => {}
-    }
-    lines.push(
-        match lang {
-            Lang::Es => "Abajo tienes la recogida y el destino.",
-            Lang::En => "The pickup and destination are below.",
-        }
-        .into(),
-    );
+    lines.push(money);
+    lines.push(match (lang, c.username, c.phone) {
+        (Lang::Es, Some(u), _) => format!("💬 Escríbele a @{u} para terminar de coordinar el viaje."),
+        (Lang::En, Some(u), _) => format!("💬 Write to @{u} to finish arranging the trip."),
+        (Lang::Es, None, Some(p)) => format!("💬 Llámale al {p} para terminar de coordinar el viaje."),
+        (Lang::En, None, Some(p)) => format!("💬 Call {p} to finish arranging the trip."),
+        (Lang::Es, None, None) => "💬 Te esperará en el punto de recogida.".into(),
+        (Lang::En, None, None) => "💬 They'll wait at the pickup point.".into(),
+    });
     lines.join("\n")
 }
 
@@ -1368,42 +1364,6 @@ pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile, driver: &Sho
 /// before it was asked).
 fn full_name_line(p: &Profile) -> String {
     p.full_name.as_deref().map(|n| format!("\n🪪 {n}")).unwrap_or_default()
-}
-
-/// To the client after confirming: how to reach the driver.
-pub fn driver_confirmed(
-    lang: Lang,
-    request: &RequestId,
-    p: &Profile,
-    username: Option<&str>,
-    price: Cup,
-    pay: PaymentMethod,
-) -> String {
-    let mut text = match lang {
-        Lang::Es => format!("✅ Viaje {request} confirmado. {} va hacia ti.\n📞 {}", p.alias, p.phone),
-        Lang::En => format!("✅ Trip {request} confirmed. {} is on the way.\n📞 {}", p.alias, p.phone),
-    };
-    if let Some(u) = username {
-        text.push_str(&format!("\n💬 @{u}"));
-    }
-    text + &client_pays(lang, price, pay, username)
-}
-
-/// For the client once the driver is set: what to pay at the end, and to
-/// write to the driver to finish arranging the trip.
-fn client_pays(lang: Lang, price: Cup, pay: PaymentMethod, driver: Option<&str>) -> String {
-    let pay = payment(lang, pay);
-    let mut text = match lang {
-        Lang::Es => format!("\n\n💰 Al terminar el viaje le pagas al chofer {price} CUP ({pay})."),
-        Lang::En => format!("\n\n💰 When the trip ends you pay the driver {price} CUP ({pay})."),
-    };
-    text.push_str(&match (lang, driver) {
-        (Lang::Es, Some(u)) => format!("\n👉 Escríbele a @{u} para terminar de coordinar el viaje."),
-        (Lang::En, Some(u)) => format!("\n👉 Write to @{u} to finish arranging the trip."),
-        (Lang::Es, None) => "\n👉 Llama al chofer para terminar de coordinar el viaje.".into(),
-        (Lang::En, None) => "\n👉 Call the driver to finish arranging the trip.".into(),
-    });
-    text
 }
 
 /// One counteroffer, as its own message to the client.
@@ -1829,25 +1789,40 @@ mod tests {
     }
 
     #[test]
-    fn both_sides_see_the_price_and_are_told_to_write_to_each_other() {
+    fn both_trip_cards_say_each_thing_once_with_the_same_emojis() {
         let id = RequestId::parse("K7X2").unwrap();
         let p = Profile {
             alias: "Pepe".into(),
-            full_name: None,
+            full_name: Some("José Pérez Díaz".into()),
             phone: "+5351234567".into(),
             plate: "P123".into(),
             bike_model: "Suzuki".into(),
-            bike_color: "Roja".into(),
+            bike_color: "roja".into(),
             photo_file_id: "f".into(),
             bike_photo_file_id: None,
         };
-        let client = driver_confirmed(Lang::Es, &id, &p, Some("pepe"), 3300, PaymentMethod::Cash);
-        assert!(client.contains("le pagas al chofer 3300 CUP (💵 Efectivo)"), "{client}");
-        assert!(client.contains("Escríbele a @pepe para terminar de coordinar el viaje"), "{client}");
-        let contact = ClientContact { username: Some("ana"), name: None, phone: None };
-        let driver = trip_assigned(Lang::Es, &id, 3300, PaymentMethod::Cash, None, &contact);
-        assert!(driver.contains("cobras al cliente 3300 CUP"), "{driver}");
-        assert!(driver.contains("Escríbele a @ana para terminar de coordinar el viaje"), "{driver}");
+        let rep = Shown { stars: Some(4.8), trips: 23, days: 100 };
+        let card = TripCard {
+            request: &id,
+            price: 3300,
+            pay: PaymentMethod::Cash,
+            names: vec!["Pepe", "José Pérez Díaz"],
+            reputation: &rep,
+            phone: Some("+5351234567"),
+            username: Some("pepe"),
+        };
+        let client = client_trip_card(Lang::Es, &card, &p, false);
+        assert_eq!(
+            client,
+            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n👤 Pepe · José Pérez Díaz · ⭐4.8 · 23 viajes\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje."
+        );
+        assert_eq!(client.matches("@pepe").count(), 1);
+
+        let rep = Shown { stars: None, trips: 2, days: 3 };
+        let card = TripCard { names: vec![], reputation: &rep, phone: None, username: Some("ana"), ..card };
+        let driver = driver_trip_card(Lang::Es, &card, Some("frente a la bodega"));
+        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n👤 Cliente · 🆕 Nuevo · 2 viajes\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
+        assert!(!driver.contains("📞"), "{driver}");
     }
 
     #[test]

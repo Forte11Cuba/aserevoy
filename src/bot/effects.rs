@@ -242,39 +242,51 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 .reply_markup(keyboards::confirm_driver(lang, id, driver.id))
                 .await?;
         }
-        Notice::DriverConfirmed { request: id, driver } => {
+        Notice::DriverConfirmed { request: id, driver } | Notice::DriverAssigned { request: id, driver } => {
+            // The client's card: the driver, their bike, what to pay, who to write to.
             let driver = driver_profile(*driver).await?;
-            let contact = username(bot, driver.id).await;
-            bot.send_message(chat(to), i18n::driver_confirmed(lang, id, &driver.profile, contact.as_deref(), request.price, request.payment))
-                .reply_markup(keyboards::client_trip(lang, id))
-                .await?;
-            trip_menu(bot, app, to, lang).await?;
-        }
-        Notice::DriverAssigned { request: id, driver } => {
-            let driver = driver_profile(*driver).await?;
-            let photo = InputFile::file_id(FileId(driver.profile.photo_file_id.clone()));
             let rep = shown(app, driver.id, Role::Driver).await?;
             let contact = username(bot, driver.id).await;
-            bot.send_photo(chat(to), photo)
-                .caption(i18n::driver_assigned(lang, id, &driver.profile, &rep, contact.as_deref(), request.price, request.payment))
-                .reply_markup(keyboards::client_trip(lang, id))
-                .await?;
+            let p = &driver.profile;
+            let mut names = vec![p.alias.as_str()];
+            names.extend(p.full_name.as_deref());
+            let card = i18n::TripCard {
+                request: id,
+                price: request.price,
+                pay: request.payment,
+                names,
+                reputation: &rep,
+                phone: Some(&p.phone),
+                username: contact.as_deref(),
+            };
+            let accepted = matches!(notice, Notice::DriverAssigned { .. });
+            let text = i18n::client_trip_card(lang, &card, p, accepted);
+            let markup = keyboards::client_trip(lang, id);
+            if accepted {
+                // They have not seen this driver's photo yet.
+                let photo = InputFile::file_id(FileId(p.photo_file_id.clone()));
+                bot.send_photo(chat(to), photo).caption(text).reply_markup(markup).await?;
+            } else {
+                bot.send_message(chat(to), text).reply_markup(markup).await?;
+            }
             trip_menu(bot, app, to, lang).await?;
         }
         Notice::TripAssigned { request: id, client } => {
             // Looked up now: the client's details as they are when the trip
             // is assigned (they may have deleted them).
-            let username = username(bot, *client).await;
             let contact = app.client_contact(*client).await?;
-            let phone = contact.phone.as_deref().or(request.client_phone.as_deref());
-            let text = i18n::trip_assigned(
-                lang,
-                id,
-                request.price,
-                request.payment,
-                request.reference.as_deref(),
-                &i18n::ClientContact { username: username.as_deref(), name: contact.name.as_deref(), phone },
-            );
+            let rep = shown(app, *client, Role::Client).await?;
+            let handle = username(bot, *client).await;
+            let card = i18n::TripCard {
+                request: id,
+                price: request.price,
+                pay: request.payment,
+                names: contact.name.as_deref().into_iter().collect(),
+                reputation: &rep,
+                phone: contact.phone.as_deref().or(request.client_phone.as_deref()),
+                username: handle.as_deref(),
+            };
+            let text = i18n::driver_trip_card(lang, &card, request.reference.as_deref());
             let markup = keyboards::driver_trip(lang, id);
             match contact.photo_file_id {
                 Some(photo) => {
