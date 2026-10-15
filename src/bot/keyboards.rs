@@ -24,6 +24,7 @@ pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup 
     if is_staff {
         rows.push(vec![reply(lang, Button::AdminPanel)]);
     }
+    rows.push(vec![reply(lang, Button::HowItWorks)]);
     rows.push(vec![reply(lang, Button::Support), reply(lang, Button::SwitchLang)]);
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
@@ -438,6 +439,19 @@ pub fn profile_fields(lang: Lang) -> InlineKeyboardMarkup {
         vec![field(Button::FieldPlate, "pl"), field(Button::FieldModel, "bm"), field(Button::FieldColor, "bc")],
         vec![field(Button::FieldPhoto, "pp"), field(Button::FieldBikePhoto, "bp")],
     ])
+}
+
+/// Under "❓ How it works": one button per guide, the open one marked.
+pub fn guides(lang: Lang, open: Option<i18n::Guide>) -> InlineKeyboardMarkup {
+    let rows = i18n::Guide::ALL
+        .into_iter()
+        .map(|g| {
+            let label = i18n::guide_button(lang, g);
+            let label = if Some(g) == open { format!("• {label}") } else { label.to_owned() };
+            vec![InlineKeyboardButton::callback(label, format!("help:{}", g.code()))]
+        })
+        .collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(rows)
 }
 
 /// "🤝 Work with us": apply as a driver, or as a manager (coming soon).

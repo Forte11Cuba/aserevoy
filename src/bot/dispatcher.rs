@@ -103,6 +103,12 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::MyStats) => driver::stats(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
+        Some(Button::HowItWorks) => {
+            bot.send_message(chat(cx.user), i18n::guide(cx.lang, None))
+                .reply_markup(keyboards::guides(cx.lang, None))
+                .await?;
+            Ok(())
+        }
         Some(Button::AdminPanel) => panel::show(&cx).await,
         Some(b @ (Button::PanelDrivers | Button::PanelAdmins | Button::PanelFares | Button::PanelMetrics)) => {
             panel::section(&cx, b).await
@@ -297,6 +303,15 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
         ("dok" | "dno", _) => driver::review(&cx, kind == "dok", arg, pressed).await?,
         ("dna" | "dnr", _) => driver::review_name(&cx, kind == "dna", arg, pressed).await?,
         ("df", _) => driver::edit_field(&cx, arg).await?,
+        // A guide of "❓ How it works", in the same message.
+        ("help", _) => {
+            if let (Some(guide), Some(msg)) = (i18n::Guide::parse(arg), pressed) {
+                let text = i18n::guide(cx.lang, Some(guide));
+                let markup = keyboards::guides(cx.lang, Some(guide));
+                let _ = bot.edit_message_text(chat(cx.user), msg, text).reply_markup(markup).await;
+            }
+            None
+        }
         ("work", _) => {
             spend(pressed).await;
             match arg {
