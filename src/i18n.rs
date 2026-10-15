@@ -1370,8 +1370,20 @@ pub fn counteroffer_prompt(lang: Lang, post: &Post, amount: Cup) -> String {
     let price = post.price;
     let post = channel_post(lang, post);
     match lang {
-        Lang::Es => format!("{post}\n\n💬 Tu contraoferta: {amount} CUP (el cliente ofrece {price} CUP)"),
-        Lang::En => format!("{post}\n\n💬 Your counteroffer: {amount} CUP (the client offers {price} CUP)"),
+        Lang::Es => format!(
+            "{post}\n\n💬 Tu contraoferta: {amount} CUP (el cliente ofrece {price} CUP)\nℹ️ No puedes contraofertar menos que la oferta del cliente: tiene que ser más de {price} CUP."
+        ),
+        Lang::En => format!(
+            "{post}\n\n💬 Your counteroffer: {amount} CUP (the client offers {price} CUP)\nℹ️ You can't counteroffer less than the client's offer: it must be more than {price} CUP."
+        ),
+    }
+}
+
+/// A counteroffer at or below the client's offer, typed or reached with −.
+pub fn counteroffer_too_low(lang: Lang, price: Cup) -> String {
+    match lang {
+        Lang::Es => format!("No puedes contraofertar menos que la oferta del cliente. Tiene que ser más de {price} CUP."),
+        Lang::En => format!("You can't counteroffer less than the client's offer. It must be more than {price} CUP."),
     }
 }
 

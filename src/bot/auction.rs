@@ -148,14 +148,17 @@ pub async fn adjust_counteroffer(
     let Some(open) = db::requests::get(&cx.app.pool, id).await?.filter(|r| r.state == State::Open) else {
         return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
     };
-    let amount = (amount.max(open.price) + delta).max(open.price);
+    // Never below the client's offer: a − that would go under it stops there
+    // and says why.
+    let wanted = amount.max(open.price) + delta;
+    let amount = wanted.max(open.price);
     db::dialogs::set(&cx.app.pool, cx.user, &Dialog::Counteroffer { request, amount }, now()).await?;
     if let Some(msg) = pressed {
         let prompt = i18n::counteroffer_prompt(cx.lang, &effects::post_of(cx.app, &open).await?, amount);
         // Unchanged text (already at the client's price) is an error: ignored.
         let _ = cx.bot.edit_message_text(chat(cx.user), msg, prompt).reply_markup(keyboards::counteroffer_steps(id)).await;
     }
-    Ok(None)
+    Ok((wanted < open.price).then(|| i18n::counteroffer_too_low(cx.lang, open.price)))
 }
 
 /// ✅ Send: the amount the buttons reached.
@@ -200,6 +203,7 @@ pub async fn counteroffer(cx: &Ctx<'_>, id: &RequestId, amount: Cup) -> anyhow::
     let now = now();
     let effects = match request.counteroffer(cx.user, amount, now) {
         Ok(effects) => effects,
+        Err(DomainError::PriceNotHigher { current }) => return Ok(Some(i18n::counteroffer_too_low(cx.lang, current))),
         Err(e) => return Ok(Some(i18n::domain_error(cx.lang, &e))),
     };
     let expires_at = now + COUNTEROFFER_SECS;
