@@ -892,7 +892,7 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
 
 /// How the offer compares with the suggested price, for drivers:
 /// "🔴⬇️ 200 CUP menos que el precio sugerido (800 CUP)", "🟢⬆️ …más…", or
-/// "✅ Es el precio sugerido". "≈" when a point is approximate.
+/// "⚪🟰 Es el precio sugerido". "≈" when a point is approximate.
 fn against_suggested(lang: Lang, price: Cup, suggested: Cup, approx: bool) -> String {
     let about = if approx { "≈" } else { "" };
     let diff = price - suggested;
@@ -901,8 +901,8 @@ fn against_suggested(lang: Lang, price: Cup, suggested: Cup, approx: bool) -> St
         (Lang::En, -1) => format!("🔴⬇️ {} CUP below the suggested price ({about}{suggested} CUP)", -diff),
         (Lang::Es, 1) => format!("🟢⬆️ {diff} CUP más que el precio sugerido ({about}{suggested} CUP)"),
         (Lang::En, 1) => format!("🟢⬆️ {diff} CUP above the suggested price ({about}{suggested} CUP)"),
-        (Lang::Es, _) => "✅ Es el precio sugerido".to_owned(),
-        (Lang::En, _) => "✅ It's the suggested price".to_owned(),
+        (Lang::Es, _) => "⚪🟰 Es el precio sugerido".to_owned(),
+        (Lang::En, _) => "⚪🟰 It's the suggested price".to_owned(),
     }
 }
 
@@ -2074,7 +2074,7 @@ mod tests {
         assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
         assert!(text.contains("💰 600 CUP · 💵 Efectivo\n🔴⬇️ 200 CUP menos que el precio sugerido (800 CUP)\n"), "{text}");
         assert_eq!(against_suggested(Lang::Es, 1100, 800, true), "🟢⬆️ 300 CUP más que el precio sugerido (≈800 CUP)");
-        assert_eq!(against_suggested(Lang::Es, 800, 800, false), "✅ Es el precio sugerido");
+        assert_eq!(against_suggested(Lang::Es, 800, 800, false), "⚪🟰 Es el precio sugerido");
         assert!(text.contains("👤 ⭐4.7 · 23 viajes\n📅 120 días usando Asere Voy\n❌ Cancelaciones (30 días): 1"), "{text}");
     }
 
