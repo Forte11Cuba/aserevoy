@@ -79,6 +79,26 @@ pub async fn menu(cx: &Ctx<'_>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// "📢 Offers channel": the join link again for an active driver who is not
+/// in it (the approval message may be lost), or that they already are.
+pub async fn offers_channel(cx: &Ctx<'_>) -> anyhow::Result<()> {
+    let text = match cx.app.driver_status(cx.user).await? {
+        None => return apply(cx).await,
+        Some(DriverStatus::Active) => {
+            let member = teloxide::types::UserId(cx.user.0 as u64);
+            let inside = cx.bot.get_chat_member(cx.app.channel, member).await.is_ok_and(|m| m.is_present());
+            if inside {
+                i18n::text(cx.lang, Text::InOffersChannel).to_owned()
+            } else {
+                i18n::channel_invite(cx.lang, &cx.app.channel_link)
+            }
+        }
+        Some(_) => i18n::text(cx.lang, Text::ChannelNotActive).to_owned(),
+    };
+    cx.bot.send_message(chat(cx.user), text).await?;
+    Ok(())
+}
+
 /// "📊 My stats": the aggregate reputation as a driver (no trip history).
 pub async fn stats(cx: &Ctx<'_>) -> anyhow::Result<()> {
     if cx.app.driver_status(cx.user).await?.is_none() {

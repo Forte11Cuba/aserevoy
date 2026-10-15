@@ -476,6 +476,7 @@ pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {
 pub fn driver_menu(lang: Lang) -> KeyboardMarkup {
     KeyboardMarkup::new(vec![
         vec![reply(lang, Button::MyStats), reply(lang, Button::MyProfile)],
+        vec![reply(lang, Button::OffersChannel)],
         vec![reply(lang, Button::MainMenu)],
     ])
     .resize_keyboard()
