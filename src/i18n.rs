@@ -95,6 +95,7 @@ pub enum Button {
     Withdraw,
     NoneOfThese,
     Support,
+    MyReputation,
     MyTrip,
     Settings,
     MyDetails,
@@ -250,6 +251,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, NoneOfThese) => "❌ None of these",
         (Lang::Es, Settings) => "🔧 Ajustes",
         (Lang::En, Settings) => "🔧 Settings",
+        (Lang::Es, MyReputation) => "⭐ Mi reputación",
+        (Lang::En, MyReputation) => "⭐ My reputation",
         (Lang::Es, MyDetails) => "👤 Mis datos",
         (Lang::En, MyDetails) => "👤 My details",
         (Lang::Es, DetailName) => "Nombre",
@@ -1160,28 +1163,59 @@ pub fn photo_changed(lang: Lang, alias: &str) -> String {
 
 /// "📊 My stats": what the bot keeps about a driver, all aggregate.
 pub fn driver_stats(lang: Lang, rep: Option<&Reputation>, tags: &[(Tag, i64)], now: UnixTime) -> String {
+    stats(lang, Role::Driver, rep, tags, None, now)
+}
+
+/// "⭐ My reputation" (🔧 Settings): the same as a client, with the
+/// cancellations that count against them.
+pub fn client_stats(lang: Lang, rep: Option<&Reputation>, tags: &[(Tag, i64)], cancellations: i64, now: UnixTime) -> String {
+    stats(lang, Role::Client, rep, tags, Some(cancellations), now)
+}
+
+fn stats(
+    lang: Lang,
+    role: Role,
+    rep: Option<&Reputation>,
+    tags: &[(Tag, i64)],
+    cancellations: Option<i64>,
+    now: UnixTime,
+) -> String {
+    let title = match (lang, role) {
+        (Lang::Es, Role::Driver) => "📊 Tus estadísticas como chofer",
+        (Lang::En, Role::Driver) => "📊 Your stats as a driver",
+        (Lang::Es, Role::Client) => "⭐ Tu reputación como cliente",
+        (Lang::En, Role::Client) => "⭐ Your reputation as a client",
+    };
     let Some(rep) = rep else {
         return match lang {
-            Lang::Es => "📊 Aún no tienes viajes.".into(),
-            Lang::En => "📊 No trips yet.".into(),
+            Lang::Es => format!("{title}\n\nAún no tienes viajes."),
+            Lang::En => format!("{title}\n\nNo trips yet."),
         };
     };
-    let days = rep.shown(now).days;
     let stars = match (lang, rep.average()) {
         (Lang::Es, Some(avg)) => format!("⭐ {avg:.1} de 5 ({} calificaciones)", rep.stars_count),
         (Lang::En, Some(avg)) => format!("⭐ {avg:.1} out of 5 ({} ratings)", rep.stars_count),
         (Lang::Es, None) => "⭐ Aún sin calificaciones".into(),
         (Lang::En, None) => "⭐ No ratings yet".into(),
     };
-    let mut text = match lang {
-        Lang::Es => format!("📊 Tus estadísticas\n\n{stars}\n🛵 {} viajes completados\n📅 {days} días en el bot", rep.trips),
-        Lang::En => format!("📊 Your stats\n\n{stars}\n🛵 {} trips completed\n📅 {days} days in the bot", rep.trips),
+    let trips = match lang {
+        Lang::Es => format!("🛵 {} viajes completados", rep.trips),
+        Lang::En => format!("🛵 {} trips completed", rep.trips),
     };
+    let mut text = format!("{title}\n\n{stars}\n{trips}\n📅 {}", days_using(lang, rep.shown(now).days));
+    if let Some(n) = cancellations {
+        text.push_str(&match lang {
+            Lang::Es => format!("\n❌ Cancelaciones (30 días): {n}"),
+            Lang::En => format!("\n❌ Cancellations (30 days): {n}"),
+        });
+    }
     let tagged: Vec<String> = tags.iter().filter(|(_, n)| *n > 0).map(|(t, n)| format!("{} × {n}", tag(lang, *t))).collect();
     if !tagged.is_empty() {
-        text.push_str(match lang {
-            Lang::Es => "\n\nLo que dicen los clientes:\n",
-            Lang::En => "\n\nWhat clients say:\n",
+        text.push_str(match (lang, role) {
+            (Lang::Es, Role::Driver) => "\n\nLo que dicen los clientes:\n",
+            (Lang::En, Role::Driver) => "\n\nWhat clients say:\n",
+            (Lang::Es, Role::Client) => "\n\nLo que dicen los choferes:\n",
+            (Lang::En, Role::Client) => "\n\nWhat drivers say:\n",
         });
         text.push_str(&tagged.join("\n"));
     }
