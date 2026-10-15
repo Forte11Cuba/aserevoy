@@ -18,7 +18,7 @@ use crate::domain::reputation::Role;
 use crate::i18n::{self, Button, Text};
 
 /// Drivers per page of the list.
-pub const DRIVERS_PER_PAGE: i64 = 10;
+pub const DRIVERS_PER_PAGE: i64 = keyboards::PANEL_PER_PAGE as i64;
 
 /// Which drivers the list shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +81,7 @@ pub async fn section(cx: &Ctx<'_>, which: Button) -> anyhow::Result<()> {
     }
     match which {
         Button::PanelDrivers => drivers(cx, None, Filter::All, 0).await,
-        Button::PanelAdmins => admin::show_admins(cx).await,
+        Button::PanelAdmins => admin::show_admins(cx, None, 0).await,
         Button::PanelFares => fares(cx, None).await,
         Button::PanelMetrics => {
             let days = db::metrics::last(&cx.app.pool, 7).await?;
@@ -112,6 +112,12 @@ pub async fn on_callback(cx: &Ctx<'_>, arg: &str, pressed: Option<MessageId>) ->
         // Superadmins only from here.
         _ if !superadmin => return Ok(Some(i18n::text(cx.lang, Text::NotAllowed).into())),
         ["fare"] => fares(cx, pressed).await?,
+        ["adm", page] => admin::show_admins(cx, pressed, page.parse().unwrap_or(0)).await?,
+        ["a", id] => {
+            if let Ok(id) = id.parse() {
+                admin::admin_card(cx, pressed, UserId(id)).await?;
+            }
+        }
         ["fa", key, delta] => {
             if let (Some(key), Ok(delta)) = (FareKey::parse(key), delta.parse::<i64>()) {
                 let current = db::fares::load(&cx.app.pool).await?;
@@ -135,7 +141,7 @@ pub async fn on_callback(cx: &Ctx<'_>, arg: &str, pressed: Option<MessageId>) ->
 
 /// Edits the section's message in place (paging, a fare change), or sends a
 /// new one (from the keyboard, or when the pressed message was a photo).
-async fn edit_or_send(
+pub(super) async fn edit_or_send(
     cx: &Ctx<'_>,
     pressed: Option<MessageId>,
     text: String,

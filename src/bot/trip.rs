@@ -12,7 +12,7 @@ use crate::domain::driver::DriverStatus;
 use crate::domain::effect::Notice;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::request::{CancelReason, DomainError, State};
-use crate::i18n::{self, Lang, Text};
+use crate::i18n::{self, Button, Lang, Text};
 
 /// ✅ Accept in the channel: reserves the request while the client confirms.
 /// Returns the alert shown to the driver.
@@ -127,6 +127,46 @@ pub async fn complete(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &Request
 /// ❌ Cancel pressed. An assigned trip first asks for the reason, replacing the
 /// trip's buttons (`pressed`) with the reasons of the presser's side; otherwise
 /// it cancels at once. Returns `Ok(None)` when the pressed buttons are spent.
+/// A button of the trip menu below. They carry no request id: a user has at
+/// most one trip at a time, looked up now. With none, the menu is put right.
+pub async fn from_menu(bot: &Bot, app: &App, by: UserId, lang: Lang, pressed: Button) -> anyhow::Result<()> {
+    let trip = db::requests::active_for(&app.pool, by).await?.filter(|r| r.state == State::Assigned);
+    let Some(mut trip) = trip else {
+        let menu = app.menu(by, lang).await?;
+        bot.send_message(chat(by), i18n::text(lang, Text::NoActiveTrip)).reply_markup(menu).await?;
+        return Ok(());
+    };
+    let id = trip.id.clone();
+    let problem = match pressed {
+        Button::OnMyWay | Button::Arrived => {
+            let problem = on_my_way_or_arrived(bot, app, by, lang, &id, pressed == Button::Arrived).await?;
+            if problem.is_none() {
+                bot.send_message(chat(by), i18n::text(lang, Text::Notified)).await?;
+            }
+            problem
+        }
+        Button::ShareTrip => share(bot, app, by, lang, &id).await?,
+        Button::Complete => complete(bot, app, by, lang, &id).await?,
+        Button::CancelTrip => {
+            let reasons: &[CancelReason] =
+                if by == trip.client { &CancelReason::FOR_CLIENT } else { &CancelReason::FOR_DRIVER };
+            bot.send_message(chat(by), i18n::text(lang, Text::ChooseCancelReason))
+                .reply_markup(keyboards::cancel_reasons(lang, &id, reasons))
+                .await?;
+            None
+        }
+        Button::MyTrip => {
+            effects::resend_trip(bot, app, &mut trip, by).await?;
+            None
+        }
+        _ => None,
+    };
+    if let Some(problem) = problem {
+        bot.send_message(chat(by), problem).await?;
+    }
+    Ok(())
+}
+
 pub async fn cancel_pressed(
     bot: &Bot,
     app: &App,

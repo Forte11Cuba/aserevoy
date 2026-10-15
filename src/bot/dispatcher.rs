@@ -86,6 +86,13 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
     match db::dialogs::get::<Dialog>(&app.pool, cx.user).await? {
         Some(Dialog::Ride(ride)) => return client::on_message(&cx, ride, &msg).await,
         Some(Dialog::DriverForm(form)) => return driver::on_message(&cx, form, &msg).await,
+        Some(Dialog::Raise { request }) => {
+            match text.map(|t| t.trim().trim_end_matches("CUP").trim().parse::<i64>()) {
+                Some(Ok(amount)) => return auction::raise_typed(&cx, &request, amount).await,
+                // Something else: the question is dropped and it is handled as usual.
+                _ => db::dialogs::clear(&app.pool, cx.user).await?,
+            }
+        }
         Some(Dialog::EditField { field }) => return driver::on_edit_message(&cx, field, &msg).await,
         Some(Dialog::EditClient { field }) => return settings::on_message(&cx, field, &msg).await,
         Some(Dialog::Counteroffer { request, amount }) if pressed == Some(Button::SendOffer) => {
@@ -99,11 +106,20 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::RequestRide) => client::start(&cx).await,
         Some(Button::ApplyDriver) => driver::apply(&cx).await,
         Some(Button::WorkWithUs) => driver::work_with_us(&cx).await,
+        Some(Button::ApplyManager) => driver::manager_interest(&cx, from.username.as_deref()).await,
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
         Some(Button::DriverMenu) => driver::menu(&cx).await,
         Some(Button::MyStats) => driver::stats(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
+        Some(
+            b @ (Button::OnMyWay
+            | Button::Arrived
+            | Button::ShareTrip
+            | Button::Complete
+            | Button::CancelTrip
+            | Button::MyTrip),
+        ) => trip::from_menu(&bot, &app, cx.user, cx.lang, b).await,
         Some(Button::Settings) => settings::show(&cx).await,
         Some(Button::HowItWorks) => {
             bot.send_message(chat(cx.user), i18n::guide(cx.lang, None))
@@ -299,7 +315,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
         ("ap", _) => panel::on_callback(&cx, arg, pressed).await?,
         ("ina", _) => admin::invite_admin(&cx).await?,
         ("rma", _) => match arg.parse().map(UserId) {
-            Ok(admin_id) => admin::remove_admin(&cx, admin_id).await?,
+            Ok(admin_id) => admin::remove_admin(&cx, admin_id, pressed).await?,
             Err(_) => None,
         },
         ("dok" | "dno", _) => driver::review(&cx, kind == "dok", arg, pressed).await?,
@@ -318,6 +334,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             settings::on_callback(&cx, arg).await?;
             None
         }
+        // Buttons of the old inline "Work with us" message.
         ("work", _) => {
             spend(pressed).await;
             match arg {

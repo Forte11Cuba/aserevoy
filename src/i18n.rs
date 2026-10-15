@@ -95,6 +95,7 @@ pub enum Button {
     Withdraw,
     NoneOfThese,
     Support,
+    MyTrip,
     Settings,
     MyDetails,
     DetailName,
@@ -135,7 +136,7 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 23] = [
+const REPLY_BUTTONS: [Button; 30] = [
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -146,11 +147,18 @@ const REPLY_BUTTONS: [Button; 23] = [
     Button::RequestRide,
     Button::ApplyDriver,
     Button::WorkWithUs,
+    Button::ApplyManager,
     Button::MyProfile,
     Button::DriverMenu,
     Button::MyStats,
     Button::InviteDriver,
     Button::Support,
+    Button::MyTrip,
+    Button::OnMyWay,
+    Button::Arrived,
+    Button::ShareTrip,
+    Button::Complete,
+    Button::CancelTrip,
     Button::Settings,
     Button::HowItWorks,
     Button::SwitchLang,
@@ -254,6 +262,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, DeleteDetails) => "🗑 Delete my details",
         (Lang::Es, Language) => "🌐 English",
         (Lang::En, Language) => "🌐 Español",
+        (Lang::Es, MyTrip) => "🛵 Mi viaje",
+        (Lang::En, MyTrip) => "🛵 My trip",
         (Lang::Es, HowItWorks) => "❓ Cómo funciona",
         (Lang::En, HowItWorks) => "❓ How it works",
         (Lang::Es, Support) => "💬 Soporte",
@@ -266,8 +276,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, ShareTrip) => "📤 Share trip",
         (Lang::Es, InviteAdmin) => "➕ Invitar admin",
         (Lang::En, InviteAdmin) => "➕ Invite an admin",
-        (Lang::Es, RemoveAdmin) => "❌ Quitar",
-        (Lang::En, RemoveAdmin) => "❌ Remove",
+        (Lang::Es, RemoveAdmin) => "❌ Quitar admin",
+        (Lang::En, RemoveAdmin) => "❌ Remove admin",
         (Lang::Es, Block24h) => "⛔ Bloquear 24 h",
         (Lang::En, Block24h) => "⛔ Block 24 h",
         (Lang::Es, Block) => "⛔ Bloquear",
@@ -387,6 +397,9 @@ pub enum Text {
     NoActiveRequest,
     // Driver profile.
     AskAlias,
+    TripMenuBelow,
+    NoActiveTrip,
+    Notified,
     Settings,
     DetailsSaved,
     DetailsDeleted,
@@ -588,10 +601,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::Es, NameRejected) => "❌ Tu cambio de nombre no fue aprobado. Si crees que es un error, escribe a soporte.",
         (Lang::En, NameRejected) => "❌ Your name change wasn't approved. If you think it's a mistake, write to support.",
         (Lang::Es, WorkWithUs) => {
-            "🤝 Trabaja con nosotros\n\n🧑‍✈️ Chofer: recibe ofertas de viaje en el canal y pon tu precio.\n🏢 Gestor: si tienes tu agencia, conecta a tus clientes con nuestros choferes (próximamente)."
+            "🤝 Trabaja con nosotros\n\n🧑‍✈️ Chofer: recibe ofertas de viaje en el canal, acepta las que te convengan o propón tu precio.\n\n🏢 Gestor (próximamente): conecta a tus clientes con nuestros choferes. Pones tu tarifa para el chofer y la de tu cliente, y cuando un chofer acepta, ganas la diferencia.\n\nElige abajo."
         }
         (Lang::En, WorkWithUs) => {
-            "🤝 Work with us\n\n🧑‍✈️ Driver: get trip offers in the channel and set your price.\n🏢 Manager: if you run an agency, connect your clients with our drivers (coming soon)."
+            "🤝 Work with us\n\n🧑‍✈️ Driver: get trip offers in the channel, take the ones that suit you or propose your price.\n\n🏢 Manager (coming soon): connect your clients with our drivers. You set your rate for the driver and the one for your client, and when a driver accepts, you keep the difference.\n\nChoose below."
         }
         (Lang::Es, ManagerSoon) => "🏢 Los gestores llegan pronto. Ya avisé al equipo de que te interesa; te escribiremos.",
         (Lang::En, ManagerSoon) => "🏢 Managers are coming soon. I've told the team you're interested; we'll write to you.",
@@ -617,6 +630,12 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, RidePhoneSaved) => "📞 Saved. The driver will get it once you confirm them.",
         (Lang::Es, RidePhoneSkipped) => "Sin celular: el chofer te contactará por Telegram.",
         (Lang::En, RidePhoneSkipped) => "No phone: the driver will reach you on Telegram.",
+        (Lang::Es, TripMenuBelow) => "🛵 Mientras dure el viaje, tienes sus botones en el menú de abajo.",
+        (Lang::En, TripMenuBelow) => "🛵 While the trip lasts, its buttons are in the menu below.",
+        (Lang::Es, NoActiveTrip) => "No tienes ningún viaje en curso. Aquí tienes el menú.",
+        (Lang::En, NoActiveTrip) => "You have no trip in progress. Here's the menu.",
+        (Lang::Es, Notified) => "✅ Aviso enviado.",
+        (Lang::En, Notified) => "✅ Notice sent.",
         (Lang::Es, AskAlias) => "🧑 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
         (Lang::En, AskAlias) => "🧑 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
@@ -1369,8 +1388,20 @@ pub fn counteroffer_prompt(lang: Lang, post: &Post, amount: Cup) -> String {
     let price = post.price;
     let post = channel_post(lang, post);
     match lang {
-        Lang::Es => format!("{post}\n\n💬 Tu contraoferta: {amount} CUP (el cliente ofrece {price} CUP)"),
-        Lang::En => format!("{post}\n\n💬 Your counteroffer: {amount} CUP (the client offers {price} CUP)"),
+        Lang::Es => format!(
+            "{post}\n\n💬 Tu contraoferta: {amount} CUP (el cliente ofrece {price} CUP)\nℹ️ No puedes contraofertar menos que la oferta del cliente: tiene que ser más de {price} CUP."
+        ),
+        Lang::En => format!(
+            "{post}\n\n💬 Your counteroffer: {amount} CUP (the client offers {price} CUP)\nℹ️ You can't counteroffer less than the client's offer: it must be more than {price} CUP."
+        ),
+    }
+}
+
+/// A counteroffer at or below the client's offer, typed or reached with −.
+pub fn counteroffer_too_low(lang: Lang, price: Cup) -> String {
+    match lang {
+        Lang::Es => format!("No puedes contraofertar menos que la oferta del cliente. Tiene que ser más de {price} CUP."),
+        Lang::En => format!("You can't counteroffer less than the client's offer. It must be more than {price} CUP."),
     }
 }
 
@@ -1390,8 +1421,8 @@ pub fn counteroffer_sent(lang: Lang, amount: Cup) -> String {
 
 pub fn raise_prompt(lang: Lang, price: Cup) -> String {
     match lang {
-        Lang::Es => format!("Ahora ofreces {price} CUP. ¿A cuánto lo subes?"),
-        Lang::En => format!("You're offering {price} CUP. How much do you raise it to?"),
+        Lang::Es => format!("Ahora ofreces {price} CUP. ¿A cuánto lo subes?\nSelecciona uno o escribe uno tú."),
+        Lang::En => format!("You're offering {price} CUP. How much do you raise it to?\nPick one or type your own."),
     }
 }
 
@@ -1643,11 +1674,11 @@ pub fn driver_admin_card(
 pub fn fares_panel(lang: Lang, f: &Fares) -> String {
     match lang {
         Lang::Es => format!(
-            "💰 Tarifas (precio sugerido = base + precio por km × km)\n\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nCámbialas con los botones. Afectan a las solicitudes nuevas.",
+            "💰 Tarifas (precio sugerido = base + precio por km × km)\n\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nCámbialas con los botones o escribe un valor exacto: /tarifa base 120, /tarifa km 160 o /tarifa minimo 75. Afectan a las solicitudes nuevas.",
             f.base, f.per_km, f.min_percent
         ),
         Lang::En => format!(
-            "💰 Fares (suggested price = base + price per km × km)\n\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nChange them with the buttons. They apply to new requests.",
+            "💰 Fares (suggested price = base + price per km × km)\n\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nChange them with the buttons or type an exact value: /tarifa base 120, /tarifa km 160 or /tarifa minimo 75. They apply to new requests.",
             f.base, f.per_km, f.min_percent
         ),
     }
@@ -1705,15 +1736,26 @@ pub fn admin_invite_created(lang: Lang, link: &str) -> String {
 }
 
 /// Superadmins (read-only: they come from `.env`) and admins.
-pub fn admins_list(lang: Lang, superadmins: &[String], admins: &[String]) -> String {
-    let (supers_head, admins_head, none) = match lang {
-        Lang::Es => ("⭐ Superadmins (en .env, no se cambian desde el bot):", "👮 Admins:", "ninguno todavía"),
-        Lang::En => ("⭐ Superadmins (in .env, not changed from the bot):", "👮 Admins:", "none yet"),
-    };
-    let list = |names: &[String]| {
-        if names.is_empty() { format!("• {none}") } else { names.iter().map(|n| format!("• {n}")).collect::<Vec<_>>().join("\n") }
-    };
-    format!("{supers_head}\n{}\n\n{admins_head}\n{}", list(superadmins), list(admins))
+pub fn admins_list(lang: Lang, superadmins: &[String], admins: usize) -> String {
+    let supers = superadmins.iter().map(|n| format!("• {n}")).collect::<Vec<_>>().join("\n");
+    match (lang, admins) {
+        (Lang::Es, 0) => format!("⭐ Superadmins (en .env, no se cambian desde el bot):\n{supers}\n\n👮 Admins: ninguno todavía."),
+        (Lang::En, 0) => format!("⭐ Superadmins (in .env, not changed from the bot):\n{supers}\n\n👮 Admins: none yet."),
+        (Lang::Es, n) => format!(
+            "⭐ Superadmins (en .env, no se cambian desde el bot):\n{supers}\n\n👮 Admins: {n}\nToca uno para ver su ficha y actuar sobre él."
+        ),
+        (Lang::En, n) => format!(
+            "⭐ Superadmins (in .env, not changed from the bot):\n{supers}\n\n👮 Admins: {n}\nTap one to see their card and act on it."
+        ),
+    }
+}
+
+/// One admin, for a superadmin.
+pub fn admin_card(lang: Lang, name: &str, appointed_by: &str, since: &str) -> String {
+    match lang {
+        Lang::Es => format!("👮 {name}\nAdmin desde el {since}, nombrado por {appointed_by}."),
+        Lang::En => format!("👮 {name}\nAdmin since {since}, appointed by {appointed_by}."),
+    }
 }
 
 #[cfg(test)]

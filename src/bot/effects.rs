@@ -64,6 +64,9 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                     // No exact location: the client's description instead of a pin.
                     let text = i18n::approx_point(lang, place, note.unwrap_or_default(), app.zones.municipality(point));
                     log_failure(bot.send_message(chat(to), text).await, "send description");
+                    if place == Place::Dropoff {
+                        log_failure(trip_menu(bot, app, to, lang).await, "trip menu");
+                    }
                     continue;
                 }
                 // A venue carries a title, so the driver can tell pickup from destination.
@@ -71,6 +74,10 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
                 let address = app.zones.municipality(point).unwrap_or(title);
                 let sent = bot.send_venue(chat(to), point.lat, point.lon, title, address).await;
                 log_failure(sent, "send location");
+                // The last of the driver's trip messages: the trip menu below.
+                if place == Place::Dropoff {
+                    log_failure(trip_menu(bot, app, to, lang).await, "trip menu");
+                }
             }
             Effect::ShowOffer { driver, .. } => log_failure(show_offer(bot, app, request, driver).await, "show offer"),
             Effect::HideOffer { client, msg } => {
@@ -178,6 +185,30 @@ async fn show_offer(bot: &Bot, app: &App, request: &Request, driver: UserId) -> 
     Ok(())
 }
 
+/// "The trip's buttons are below", with the trip menu.
+async fn trip_menu(bot: &Bot, app: &App, to: UserId, lang: i18n::Lang) -> anyhow::Result<()> {
+    bot.send_message(chat(to), i18n::text(lang, Text::TripMenuBelow)).reply_markup(app.menu(to, lang).await?).await?;
+    Ok(())
+}
+
+/// "🛵 My trip": the trip's details again, as when it was assigned.
+pub async fn resend_trip(bot: &Bot, app: &App, request: &mut Request, to: UserId) -> anyhow::Result<()> {
+    let id = request.id.clone();
+    let Some(driver) = request.driver else {
+        return Ok(());
+    };
+    let effects = if to == driver {
+        vec![
+            Effect::Notify { to, notice: Notice::TripAssigned { request: id, client: request.client } },
+            Effect::SendLocation { to, point: request.pickup, place: Place::Pickup },
+            Effect::SendLocation { to, point: request.dropoff, place: Place::Dropoff },
+        ]
+    } else {
+        vec![Effect::Notify { to, notice: Notice::DriverConfirmed { request: id, driver } }]
+    };
+    apply(bot, app, request, effects).await
+}
+
 async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &Notice) -> anyhow::Result<()> {
     let lang = app.lang_of(to).await;
     let driver_profile = |driver: UserId| async move {
@@ -217,6 +248,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
             bot.send_message(chat(to), i18n::driver_confirmed(lang, id, &driver.profile, contact.as_deref()))
                 .reply_markup(keyboards::client_trip(lang, id))
                 .await?;
+            trip_menu(bot, app, to, lang).await?;
         }
         Notice::DriverAssigned { request: id, driver } => {
             let driver = driver_profile(*driver).await?;
@@ -227,6 +259,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 .caption(i18n::driver_assigned(lang, id, &driver.profile, &rep, contact.as_deref()))
                 .reply_markup(keyboards::client_trip(lang, id))
                 .await?;
+            trip_menu(bot, app, to, lang).await?;
         }
         Notice::TripAssigned { request: id, client } => {
             // Looked up now: the client's details as they are when the trip
@@ -290,8 +323,10 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
         | Notice::DeclinedDriver { .. }
         | Notice::Expired { .. } => {
             offer_republish(app, request).await?;
-            let text = format!("{}\n\n{}", i18n::notice(lang, notice), i18n::republish_hint(lang));
-            bot.send_message(chat(to), text).reply_markup(keyboards::republish(lang)).await?;
+            // The menu back first (it may still be the trip's), then the offer
+            // to publish again with its button.
+            bot.send_message(chat(to), i18n::notice(lang, notice)).reply_markup(app.menu(to, lang).await?).await?;
+            bot.send_message(chat(to), i18n::republish_hint(lang)).reply_markup(keyboards::republish(lang)).await?;
         }
     }
     Ok(())

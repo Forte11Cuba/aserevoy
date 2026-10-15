@@ -7,8 +7,18 @@ use crate::domain::request::UnixTime;
 use crate::i18n::Lang;
 
 pub async fn admins(pool: &SqlitePool) -> sqlx::Result<Vec<UserId>> {
-    let ids: Vec<i64> = sqlx::query_scalar("SELECT telegram_id FROM admins").fetch_all(pool).await?;
+    let ids: Vec<i64> =
+        sqlx::query_scalar("SELECT telegram_id FROM admins ORDER BY created_at, telegram_id").fetch_all(pool).await?;
     Ok(ids.into_iter().map(UserId).collect())
+}
+
+/// Who appointed an admin, and when; `None` if they are not one.
+pub async fn admin_info(pool: &SqlitePool, user: UserId) -> sqlx::Result<Option<(UserId, UnixTime)>> {
+    let row: Option<(i64, i64)> = sqlx::query_as("SELECT appointed_by, created_at FROM admins WHERE telegram_id = ?")
+        .bind(user.0)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|(by, at)| (UserId(by), at)))
 }
 
 pub async fn is_admin(pool: &SqlitePool, user: UserId) -> sqlx::Result<bool> {

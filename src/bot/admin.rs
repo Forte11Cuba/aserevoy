@@ -2,9 +2,10 @@
 //! superadmins' management of admins. Roles are checked on every press.
 
 use teloxide::prelude::*;
+use teloxide::types::MessageId;
 
 use super::client::Ctx;
-use super::{App, chat, keyboards, now};
+use super::{App, chat, keyboards, local_date, now, panel};
 use crate::db;
 use crate::db::invitations::InviteRole;
 use crate::db::moderation::BlockReason;
@@ -145,37 +146,50 @@ pub async fn set_fare(cx: &Ctx<'_>, args: &str) -> anyhow::Result<()> {
     show_fares(cx).await
 }
 
-/// "👮 Admins" (superadmins only): the list with Remove buttons, and Invite.
-pub async fn show_admins(cx: &Ctx<'_>) -> anyhow::Result<()> {
+/// "👮 Admins" (superadmins only): the superadmins, and a button per admin
+/// (two per row, by pages) that opens their card; then Invite.
+pub async fn show_admins(cx: &Ctx<'_>, pressed: Option<MessageId>, page: usize) -> anyhow::Result<()> {
     if !cx.app.config.is_superadmin(cx.user) {
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
         return Ok(());
     }
-    // Names are looked up now; we do not store them.
-    let name_of = |id: UserId| async move {
-        match cx.bot.get_chat(chat(id)).await {
-            Ok(c) => {
-                let name = c.first_name().map(str::to_owned).unwrap_or_else(|| id.0.to_string());
-                match c.username() {
-                    Some(u) => format!("{name} (@{u})"),
-                    None => name,
-                }
-            }
-            Err(_) => id.0.to_string(),
-        }
-    };
     let mut superadmins = Vec::new();
     for id in cx.app.config.superadmins.clone() {
-        superadmins.push(name_of(id).await);
+        superadmins.push(name_of(cx, id).await);
     }
+    let all = db::users::admins(&cx.app.pool).await?;
+    let pages = all.len().div_ceil(keyboards::PANEL_PER_PAGE).max(1);
+    let page = page.min(pages - 1);
     let mut admins = Vec::new();
-    for id in db::users::admins(&cx.app.pool).await? {
-        admins.push((id, name_of(id).await));
+    for id in all.iter().skip(page * keyboards::PANEL_PER_PAGE).take(keyboards::PANEL_PER_PAGE) {
+        admins.push((*id, name_of(cx, *id).await));
     }
-    let names: Vec<String> = admins.iter().map(|(_, n)| n.clone()).collect();
-    let text = i18n::admins_list(cx.lang, &superadmins, &names);
-    cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::admins(cx.lang, &admins)).await?;
-    Ok(())
+    let text = i18n::admins_list(cx.lang, &superadmins, all.len());
+    let markup = keyboards::admins(cx.lang, &admins, page, pages);
+    panel::edit_or_send(cx, pressed, text, markup).await
+}
+
+/// `ap:a:<id>`: one admin, with who appointed them and when, and Remove.
+pub async fn admin_card(cx: &Ctx<'_>, pressed: Option<MessageId>, admin: UserId) -> anyhow::Result<()> {
+    let Some((by, since)) = db::users::admin_info(&cx.app.pool, admin).await? else {
+        return show_admins(cx, pressed, 0).await;
+    };
+    let text = i18n::admin_card(cx.lang, &name_of(cx, admin).await, &name_of(cx, by).await, &local_date(since));
+    panel::edit_or_send(cx, pressed, text, keyboards::admin_card(cx.lang, admin)).await
+}
+
+/// "Name (@user)", looked up now; we do not store names.
+async fn name_of(cx: &Ctx<'_>, id: UserId) -> String {
+    match cx.bot.get_chat(chat(id)).await {
+        Ok(c) => {
+            let name = c.first_name().map(str::to_owned).unwrap_or_else(|| id.0.to_string());
+            match c.username() {
+                Some(u) => format!("{name} (@{u})"),
+                None => name,
+            }
+        }
+        Err(_) => id.0.to_string(),
+    }
 }
 
 /// `ina`: a one-use link that appoints whoever opens it as admin.
@@ -216,7 +230,8 @@ pub async fn redeem_admin_invite(cx: &Ctx<'_>, code: &str) -> anyhow::Result<()>
 }
 
 /// `rma:<user>`: a superadmin removes an admin.
-pub async fn remove_admin(cx: &Ctx<'_>, admin: UserId) -> anyhow::Result<Option<String>> {
+/// The list comes back in the same message.
+pub async fn remove_admin(cx: &Ctx<'_>, admin: UserId, pressed: Option<MessageId>) -> anyhow::Result<Option<String>> {
     let app = cx.app;
     if !app.config.is_superadmin(cx.user) {
         return Ok(Some(i18n::text(cx.lang, Text::NotAllowed).into()));
@@ -228,6 +243,6 @@ pub async fn remove_admin(cx: &Ctx<'_>, admin: UserId) -> anyhow::Result<Option<
     let lang = app.lang_of(admin).await;
     let menu = app.menu(admin, lang).await?;
     let _ = cx.bot.send_message(chat(admin), i18n::text(lang, Text::AdminRemovedYou)).reply_markup(menu).await;
-    show_admins(cx).await?;
+    show_admins(cx, pressed, 0).await?;
     Ok(None)
 }

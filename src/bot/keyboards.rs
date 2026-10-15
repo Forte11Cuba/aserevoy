@@ -34,6 +34,28 @@ pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup 
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
+/// The client's menu while their trip is assigned.
+pub fn client_trip_menu(lang: Lang) -> KeyboardMarkup {
+    KeyboardMarkup::new(vec![
+        vec![reply(lang, Button::OnMyWay), reply(lang, Button::ShareTrip)],
+        vec![reply(lang, Button::Complete), reply(lang, Button::CancelTrip)],
+        vec![reply(lang, Button::MyTrip)],
+    ])
+    .resize_keyboard()
+    .persistent()
+}
+
+/// The driver's menu while doing a trip.
+pub fn driver_trip_menu(lang: Lang) -> KeyboardMarkup {
+    KeyboardMarkup::new(vec![
+        vec![reply(lang, Button::Arrived)],
+        vec![reply(lang, Button::Complete), reply(lang, Button::CancelTrip)],
+        vec![reply(lang, Button::MyTrip)],
+    ])
+    .resize_keyboard()
+    .persistent()
+}
+
 /// While a form runs: optional extra buttons, then Back (to the previous
 /// step) on the left and Cancel (the whole form) on the right.
 pub fn step(lang: Lang, extra: &[KeyboardButton]) -> KeyboardMarkup {
@@ -260,9 +282,14 @@ pub fn cancel_reasons(lang: Lang, request: &RequestId, reasons: &[CancelReason])
 }
 
 /// ⭐1 to ⭐5 for a pending rating.
+/// One row per rating, 5 stars on top down to 1: centred in their buttons,
+/// they make a triangle.
 pub fn stars(code: &str) -> InlineKeyboardMarkup {
-    let row = (1..=5).map(|n| InlineKeyboardButton::callback("⭐".repeat(n), format!("rs:{code}:{n}"))).collect::<Vec<_>>();
-    InlineKeyboardMarkup::new(vec![row[..3].to_vec(), row[3..].to_vec()])
+    let rows = (1..=5)
+        .rev()
+        .map(|n| vec![InlineKeyboardButton::callback("⭐".repeat(n), format!("rs:{code}:{n}"))])
+        .collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(rows)
 }
 
 /// Optional tags (✓ when chosen) and Done.
@@ -339,17 +366,7 @@ pub fn drivers_list(
         })
         .collect();
     let code = filter.code();
-    if pages > 1 {
-        let mut nav = Vec::new();
-        if page > 0 {
-            nav.push(inline(lang, Button::PrevPage, format!("ap:drv:{code}:{}", page - 1)));
-        }
-        nav.push(InlineKeyboardButton::callback(format!("{}/{pages}", page + 1), format!("ap:drv:{code}:{page}")));
-        if page + 1 < pages {
-            nav.push(inline(lang, Button::NextPage, format!("ap:drv:{code}:{}", page + 1)));
-        }
-        rows.push(nav);
-    }
+    rows.extend(pager(lang, page as usize, pages as usize, |p| format!("ap:drv:{code}:{p}")));
     let filter_button = |f: Filter, b: Button| {
         let mark = if f == filter { "• " } else { "" };
         InlineKeyboardButton::callback(format!("{mark}{}", button(lang, b)), format!("ap:drv:{}:0", f.code()))
@@ -408,15 +425,44 @@ pub fn accept_terms(lang: Lang) -> InlineKeyboardMarkup {
 }
 
 /// The superadmin's list of admins: remove each, or invite a new one.
-pub fn admins(lang: Lang, admins: &[(UserId, String)]) -> InlineKeyboardMarkup {
-    let mut rows: Vec<_> = admins
-        .iter()
-        .map(|(id, name)| {
-            vec![InlineKeyboardButton::callback(format!("{} {name}", button(lang, Button::RemoveAdmin)), format!("rma:{}", id.0))]
+/// People per page in the panel's lists: 10 rows of 2.
+pub const PANEL_PER_PAGE: usize = 20;
+
+/// ◀ n/m ▶ for a panel list; `data(page)` is the callback of a page.
+fn pager(lang: Lang, page: usize, pages: usize, data: impl Fn(usize) -> String) -> Option<Vec<InlineKeyboardButton>> {
+    if pages <= 1 {
+        return None;
+    }
+    let mut nav = Vec::new();
+    if page > 0 {
+        nav.push(inline(lang, Button::PrevPage, data(page - 1)));
+    }
+    nav.push(InlineKeyboardButton::callback(format!("{}/{pages}", page + 1), data(page)));
+    if page + 1 < pages {
+        nav.push(inline(lang, Button::NextPage, data(page + 1)));
+    }
+    Some(nav)
+}
+
+/// A page of admins, two per row, each opening their card; then Invite.
+pub fn admins(lang: Lang, admins: &[(UserId, String)], page: usize, pages: usize) -> InlineKeyboardMarkup {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = admins
+        .chunks(2)
+        .map(|pair| {
+            pair.iter().map(|(id, name)| InlineKeyboardButton::callback(format!("👮 {name}"), format!("ap:a:{}", id.0))).collect()
         })
         .collect();
+    rows.extend(pager(lang, page, pages, |p| format!("ap:adm:{p}")));
     rows.push(vec![inline(lang, Button::InviteAdmin, "ina")]);
     InlineKeyboardMarkup::new(rows)
+}
+
+/// Under an admin's card: remove them, or back to the list.
+pub fn admin_card(lang: Lang, admin: UserId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        inline(lang, Button::RemoveAdmin, format!("rma:{}", admin.0)),
+        inline(lang, Button::Back, "ap:adm:0"),
+    ]])
 }
 
 pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {
@@ -481,14 +527,16 @@ pub fn client_details(lang: Lang, any: bool) -> InlineKeyboardMarkup {
 }
 
 /// "🤝 Work with us": apply as a driver, or as a manager (coming soon).
-/// A driver is not offered to apply as one again.
-pub fn work_with_us(lang: Lang, is_driver: bool) -> InlineKeyboardMarkup {
+/// "🤝 Work with us" below, like the other sections: apply as a driver
+/// (not offered to one already), as a manager (coming soon), or go back.
+pub fn work_with_us(lang: Lang, is_driver: bool) -> KeyboardMarkup {
     let mut rows = Vec::new();
     if !is_driver {
-        rows.push(vec![inline(lang, Button::ApplyDriver, "work:drv")]);
+        rows.push(vec![reply(lang, Button::ApplyDriver)]);
     }
-    rows.push(vec![inline(lang, Button::ApplyManager, "work:mgr")]);
-    InlineKeyboardMarkup::new(rows)
+    rows.push(vec![reply(lang, Button::ApplyManager)]);
+    rows.push(vec![reply(lang, Button::MainMenu)]);
+    KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
 /// For staff: approve or reject a driver's new full name.

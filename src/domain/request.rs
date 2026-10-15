@@ -612,8 +612,14 @@ impl Request {
             State::Assigned if self.assigned_at.is_some_and(|at| now >= at + AUTO_COMPLETE_SECS) => {
                 let driver = self.driver.expect("assigned request has a driver");
                 self.state = State::Completed;
-                let rate = vec![Effect::StartRating { client: self.client, driver }];
-                Some(Tick::Close(self.close_effects(rate)))
+                // Both are told (and get their menu back), then asked to rate.
+                let id = self.id.clone();
+                let effects = vec![
+                    Effect::Notify { to: self.client, notice: Notice::Completed { request: id.clone() } },
+                    Effect::Notify { to: driver, notice: Notice::Completed { request: id } },
+                    Effect::StartRating { client: self.client, driver },
+                ];
+                Some(Tick::Close(self.close_effects(effects)))
             }
             _ => None,
         }
@@ -857,6 +863,26 @@ mod tests {
     }
 
     #[test]
+    fn once_a_driver_is_assigned_the_other_offers_leave_the_clients_chat() {
+        // Accepting one counteroffer: the others' messages are deleted.
+        let mut r = open();
+        r.counteroffer(DRIVER, 630, T0).unwrap();
+        r.counteroffer(OTHER_DRIVER, 700, T0).unwrap();
+        r.counteroffers[1].client_msg_id = Some(78);
+        let effects = r.accept_counteroffer(CLIENT, DRIVER, T0 + 10).unwrap();
+        assert!(effects.contains(&Effect::HideOffer { client: CLIENT, msg: 78 }));
+
+        // A driver accepts the price and the client confirms: the same.
+        let mut r = open();
+        r.counteroffer(OTHER_DRIVER, 700, T0).unwrap();
+        r.counteroffers[0].client_msg_id = Some(78);
+        r.accept(DRIVER, T0 + 5).unwrap();
+        let effects = r.confirm(CLIENT, T0 + 10).unwrap();
+        assert!(effects.contains(&Effect::HideOffer { client: CLIENT, msg: 78 }));
+        assert!(matches!(notified(&effects, OTHER_DRIVER)[..], [Notice::RequestGone { .. }]));
+    }
+
+    #[test]
     fn expired_or_unknown_counteroffers_cannot_be_accepted() {
         let mut r = open();
         r.counteroffer(DRIVER, 630, T0).unwrap();
@@ -982,7 +1008,9 @@ mod tests {
     fn tick_auto_completes_forgotten_trips() {
         let mut r = assigned();
         assert!(r.tick(T0 + 20 + AUTO_COMPLETE_SECS - 1).is_none());
-        assert!(matches!(r.tick(T0 + 20 + AUTO_COMPLETE_SECS), Some(Tick::Close(_))));
+        let Some(Tick::Close(effects)) = r.tick(T0 + 20 + AUTO_COMPLETE_SECS) else { panic!("not closed") };
         assert_eq!(r.state, State::Completed);
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::Completed { .. }]));
+        assert!(matches!(notified(&effects, DRIVER)[..], [Notice::Completed { .. }]));
     }
 }

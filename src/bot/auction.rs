@@ -31,11 +31,27 @@ pub async fn ask_raise(cx: &Ctx<'_>, id: &RequestId) -> anyhow::Result<Option<St
         Ok(r) => r,
         Err(alert) => return Ok(Some(alert)),
     };
+    db::dialogs::set(&cx.app.pool, cx.user, &Dialog::Raise { request: id.as_str().to_owned() }, now()).await?;
     cx.bot
         .send_message(chat(cx.user), i18n::raise_prompt(cx.lang, request.price))
         .reply_markup(keyboards::raise_options(id, request.price))
         .await?;
     Ok(None)
+}
+
+/// A typed amount after "How much do you raise it to?". The problem, if
+/// any, is said as a message (there is no button to alert on).
+pub async fn raise_typed(cx: &Ctx<'_>, request: &str, amount: Cup) -> anyhow::Result<()> {
+    let Some(id) = RequestId::parse(request) else {
+        return Ok(());
+    };
+    match raise(cx, &id, amount).await? {
+        Some(problem) => {
+            cx.bot.send_message(chat(cx.user), problem).await?;
+        }
+        None => db::dialogs::clear(&cx.app.pool, cx.user).await?,
+    }
+    Ok(())
 }
 
 /// `rai:<id>:<price>`: the client picked a new price.
@@ -51,6 +67,9 @@ pub async fn raise(cx: &Ctx<'_>, id: &RequestId, price: Cup) -> anyhow::Result<O
         return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
     }
     tracing::info!(request = %id, "price raised");
+    if let Some(Dialog::Raise { .. }) = db::dialogs::get(&cx.app.pool, cx.user).await? {
+        db::dialogs::clear(&cx.app.pool, cx.user).await?;
+    }
     effects::apply(cx.bot, cx.app, &mut request, effects).await?;
     Ok(None)
 }
@@ -129,14 +148,17 @@ pub async fn adjust_counteroffer(
     let Some(open) = db::requests::get(&cx.app.pool, id).await?.filter(|r| r.state == State::Open) else {
         return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
     };
-    let amount = (amount.max(open.price) + delta).max(open.price);
+    // Never below the client's offer: a − that would go under it stops there
+    // and says why.
+    let wanted = amount.max(open.price) + delta;
+    let amount = wanted.max(open.price);
     db::dialogs::set(&cx.app.pool, cx.user, &Dialog::Counteroffer { request, amount }, now()).await?;
     if let Some(msg) = pressed {
         let prompt = i18n::counteroffer_prompt(cx.lang, &effects::post_of(cx.app, &open).await?, amount);
         // Unchanged text (already at the client's price) is an error: ignored.
         let _ = cx.bot.edit_message_text(chat(cx.user), msg, prompt).reply_markup(keyboards::counteroffer_steps(id)).await;
     }
-    Ok(None)
+    Ok((wanted < open.price).then(|| i18n::counteroffer_too_low(cx.lang, open.price)))
 }
 
 /// ✅ Send: the amount the buttons reached.
@@ -181,6 +203,7 @@ pub async fn counteroffer(cx: &Ctx<'_>, id: &RequestId, amount: Cup) -> anyhow::
     let now = now();
     let effects = match request.counteroffer(cx.user, amount, now) {
         Ok(effects) => effects,
+        Err(DomainError::PriceNotHigher { current }) => return Ok(Some(i18n::counteroffer_too_low(cx.lang, current))),
         Err(e) => return Ok(Some(i18n::domain_error(cx.lang, &e))),
     };
     let expires_at = now + COUNTEROFFER_SECS;
