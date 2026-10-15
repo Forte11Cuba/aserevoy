@@ -96,6 +96,7 @@ pub enum Button {
     Withdraw,
     NoneOfThese,
     Support,
+    YesFinished,
     MyReputation,
     MyTrip,
     Settings,
@@ -269,6 +270,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, DeleteDetails) => "🗑 Delete my details",
         (Lang::Es, Language) => "🌐 English",
         (Lang::En, Language) => "🌐 Español",
+        (Lang::Es, YesFinished) => "✅ Sí, terminó",
+        (Lang::En, YesFinished) => "✅ Yes, it's over",
         (Lang::Es, MyTrip) => "🛵 Mi viaje",
         (Lang::En, MyTrip) => "🛵 My trip",
         (Lang::Es, HowItWorks) => "❓ Cómo funciona",
@@ -404,6 +407,7 @@ pub enum Text {
     NoActiveRequest,
     // Driver profile.
     AskAlias,
+    ConfirmFinished,
     InOffersChannel,
     ChannelNotActive,
     TripMenuBelow,
@@ -653,6 +657,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, ChannelNotActive) => {
             "The offers channel is only for active drivers. If your profile is pending, I'll tell you when an admin approves it."
         }
+        (Lang::Es, ConfirmFinished) => "🏁 ¿El viaje terminó? Al confirmarlo se cierra y te pido que califiques.",
+        (Lang::En, ConfirmFinished) => "🏁 Is the trip over? Once you confirm, it closes and I'll ask you to rate.",
         (Lang::Es, AskAlias) => "👤 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
         (Lang::En, AskAlias) => "👤 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
@@ -1507,7 +1513,7 @@ pub fn terms(lang: Lang) -> &'static str {
     match lang {
         Lang::Es => {
             "📜 Términos y privacidad de Asere Voy\n\n\
-1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de las motos y no asegura los viajes. El precio y el pago (efectivo o transferencia) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
+1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de las motos y no asegura los viajes. El precio y el pago (efectivo, transferencia o bitcoin) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
 2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, moto, chapa y fotos). De los clientes que quieran, su nombre, su celular (cifrados) y su foto, hasta que los borren en 🔧 Ajustes. De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste.\n\n\
 3. Qué no guardamos: no hay historial de viajes. Cada solicitud (ubicaciones y referencia) se borra al cerrarse, y nunca guardamos el teléfono de los clientes. Las calificaciones son ciegas y solo se suman a los totales.\n\n\
 4. Quién ve qué: en el canal de ofertas los choferes ven el municipio, la distancia, el precio y tu reputación, nunca tu ubicación exacta ni tu contacto. Esos datos solo los recibe el chofer que confirmes.\n\n\
@@ -1518,7 +1524,7 @@ Datos del mapa © colaboradores de OpenStreetMap (licencia ODbL)."
         }
         Lang::En => {
             "📜 Asere Voy terms and privacy\n\n\
-1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the motorbikes and does not insure the trips. Price and payment (cash or transfer) are agreed directly between client and driver; the bot handles no money.\n\n\
+1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the motorbikes and does not insure the trips. Price and payment (cash, transfer or bitcoin) are agreed directly between client and driver; the bot handles no money.\n\n\
 2. What we keep: for drivers, their profile (alias, encrypted full name and phone, motorbike, plate and photos). For clients who choose to, their name, phone (encrypted) and photo, until they delete them in 🔧 Settings. For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it.\n\n\
 3. What we don't keep: there is no trip history. Each request (locations and landmark) is deleted when it closes, and we never keep clients' phone numbers. Ratings are blind and only added to the totals.\n\n\
 4. Who sees what: in the offers channel drivers see the municipality, distance, price and your reputation, never your exact location or contact. Only the driver you confirm gets those.\n\n\
