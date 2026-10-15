@@ -872,7 +872,15 @@ pub fn place(lang: Lang, place: Place) -> &'static str {
 }
 
 /// To the client when a driver accepts: who is coming and how to reach them.
-pub fn driver_assigned(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown, username: Option<&str>) -> String {
+pub fn driver_assigned(
+    lang: Lang,
+    request: &RequestId,
+    p: &Profile,
+    driver: &Shown,
+    username: Option<&str>,
+    price: Cup,
+    pay: PaymentMethod,
+) -> String {
     let rep = reputation(lang, driver, false);
     let name = full_name_line(p);
     let contact = username.map(|u| format!("\n💬 @{u}")).unwrap_or_default();
@@ -886,7 +894,7 @@ pub fn driver_assigned(lang: Lang, request: &RequestId, p: &Profile, driver: &Sh
             p.alias, p.bike_model, p.bike_color, p.plate, p.phone
         ),
     };
-    card + &contact
+    card + &contact + &client_pays(lang, price, pay, username)
 }
 
 /// To the driver who won: the client's contact and the details of the trip.
@@ -909,8 +917,8 @@ pub fn trip_assigned(
     let ClientContact { username, name, phone } = *client;
     let pay = payment(lang, pay);
     let mut lines = match lang {
-        Lang::Es => vec![format!("🛵 El viaje {request} es tuyo.\n💰 {price} CUP · {pay}")],
-        Lang::En => vec![format!("🛵 Trip {request} is yours.\n💰 {price} CUP · {pay}")],
+        Lang::Es => vec![format!("🛵 El viaje {request} es tuyo.\n💰 Al terminar, cobras al cliente {price} CUP ({pay}).")],
+        Lang::En => vec![format!("🛵 Trip {request} is yours.\n💰 When it ends, you charge the client {price} CUP ({pay}).")],
     };
     if let Some(r) = reference {
         lines.push(match lang {
@@ -935,6 +943,13 @@ pub fn trip_assigned(
             }
             .into(),
         );
+    }
+    match (lang, username, phone) {
+        (Lang::Es, Some(u), _) => lines.push(format!("👉 Escríbele a @{u} para terminar de coordinar el viaje.")),
+        (Lang::En, Some(u), _) => lines.push(format!("👉 Write to @{u} to finish arranging the trip.")),
+        (Lang::Es, None, Some(_)) => lines.push("👉 Llama al cliente para terminar de coordinar el viaje.".into()),
+        (Lang::En, None, Some(_)) => lines.push("👉 Call the client to finish arranging the trip.".into()),
+        (_, None, None) => {}
     }
     lines.push(
         match lang {
@@ -1356,7 +1371,14 @@ fn full_name_line(p: &Profile) -> String {
 }
 
 /// To the client after confirming: how to reach the driver.
-pub fn driver_confirmed(lang: Lang, request: &RequestId, p: &Profile, username: Option<&str>) -> String {
+pub fn driver_confirmed(
+    lang: Lang,
+    request: &RequestId,
+    p: &Profile,
+    username: Option<&str>,
+    price: Cup,
+    pay: PaymentMethod,
+) -> String {
     let mut text = match lang {
         Lang::Es => format!("✅ Viaje {request} confirmado. {} va hacia ti.\n📞 {}", p.alias, p.phone),
         Lang::En => format!("✅ Trip {request} confirmed. {} is on the way.\n📞 {}", p.alias, p.phone),
@@ -1364,6 +1386,23 @@ pub fn driver_confirmed(lang: Lang, request: &RequestId, p: &Profile, username: 
     if let Some(u) = username {
         text.push_str(&format!("\n💬 @{u}"));
     }
+    text + &client_pays(lang, price, pay, username)
+}
+
+/// For the client once the driver is set: what to pay at the end, and to
+/// write to the driver to finish arranging the trip.
+fn client_pays(lang: Lang, price: Cup, pay: PaymentMethod, driver: Option<&str>) -> String {
+    let pay = payment(lang, pay);
+    let mut text = match lang {
+        Lang::Es => format!("\n\n💰 Al terminar el viaje le pagas al chofer {price} CUP ({pay})."),
+        Lang::En => format!("\n\n💰 When the trip ends you pay the driver {price} CUP ({pay})."),
+    };
+    text.push_str(&match (lang, driver) {
+        (Lang::Es, Some(u)) => format!("\n👉 Escríbele a @{u} para terminar de coordinar el viaje."),
+        (Lang::En, Some(u)) => format!("\n👉 Write to @{u} to finish arranging the trip."),
+        (Lang::Es, None) => "\n👉 Llama al chofer para terminar de coordinar el viaje.".into(),
+        (Lang::En, None) => "\n👉 Call the driver to finish arranging the trip.".into(),
+    });
     text
 }
 
@@ -1787,6 +1826,28 @@ mod tests {
         let text = channel_post(Lang::Es, &post);
         assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
         assert!(text.contains("👤 ⭐4.7 · 23 viajes · 120 días en el bot\n❌ Cancelaciones (30 días): 1"), "{text}");
+    }
+
+    #[test]
+    fn both_sides_see_the_price_and_are_told_to_write_to_each_other() {
+        let id = RequestId::parse("K7X2").unwrap();
+        let p = Profile {
+            alias: "Pepe".into(),
+            full_name: None,
+            phone: "+5351234567".into(),
+            plate: "P123".into(),
+            bike_model: "Suzuki".into(),
+            bike_color: "Roja".into(),
+            photo_file_id: "f".into(),
+            bike_photo_file_id: None,
+        };
+        let client = driver_confirmed(Lang::Es, &id, &p, Some("pepe"), 3300, PaymentMethod::Cash);
+        assert!(client.contains("le pagas al chofer 3300 CUP (💵 Efectivo)"), "{client}");
+        assert!(client.contains("Escríbele a @pepe para terminar de coordinar el viaje"), "{client}");
+        let contact = ClientContact { username: Some("ana"), name: None, phone: None };
+        let driver = trip_assigned(Lang::Es, &id, 3300, PaymentMethod::Cash, None, &contact);
+        assert!(driver.contains("cobras al cliente 3300 CUP"), "{driver}");
+        assert!(driver.contains("Escríbele a @ana para terminar de coordinar el viaje"), "{driver}");
     }
 
     #[test]

@@ -245,7 +245,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
         Notice::DriverConfirmed { request: id, driver } => {
             let driver = driver_profile(*driver).await?;
             let contact = username(bot, driver.id).await;
-            bot.send_message(chat(to), i18n::driver_confirmed(lang, id, &driver.profile, contact.as_deref()))
+            bot.send_message(chat(to), i18n::driver_confirmed(lang, id, &driver.profile, contact.as_deref(), request.price, request.payment))
                 .reply_markup(keyboards::client_trip(lang, id))
                 .await?;
             trip_menu(bot, app, to, lang).await?;
@@ -256,7 +256,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
             let rep = shown(app, driver.id, Role::Driver).await?;
             let contact = username(bot, driver.id).await;
             bot.send_photo(chat(to), photo)
-                .caption(i18n::driver_assigned(lang, id, &driver.profile, &rep, contact.as_deref()))
+                .caption(i18n::driver_assigned(lang, id, &driver.profile, &rep, contact.as_deref(), request.price, request.payment))
                 .reply_markup(keyboards::client_trip(lang, id))
                 .await?;
             trip_menu(bot, app, to, lang).await?;
