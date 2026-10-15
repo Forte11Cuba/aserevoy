@@ -25,7 +25,7 @@ pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup 
         rows.push(vec![reply(lang, Button::AdminPanel)]);
     }
     rows.push(vec![reply(lang, Button::HowItWorks)]);
-    rows.push(vec![reply(lang, Button::Support), reply(lang, Button::SwitchLang)]);
+    rows.push(vec![reply(lang, Button::Support), reply(lang, Button::Settings)]);
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
@@ -451,6 +451,27 @@ pub fn guides(lang: Lang, open: Option<i18n::Guide>) -> InlineKeyboardMarkup {
             vec![InlineKeyboardButton::callback(label, format!("help:{}", g.code()))]
         })
         .collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// "🔧 Settings": my details and the language.
+pub fn settings(lang: Lang) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![
+        vec![inline(lang, Button::MyDetails, "set:me")],
+        vec![inline(lang, Button::Language, "set:lang")],
+    ])
+}
+
+/// Under "👤 My details": a button per detail, and delete them all.
+pub fn client_details(lang: Lang, any: bool) -> InlineKeyboardMarkup {
+    let mut rows = vec![vec![
+        inline(lang, Button::DetailName, "set:name"),
+        inline(lang, Button::DetailPhone, "set:phone"),
+        inline(lang, Button::DetailPhoto, "set:photo"),
+    ]];
+    if any {
+        rows.push(vec![inline(lang, Button::DeleteDetails, "set:del")]);
+    }
     InlineKeyboardMarkup::new(rows)
 }
 

@@ -317,7 +317,7 @@ const PHOTO_MAX_SIDE: u32 = 640;
 
 /// Of Telegram's sizes of a photo, the biggest one up to `PHOTO_MAX_SIDE`,
 /// or the smallest if all are bigger.
-fn medium_size(dims: &[(u32, u32)]) -> Option<usize> {
+pub(super) fn medium_size(dims: &[(u32, u32)]) -> Option<usize> {
     let side = |i: usize| dims[i].0.max(dims[i].1);
     let fitting = (0..dims.len()).filter(|&i| side(i) <= PHOTO_MAX_SIDE).max_by_key(|&i| side(i));
     fitting.or_else(|| (0..dims.len()).min_by_key(|&i| side(i)))

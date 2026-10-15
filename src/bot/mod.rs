@@ -11,6 +11,7 @@ pub mod effects;
 pub mod keyboards;
 pub mod panel;
 pub mod rating;
+pub mod settings;
 pub mod support;
 pub mod trip;
 
@@ -134,6 +135,20 @@ impl App {
 
     pub async fn driver_status(&self, user: UserId) -> anyhow::Result<Option<DriverStatus>> {
         Ok(db::drivers::status(&self.pool, user).await?)
+    }
+
+    /// What the driver of this user's trip gets about them: a driver's own
+    /// profile (full name, phone, photo), or the client's optional details.
+    pub async fn client_contact(&self, user: UserId) -> anyhow::Result<db::clients::ClientProfile> {
+        if let Some(d) = db::drivers::get(&self.pool, &self.cipher, user).await? {
+            let name = d.profile.full_name.unwrap_or(d.profile.alias);
+            return Ok(db::clients::ClientProfile {
+                name: Some(name),
+                phone: Some(d.profile.phone),
+                photo_file_id: Some(d.profile.photo_file_id),
+            });
+        }
+        Ok(db::clients::get(&self.pool, &self.cipher, user).await?.unwrap_or_default())
     }
 }
 

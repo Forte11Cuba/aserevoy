@@ -228,18 +228,29 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 .await?;
         }
         Notice::TripAssigned { request: id, client } => {
-            // Looked up now instead of stored: we keep no client data.
+            // Looked up now: the client's details as they are when the trip
+            // is assigned (they may have deleted them).
             let username = username(bot, *client).await;
+            let contact = app.client_contact(*client).await?;
+            let phone = contact.phone.as_deref().or(request.client_phone.as_deref());
             let text = i18n::trip_assigned(
                 lang,
                 id,
                 request.price,
                 request.payment,
                 request.reference.as_deref(),
-                username.as_deref(),
-                request.client_phone.as_deref(),
+                &i18n::ClientContact { username: username.as_deref(), name: contact.name.as_deref(), phone },
             );
-            bot.send_message(chat(to), text).reply_markup(keyboards::driver_trip(lang, id)).await?;
+            let markup = keyboards::driver_trip(lang, id);
+            match contact.photo_file_id {
+                Some(photo) => {
+                    let photo = InputFile::file_id(FileId(photo));
+                    bot.send_photo(chat(to), photo).caption(text).reply_markup(markup).await?;
+                }
+                None => {
+                    bot.send_message(chat(to), text).reply_markup(markup).await?;
+                }
+            }
         }
         Notice::AwaitingClient { request: id } => {
             bot.send_message(chat(to), i18n::notice(lang, notice))

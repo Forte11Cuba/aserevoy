@@ -16,7 +16,7 @@ Dentro del bot, el botón **❓ Cómo funciona** tiene estas mismas guías.
 4. El bot calcula la distancia y te sugiere un precio. **Ajústalo** con −/+ 100, 1k, 5k o 10k (nunca por debajo del mínimo) y elige cómo pagas.
 5. Revisa el resumen y **publica**. Tu solicitud sale en el canal de choferes, que solo ven el municipio y la esquina más cercana, nunca tu ubicación exacta.
 6. Un chofer **acepta** tu precio o te manda una **contraoferta**. Ves su foto, su moto, su chapa, su nombre completo y su reputación, y lo **confirmas**.
-7. Recibes su contacto y él recibe tu ubicación. Durante el viaje tienes **🚶 Ya voy**, **📤 Compartir viaje**, **🏁 Completado** y **❌ Cancelar viaje**.
+7. Recibes su contacto y él recibe tu ubicación y lo que hayas querido compartir en **🔧 Ajustes → 👤 Mis datos** (nombre, celular, foto). Si no tienes celular guardado, al pedir el viaje el bot te ofrece ponerlo, o lo omites. Durante el viaje tienes **🚶 Ya voy**, **📤 Compartir viaje**, **🏁 Completado** y **❌ Cancelar viaje**.
 8. Al terminar, **calificas** al chofer (y él a ti).
 
 Mientras esperas puedes **subir el precio** o cancelar. Una solicitud dura hasta 60 minutos; a la media hora el bot te pregunta si sigues esperando.
@@ -37,8 +37,8 @@ Mientras esperas puedes **subir el precio** o cancelar. Una solicitud dura hasta
 ### Privacidad
 
 - **No se guarda historial de viajes**: cada solicitud se borra al cerrarse.
-- De cada persona solo queda su reputación agregada (estrellas, viajes, días en el bot).
-- El celular y el nombre completo de los choferes se guardan cifrados.
+- De cada persona solo queda su reputación agregada (estrellas, viajes, días en el bot) y, si el cliente quiere, su nombre, celular y foto, que borra cuando quiera.
+- Los celulares y los nombres se guardan cifrados.
 - Los logs no tienen ubicaciones, direcciones ni teléfonos.
 
 ## Cómo está hecho
