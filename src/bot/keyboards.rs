@@ -6,7 +6,7 @@ use teloxide::types::{ButtonRequest, InlineKeyboardButton, InlineKeyboardMarkup,
 use crate::domain::fare::Cup;
 use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
-use crate::domain::reputation::Tag;
+use crate::domain::reputation::{Role, Tag};
 use crate::domain::request::CancelReason;
 use crate::i18n::{self, Button, Lang, button};
 
@@ -452,6 +452,17 @@ fn pager(lang: Lang, page: usize, pages: usize, data: impl Fn(usize) -> String) 
     Some(nav)
 }
 
+/// Under "🧾 My trips": the pages, and delete the history.
+pub fn history(lang: Lang, role: Role, page: usize, pages: usize, any: bool) -> InlineKeyboardMarkup {
+    let code = if role == Role::Driver { "d" } else { "c" };
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+    rows.extend(pager(lang, page, pages, |p| format!("hist:{code}:{p}")));
+    if any {
+        rows.push(vec![inline(lang, Button::DeleteHistory, format!("hist:{code}:del"))]);
+    }
+    InlineKeyboardMarkup::new(rows)
+}
+
 /// A page of admins, two per row, each opening their card; then Invite.
 pub fn admins(lang: Lang, admins: &[(UserId, String)], page: usize, pages: usize) -> InlineKeyboardMarkup {
     let mut rows: Vec<Vec<InlineKeyboardButton>> = admins
@@ -484,6 +495,7 @@ pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {
 pub fn driver_menu(lang: Lang) -> KeyboardMarkup {
     KeyboardMarkup::new(vec![
         vec![reply(lang, Button::MyStats), reply(lang, Button::MyProfile)],
+        vec![reply(lang, Button::MyTrips)],
         vec![reply(lang, Button::OffersChannel)],
         vec![reply(lang, Button::MainMenu)],
     ])
@@ -519,6 +531,7 @@ pub fn settings(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
         vec![inline(lang, Button::MyDetails, "set:me")],
         vec![inline(lang, Button::MyReputation, "set:rep")],
+        vec![inline(lang, Button::MyTrips, "hist:c:0")],
         vec![inline(lang, Button::Language, "set:lang")],
     ])
 }

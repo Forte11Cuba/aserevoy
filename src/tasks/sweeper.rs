@@ -48,6 +48,7 @@ async fn sweep(bot: &Bot, app: &App) -> anyhow::Result<()> {
     db::invitations::delete_expired(&app.pool, now).await?;
     db::dialogs::delete_idle(&app.pool, now).await?;
     db::moderation::delete_old_cancellations(&app.pool, now).await?;
+    db::history::delete_old(&app.pool, now).await?;
     db::moderation::delete_expired_blocks(&app.pool, now).await?;
     db::reputation::delete_expired_pairs(&app.pool, now).await?;
     db::support::delete_expired_codes(&app.pool, now).await?;

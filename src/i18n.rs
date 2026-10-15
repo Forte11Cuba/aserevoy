@@ -96,6 +96,8 @@ pub enum Button {
     Withdraw,
     NoneOfThese,
     Support,
+    MyTrips,
+    DeleteHistory,
     YesFinished,
     MyReputation,
     MyTrip,
@@ -139,7 +141,7 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 31] = [
+const REPLY_BUTTONS: [Button; 32] = [
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -154,6 +156,7 @@ const REPLY_BUTTONS: [Button; 31] = [
     Button::MyProfile,
     Button::DriverMenu,
     Button::MyStats,
+    Button::MyTrips,
     Button::OffersChannel,
     Button::InviteDriver,
     Button::Support,
@@ -272,6 +275,10 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Language) => "🌐 Español",
         (Lang::Es, YesFinished) => "✅ Sí, terminó",
         (Lang::En, YesFinished) => "✅ Yes, it's over",
+        (Lang::Es, MyTrips) => "🧾 Mis viajes",
+        (Lang::En, MyTrips) => "🧾 My trips",
+        (Lang::Es, DeleteHistory) => "🗑 Borrar mi historial",
+        (Lang::En, DeleteHistory) => "🗑 Delete my history",
         (Lang::Es, MyTrip) => "🛵 Mi viaje",
         (Lang::En, MyTrip) => "🛵 My trip",
         (Lang::Es, HowItWorks) => "❓ Cómo funciona",
@@ -407,6 +414,7 @@ pub enum Text {
     NoActiveRequest,
     // Driver profile.
     AskAlias,
+    HistoryDeleted,
     ConfirmFinished,
     InOffersChannel,
     ChannelNotActive,
@@ -659,6 +667,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         }
         (Lang::Es, ConfirmFinished) => "🏁 ¿El viaje terminó? Al confirmarlo se cierra y te pido que califiques.",
         (Lang::En, ConfirmFinished) => "🏁 Is the trip over? Once you confirm, it closes and I'll ask you to rate.",
+        (Lang::Es, HistoryDeleted) => "🗑 Tu historial de viajes se borró.",
+        (Lang::En, HistoryDeleted) => "🗑 Your trip history was deleted.",
         (Lang::Es, AskAlias) => "👤 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
         (Lang::En, AskAlias) => "👤 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
@@ -1195,8 +1205,120 @@ pub fn photo_changed(lang: Lang, alias: &str) -> String {
 }
 
 /// "📊 My stats": what the bot keeps about a driver, all aggregate.
-pub fn driver_stats(lang: Lang, rep: Option<&Reputation>, tags: &[(Tag, i64)], now: UnixTime) -> String {
-    stats(lang, Role::Driver, rep, tags, None, now)
+/// A driver's stats, with what they made per month (the last 6) and this
+/// year. `months` are `(YYYY-MM, trips, earned)`, the most recent first;
+/// `this_month` is the current `YYYY-MM`.
+pub fn driver_stats(
+    lang: Lang,
+    rep: Option<&Reputation>,
+    tags: &[(Tag, i64)],
+    months: &[(String, i64, Cup)],
+    this_month: &str,
+    now: UnixTime,
+) -> String {
+    let mut text = stats(lang, Role::Driver, rep, tags, None, now);
+    let year = &this_month[..4.min(this_month.len())];
+    let (year_trips, year_earned) =
+        months.iter().filter(|(m, _, _)| m.starts_with(year)).fold((0, 0), |(t, e), (_, mt, me)| (t + mt, e + me));
+    text.push_str(match lang {
+        Lang::Es => "\n\n💰 Lo que hiciste por mes:",
+        Lang::En => "\n\n💰 What you made per month:",
+    });
+    if !months.iter().any(|(m, _, _)| m == this_month) {
+        text.push_str(&format!("\n{}: 0 · 0 CUP", month_name(lang, this_month)));
+    }
+    for (month, trips, earned) in months.iter().take(6) {
+        let trips = match (lang, trips) {
+            (Lang::Es, 1) => "1 viaje".to_owned(),
+            (Lang::Es, n) => format!("{n} viajes"),
+            (Lang::En, 1) => "1 trip".to_owned(),
+            (Lang::En, n) => format!("{n} trips"),
+        };
+        text.push_str(&format!("\n{}: {trips} · {earned} CUP", month_name(lang, month)));
+    }
+    text.push_str(&match lang {
+        Lang::Es => format!("\n\n📆 En {year}: {year_trips} viajes · {year_earned} CUP"),
+        Lang::En => format!("\n\n📆 In {year}: {year_trips} trips · {year_earned} CUP"),
+    });
+    text
+}
+
+/// "2026-10" → "octubre 2026".
+fn month_name(lang: Lang, month: &str) -> String {
+    const ES: [&str; 12] =
+        ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+    const EN: [&str; 12] =
+        ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    let (year, m) = month.split_once('-').unwrap_or((month, ""));
+    match m.parse::<usize>().ok().filter(|m| (1..=12).contains(m)) {
+        Some(m) if lang == Lang::Es => format!("{} {year}", ES[m - 1]),
+        Some(m) => format!("{} {year}", EN[m - 1]),
+        None => month.to_owned(),
+    }
+}
+
+/// One trip of "🧾 My trips".
+pub struct HistoryLine<'a> {
+    pub number: i64,
+    pub request: &'a str,
+    pub when: String,
+    pub origin: &'a str,
+    pub destination: &'a str,
+    pub price: Cup,
+    pub pay: PaymentMethod,
+    /// Empty when the client gave no name.
+    pub counterpart: &'a str,
+    pub stars: Option<i64>,
+}
+
+/// "🧾 My trips": a page of trips, the most recent first, with the user's
+/// trip number and the request id.
+pub fn history(lang: Lang, role: Role, trips: &[HistoryLine], total: i64) -> String {
+    let title = match (lang, role) {
+        (Lang::Es, Role::Client) => "🧾 Tus viajes como cliente",
+        (Lang::En, Role::Client) => "🧾 Your trips as a client",
+        (Lang::Es, Role::Driver) => "🧾 Tus viajes como chofer",
+        (Lang::En, Role::Driver) => "🧾 Your trips as a driver",
+    };
+    if trips.is_empty() {
+        return match lang {
+            Lang::Es => format!("{title}\n\nNo tienes viajes en los últimos 45 días."),
+            Lang::En => format!("{title}\n\nNo trips in the last 45 days."),
+        };
+    }
+    let mut text = match lang {
+        Lang::Es => format!("{title} ({total}, últimos 45 días)"),
+        Lang::En => format!("{title} ({total}, last 45 days)"),
+    };
+    for t in trips {
+        let who = match (lang, role, t.counterpart.is_empty()) {
+            (_, _, false) => t.counterpart.to_owned(),
+            (Lang::Es, Role::Driver, true) => "Cliente".to_owned(),
+            (Lang::En, Role::Driver, true) => "Client".to_owned(),
+            (Lang::Es, Role::Client, true) => "Chofer".to_owned(),
+            (Lang::En, Role::Client, true) => "Driver".to_owned(),
+        };
+        let stars = match (lang, t.stars) {
+            (Lang::Es, Some(n)) => format!(" · tu nota: {}", "⭐".repeat(n.clamp(0, 5) as usize)),
+            (Lang::En, Some(n)) => format!(" · your rating: {}", "⭐".repeat(n.clamp(0, 5) as usize)),
+            (_, None) => String::new(),
+        };
+        let money = match (lang, role) {
+            (Lang::Es, Role::Client) => format!("💰 Pagaste {} CUP · {}", t.price, payment(lang, t.pay)),
+            (Lang::En, Role::Client) => format!("💰 You paid {} CUP · {}", t.price, payment(lang, t.pay)),
+            (Lang::Es, Role::Driver) => format!("💰 Cobraste {} CUP · {}", t.price, payment(lang, t.pay)),
+            (Lang::En, Role::Driver) => format!("💰 You charged {} CUP · {}", t.price, payment(lang, t.pay)),
+        };
+        let trip = match lang {
+            Lang::Es => "Viaje",
+            Lang::En => "Trip",
+        };
+        text.push_str(&format!(
+            "\n\n{trip} nº {} · {} · {}\n📍 {}\n🏁 {}\n{money}\n👤 {who}{stars}",
+            t.number, t.request, t.when, t.origin, t.destination
+        ));
+    }
+    text
 }
 
 /// "⭐ My reputation" (🔧 Settings): the same as a client, with the
@@ -1514,7 +1636,7 @@ pub fn terms(lang: Lang) -> &'static str {
         Lang::Es => {
             "📜 Términos y privacidad de Asere Voy\n\n\
 1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de las motos y no asegura los viajes. El precio y el pago (efectivo, transferencia o bitcoin) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
-2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, moto, chapa y fotos). De los clientes que quieran, su nombre, su celular (cifrados) y su foto, hasta que los borren en 🔧 Ajustes. De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste.\n\n\
+2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, moto, chapa y fotos). De los clientes que quieran, su nombre, su celular (cifrados) y su foto, hasta que los borren en 🔧 Ajustes. De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste. Tus viajes completados de los últimos 45 días (fecha, origen y destino como texto, sin ubicaciones exactas, precio, la otra persona y tu nota, cifrados), que solo ves tú en 🧾 Mis viajes y puedes borrar; y, de los choferes, sus viajes y ganancias totales por mes.\n\n\
 3. Qué no guardamos: no hay historial de viajes. Cada solicitud (ubicaciones y referencia) se borra al cerrarse, y nunca guardamos el teléfono de los clientes. Las calificaciones son ciegas y solo se suman a los totales.\n\n\
 4. Quién ve qué: en el canal de ofertas los choferes ven el municipio, la distancia, el precio y tu reputación, nunca tu ubicación exacta ni tu contacto. Esos datos solo los recibe el chofer que confirmes.\n\n\
 5. Normas: respeto mutuo y nada ilegal. Tres cancelaciones en 7 días bloquean la cuenta 24 horas. Los admins pueden bloquear cuentas o quitar choferes.\n\n\
@@ -1525,7 +1647,7 @@ Datos del mapa © colaboradores de OpenStreetMap (licencia ODbL)."
         Lang::En => {
             "📜 Asere Voy terms and privacy\n\n\
 1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the motorbikes and does not insure the trips. Price and payment (cash, transfer or bitcoin) are agreed directly between client and driver; the bot handles no money.\n\n\
-2. What we keep: for drivers, their profile (alias, encrypted full name and phone, motorbike, plate and photos). For clients who choose to, their name, phone (encrypted) and photo, until they delete them in 🔧 Settings. For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it.\n\n\
+2. What we keep: for drivers, their profile (alias, encrypted full name and phone, motorbike, plate and photos). For clients who choose to, their name, phone (encrypted) and photo, until they delete them in 🔧 Settings. For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it. Your completed trips of the last 45 days (date, origin and destination as text, no exact locations, price, the other person and your rating, encrypted), which only you see in 🧾 My trips and can delete; and, for drivers, their trips and earnings per month.\n\n\
 3. What we don't keep: there is no trip history. Each request (locations and landmark) is deleted when it closes, and we never keep clients' phone numbers. Ratings are blind and only added to the totals.\n\n\
 4. Who sees what: in the offers channel drivers see the municipality, distance, price and your reputation, never your exact location or contact. Only the driver you confirm gets those.\n\n\
 5. Rules: mutual respect and nothing illegal. Three cancellations in 7 days block the account for 24 hours. Admins can block accounts or remove drivers.\n\n\
@@ -1919,6 +2041,14 @@ mod tests {
         let driver = driver_trip_card(Lang::Es, &card, Some("frente a la bodega"));
         assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n📏 3.5 km · ⏱ unos 9 min en moto\n👤 Cliente\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
         assert!(!driver.contains("📞"), "{driver}");
+    }
+
+    #[test]
+    fn drivers_see_what_they_made_per_month_and_year() {
+        let months = vec![("2026-10".to_owned(), 2, 1200), ("2026-09".to_owned(), 1, 1000), ("2025-12".to_owned(), 4, 9000)];
+        let text = driver_stats(Lang::Es, None, &[], &months, "2026-10", 0);
+        assert!(text.contains("octubre 2026: 2 viajes · 1200 CUP\nseptiembre 2026: 1 viaje · 1000 CUP"), "{text}");
+        assert!(text.contains("📆 En 2026: 3 viajes · 2200 CUP"), "{text}");
     }
 
     #[test]

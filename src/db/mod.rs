@@ -6,6 +6,7 @@ pub mod counteroffers;
 pub mod dialogs;
 pub mod drivers;
 pub mod fares;
+pub mod history;
 pub mod invitations;
 pub mod metrics;
 pub mod moderation;

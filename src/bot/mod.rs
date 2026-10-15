@@ -8,6 +8,7 @@ pub mod dialog;
 pub mod dispatcher;
 pub mod driver;
 pub mod effects;
+pub mod history;
 pub mod keyboards;
 pub mod panel;
 pub mod rating;

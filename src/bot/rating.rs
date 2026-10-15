@@ -13,8 +13,9 @@ use crate::domain::ids::{UserId, short_code};
 use crate::domain::reputation::{RATING_WINDOW_SECS, Role, Tag, valid_stars};
 use crate::i18n::{self, Text};
 
-/// A trip finished: counts it for both and asks both for a rating.
-pub async fn start(bot: &Bot, app: &App, client: UserId, driver: UserId) -> anyhow::Result<()> {
+/// A trip finished: counts it for both and asks both for a rating. Returns
+/// the rating's code (the history records each side's stars by it).
+pub async fn start(bot: &Bot, app: &App, client: UserId, driver: UserId) -> anyhow::Result<String> {
     let now = now();
     db::reputation::add_trip(&app.pool, client, Role::Client, now).await?;
     db::reputation::add_trip(&app.pool, driver, Role::Driver, now).await?;
@@ -29,7 +30,7 @@ pub async fn start(bot: &Bot, app: &App, client: UserId, driver: UserId) -> anyh
             tracing::warn!(error = %e, "cannot ask for a rating");
         }
     }
-    Ok(())
+    Ok(code)
 }
 
 /// The pending rating and the presser's role in it, if they are part of it.
@@ -65,6 +66,8 @@ pub async fn stars(cx: &Ctx<'_>, code: &str, stars: i64, pressed: Option<Message
     if !valid_stars(stars) || !db::reputation::set_stars(&cx.app.pool, code, rater, stars).await? {
         return Ok(());
     }
+    // The stars this user gave, for their own history only.
+    db::history::set_stars(&cx.app.pool, cx.user, code, stars).await?;
     if let (Some(msg), Some((pending, _))) = (pressed, mine(cx, code).await?) {
         redraw(cx, msg, &pending, rater).await?;
     }
