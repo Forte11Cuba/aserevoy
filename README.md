@@ -2,7 +2,7 @@
 
 Bot de Telegram que conecta pasajeros y choferes de moto-taxi en La Habana. **Tú propones el precio**: el cliente dice cuánto paga, y los choferes aceptan o contraofertan, al estilo de inDrive.
 
-Todo pasa en Telegram: no hay que instalar nada más. El pago es en CUP, directo al chofer (efectivo, transferencia o Bitcoin); el bot no maneja dinero.
+Todo pasa en Telegram: no hay que instalar nada más. El pago es en CUP, directo al chofer (efectivo, transferencia o bitcoin); el bot no maneja dinero.
 
 ## Cómo funciona
 

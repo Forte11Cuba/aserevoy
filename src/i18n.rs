@@ -1004,13 +1004,13 @@ pub fn guide(lang: Lang, g: Option<Guide>) -> &'static str {
         (Lang::Es, Some(Guide::About)) => "🤔 ¿Qué es Asere Voy?\n\n\
 Un bot de Telegram que conecta pasajeros y choferes de moto-taxi en La Habana.\n\n\
 • Tú propones el precio: los choferes lo aceptan o te hacen una contraoferta.\n\
-• El pago es en CUP, directo al chofer (efectivo, transferencia o Bitcoin). El bot no maneja dinero.\n\
+• El pago es en CUP, directo al chofer (efectivo, transferencia o bitcoin). El bot no maneja dinero.\n\
 • Ves la foto, la moto, la chapa, el nombre y la reputación del chofer antes de confirmarlo.\n\
 • No guardamos historial de viajes: cada solicitud se borra al terminar.",
         (Lang::En, Some(Guide::About)) => "🤔 What is Asere Voy?\n\n\
 A Telegram bot that connects passengers and moto-taxi drivers in Havana.\n\n\
 • You set the price: drivers accept it or send you a counteroffer.\n\
-• You pay in CUP, directly to the driver (cash, transfer or Bitcoin). The bot handles no money.\n\
+• You pay in CUP, directly to the driver (cash, transfer or bitcoin). The bot handles no money.\n\
 • You see the driver's photo, bike, plate, name and reputation before confirming them.\n\
 • We keep no trip history: each request is deleted when it ends.",
         (Lang::Es, Some(Guide::Ride)) => "🛵 Pedir un viaje\n\n\
