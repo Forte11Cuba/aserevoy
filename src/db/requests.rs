@@ -20,8 +20,8 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
         "INSERT INTO requests (id, client_id, client_phone, pickup_lat, pickup_lon,
              dropoff_lat, dropoff_lon, reference, km, price, payment, state, driver_id,
              channel_msg_id, created_at, assigned_at, check_at, answer_by, confirm_by, on_my_way_at,
-             arrived_at, expires_at, pickup_approx, dropoff_approx, dropoff_note, suggested)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             arrived_at, expires_at, pickup_approx, dropoff_approx, dropoff_note, suggested, minutes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id.as_str())
     .bind(r.client.0)
@@ -49,6 +49,7 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     .bind(r.dropoff_approx)
     .bind(&r.dropoff_note)
     .bind(r.suggested)
+    .bind(r.minutes)
     .execute(pool)
     .await;
 
@@ -352,6 +353,7 @@ fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
         dropoff_note: row.try_get("dropoff_note")?,
         suggested: row.try_get("suggested")?,
         km: row.try_get("km")?,
+        minutes: row.try_get("minutes")?,
         price: row.try_get("price")?,
         payment: PaymentMethod::parse(&payment).ok_or_else(|| decode_err("payment"))?,
         state: State::parse(&state).ok_or_else(|| decode_err("state"))?,
@@ -390,6 +392,7 @@ mod tests {
             dropoff_note: None,
             reference: None,
             km: 2.0,
+            minutes: 6.0,
             price: 400,
             payment: PaymentMethod::Transfer,
         };

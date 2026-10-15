@@ -703,20 +703,15 @@ pub fn price_prompt(
     offer: Cup,
     approx: bool,
 ) -> String {
-    let about = if approx { "≈" } else { "" };
     // The whole offer over the km (the base fare included): easy to compare.
     let per_km = if km > 0.0 { (offer as f64 / km).round() as Cup } else { offer };
-    let time = match (lang, minutes > 0.0) {
-        (Lang::Es, true) => format!(" (unos {} min)", minutes.round().max(1.0)),
-        (Lang::En, true) => format!(" (about {} min)", minutes.round().max(1.0)),
-        (_, false) => String::new(),
-    };
+    let distance = distance(lang, km, minutes, approx);
     match lang {
         Lang::Es => format!(
-            "📏 {about}{km:.1} km{time}\n💰 Tu oferta: {offer} CUP (≈{per_km} CUP por km)\n(sugerido {suggested} CUP · mínimo {minimum} CUP)\n\nAjústala con los botones o escribe un monto."
+            "{distance}\n💰 Tu oferta: {offer} CUP (≈{per_km} CUP por km)\n(sugerido {suggested} CUP · mínimo {minimum} CUP)\n\nAjústala con los botones o escribe un monto."
         ),
         Lang::En => format!(
-            "📏 {about}{km:.1} km{time}\n💰 Your offer: {offer} CUP (≈{per_km} CUP per km)\n(suggested {suggested} CUP · minimum {minimum} CUP)\n\nAdjust it with the buttons or type an amount."
+            "{distance}\n💰 Your offer: {offer} CUP (≈{per_km} CUP per km)\n(suggested {suggested} CUP · minimum {minimum} CUP)\n\nAdjust it with the buttons or type an amount."
         ),
     }
 }
@@ -811,6 +806,8 @@ pub fn approx_point(lang: Lang, place: Place, note: &str, municipality: Option<&
 pub struct Post<'a> {
     pub request: &'a RequestId,
     pub km: f64,
+    /// By road; 0 when unknown.
+    pub minutes: f64,
     pub price: Cup,
     pub payment: PaymentMethod,
     /// Municipalities of pickup and destination, when known.
@@ -844,8 +841,7 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
         // Pickup, an arrow down, and the finish flag for the destination.
         post.push_str(&format!("📍 {}\n⬇️\n🏁 {}\n", zone(p.from, &p.from_corner), zone(p.to, &p.to_corner)));
     }
-    let about = if p.approx { "≈" } else { "" };
-    post.push_str(&format!("📏 {about}{km:.1} km\n💰 {price} CUP · {pay}"));
+    post.push_str(&format!("{}\n💰 {price} CUP · {pay}", distance(lang, km, p.minutes, p.approx)));
     if p.approx {
         post.push_str(match lang {
             Lang::Es => "\n📝 Dirección escrita, sin ubicación exacta",
@@ -875,6 +871,21 @@ pub fn place(lang: Lang, place: Place) -> &'static str {
 }
 
 
+/// "📏 3.5 km · ⏱ unos 9 min en moto"; "≈" for an approximate point, and
+/// no time when it is unknown.
+pub fn distance(lang: Lang, km: f64, minutes: f64, approx: bool) -> String {
+    let about = if approx { "≈" } else { "" };
+    let mut line = format!("📏 {about}{km:.1} km");
+    if minutes > 0.0 {
+        let minutes = minutes.round().max(1.0);
+        line.push_str(&match lang {
+            Lang::Es => format!(" · ⏱ unos {minutes} min en moto"),
+            Lang::En => format!(" · ⏱ about {minutes} min by motorbike"),
+        });
+    }
+    line
+}
+
 /// The two trip cards (the client's and the driver's) use the same lines
 /// and emojis, each detail once: 🛵 the trip, 👤 the other person with their
 /// reputation, 📞 their phone, 💰 what is paid at the end, 💬 who to write to.
@@ -882,6 +893,8 @@ pub struct TripCard<'a> {
     pub request: &'a RequestId,
     pub price: Cup,
     pub pay: PaymentMethod,
+    /// "📏 3.5 km · ⏱ unos 9 min en moto".
+    pub distance: String,
     /// The other person's names: the driver's alias and full name, or the
     /// client's name (none: "Client").
     pub names: Vec<&'a str>,
@@ -943,7 +956,7 @@ fn trip_card(lang: Lang, title: String, c: &TripCard, extra: &[String], money: S
         Lang::En => "Client",
     };
     let names = if c.names.is_empty() { fallback.to_owned() } else { c.names.join(" · ") };
-    let mut lines = vec![title, format!("👤 {names}")];
+    let mut lines = vec![title, c.distance.clone(), format!("👤 {names}")];
     lines.extend(extra.iter().cloned());
     if let Some(phone) = c.phone {
         lines.push(format!("📞 {phone}"));
@@ -1822,6 +1835,7 @@ mod tests {
         let post = Post {
             request: &id,
             km: 3.5,
+            minutes: 9.4,
             price: 600,
             payment: PaymentMethod::Cash,
             from: Some("Plaza de la Revolución"),
@@ -1855,6 +1869,7 @@ mod tests {
             request: &id,
             price: 3300,
             pay: PaymentMethod::Cash,
+            distance: distance(Lang::Es, 3.5, 9.4, false),
             names: vec!["Pepe", "José Pérez Díaz"],
             reputation: &rep,
             phone: Some("+5351234567"),
@@ -1863,14 +1878,14 @@ mod tests {
         let client = client_trip_card(Lang::Es, &card, &p, false);
         assert_eq!(
             client,
-            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n👤 Pepe · José Pérez Díaz\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje.\n⭐4.8 · 23 viajes\n📅 100 días usando Asere Voy"
+            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n📏 3.5 km · ⏱ unos 9 min en moto\n👤 Pepe · José Pérez Díaz\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje.\n⭐4.8 · 23 viajes\n📅 100 días usando Asere Voy"
         );
         assert_eq!(client.matches("@pepe").count(), 1);
 
         let rep = Shown { stars: None, trips: 2, days: 3 };
         let card = TripCard { names: vec![], reputation: &rep, phone: None, username: Some("ana"), ..card };
         let driver = driver_trip_card(Lang::Es, &card, Some("frente a la bodega"));
-        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n👤 Cliente\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
+        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n📏 3.5 km · ⏱ unos 9 min en moto\n👤 Cliente\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
         assert!(!driver.contains("📞"), "{driver}");
     }
 
@@ -1901,7 +1916,7 @@ mod tests {
     fn the_offer_shows_its_price_per_km() {
         let text = price_prompt(Lang::Es, 52.8, 68.0, 8010, 6410, 8010, true);
         assert!(text.contains("8010 CUP (≈152 CUP por km)"), "{text}");
-        assert!(text.contains("≈52.8 km (unos 68 min)"), "{text}");
+        assert!(text.contains("📏 ≈52.8 km · ⏱ unos 68 min en moto"), "{text}");
     }
 
     #[test]

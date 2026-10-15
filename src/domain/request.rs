@@ -184,6 +184,8 @@ pub struct NewRequest {
     /// The client's description of the destination, if they wrote one.
     pub dropoff_note: Option<String>,
     pub km: f64,
+    /// By road, as estimated; 0 when unknown.
+    pub minutes: f64,
     pub price: Cup,
     pub payment: PaymentMethod,
 }
@@ -200,6 +202,8 @@ pub struct Request {
     pub reference: Option<String>,
     pub dropoff_note: Option<String>,
     pub km: f64,
+    /// By road, as estimated; 0 when unknown.
+    pub minutes: f64,
     pub price: Cup,
     /// The suggested price when published.
     pub suggested: Cup,
@@ -259,6 +263,7 @@ impl Request {
             reference: new.reference,
             dropoff_note: new.dropoff_note,
             km: new.km,
+            minutes: new.minutes,
             price: new.price,
             suggested,
             payment: new.payment,
@@ -662,6 +667,7 @@ mod tests {
             dropoff_note: None,
             reference: Some("frente a la bodega".into()),
             km: 3.2, // suggested 580, minimum 460
+            minutes: 9.0,
             price,
             payment: PaymentMethod::Cash,
         }

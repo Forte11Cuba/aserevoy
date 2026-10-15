@@ -162,6 +162,7 @@ mod tests {
             dropoff_note: None,
             reference: None,
             km: 2.0,
+            minutes: 6.0,
             price: 400,
             payment: PaymentMethod::Cash,
         };
