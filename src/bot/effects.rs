@@ -351,8 +351,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
             let options = crate::domain::request::raise_options(request.price, request.suggested);
             let lowest = request.counteroffers.iter().map(|o| o.amount).min();
             let text = i18n::suggest_raise(lang, id, request.price, request.suggested, request.counteroffers.len(), lowest);
-            let below = request.price < request.suggested;
-            let markup = keyboards::suggest_raise(lang, id, request.price, below, &options);
+            let markup = keyboards::suggest_raise(lang, id, request.price, &options);
             bot.send_message(chat(to), text).reply_markup(markup).await?;
             // A typed amount counts too, unless the client is in the middle of something.
             if db::dialogs::get::<Dialog>(&app.pool, to).await?.is_none() {
