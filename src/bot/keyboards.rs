@@ -339,17 +339,7 @@ pub fn drivers_list(
         })
         .collect();
     let code = filter.code();
-    if pages > 1 {
-        let mut nav = Vec::new();
-        if page > 0 {
-            nav.push(inline(lang, Button::PrevPage, format!("ap:drv:{code}:{}", page - 1)));
-        }
-        nav.push(InlineKeyboardButton::callback(format!("{}/{pages}", page + 1), format!("ap:drv:{code}:{page}")));
-        if page + 1 < pages {
-            nav.push(inline(lang, Button::NextPage, format!("ap:drv:{code}:{}", page + 1)));
-        }
-        rows.push(nav);
-    }
+    rows.extend(pager(lang, page as usize, pages as usize, |p| format!("ap:drv:{code}:{p}")));
     let filter_button = |f: Filter, b: Button| {
         let mark = if f == filter { "• " } else { "" };
         InlineKeyboardButton::callback(format!("{mark}{}", button(lang, b)), format!("ap:drv:{}:0", f.code()))
@@ -408,15 +398,44 @@ pub fn accept_terms(lang: Lang) -> InlineKeyboardMarkup {
 }
 
 /// The superadmin's list of admins: remove each, or invite a new one.
-pub fn admins(lang: Lang, admins: &[(UserId, String)]) -> InlineKeyboardMarkup {
-    let mut rows: Vec<_> = admins
-        .iter()
-        .map(|(id, name)| {
-            vec![InlineKeyboardButton::callback(format!("{} {name}", button(lang, Button::RemoveAdmin)), format!("rma:{}", id.0))]
+/// People per page in the panel's lists: 10 rows of 2.
+pub const PANEL_PER_PAGE: usize = 20;
+
+/// ◀ n/m ▶ for a panel list; `data(page)` is the callback of a page.
+fn pager(lang: Lang, page: usize, pages: usize, data: impl Fn(usize) -> String) -> Option<Vec<InlineKeyboardButton>> {
+    if pages <= 1 {
+        return None;
+    }
+    let mut nav = Vec::new();
+    if page > 0 {
+        nav.push(inline(lang, Button::PrevPage, data(page - 1)));
+    }
+    nav.push(InlineKeyboardButton::callback(format!("{}/{pages}", page + 1), data(page)));
+    if page + 1 < pages {
+        nav.push(inline(lang, Button::NextPage, data(page + 1)));
+    }
+    Some(nav)
+}
+
+/// A page of admins, two per row, each opening their card; then Invite.
+pub fn admins(lang: Lang, admins: &[(UserId, String)], page: usize, pages: usize) -> InlineKeyboardMarkup {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = admins
+        .chunks(2)
+        .map(|pair| {
+            pair.iter().map(|(id, name)| InlineKeyboardButton::callback(format!("👮 {name}"), format!("ap:a:{}", id.0))).collect()
         })
         .collect();
+    rows.extend(pager(lang, page, pages, |p| format!("ap:adm:{p}")));
     rows.push(vec![inline(lang, Button::InviteAdmin, "ina")]);
     InlineKeyboardMarkup::new(rows)
+}
+
+/// Under an admin's card: remove them, or back to the list.
+pub fn admin_card(lang: Lang, admin: UserId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        inline(lang, Button::RemoveAdmin, format!("rma:{}", admin.0)),
+        inline(lang, Button::Back, "ap:adm:0"),
+    ]])
 }
 
 pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {

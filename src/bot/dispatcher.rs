@@ -300,7 +300,7 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
         ("ap", _) => panel::on_callback(&cx, arg, pressed).await?,
         ("ina", _) => admin::invite_admin(&cx).await?,
         ("rma", _) => match arg.parse().map(UserId) {
-            Ok(admin_id) => admin::remove_admin(&cx, admin_id).await?,
+            Ok(admin_id) => admin::remove_admin(&cx, admin_id, pressed).await?,
             Err(_) => None,
         },
         ("dok" | "dno", _) => driver::review(&cx, kind == "dok", arg, pressed).await?,

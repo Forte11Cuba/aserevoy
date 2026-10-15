@@ -267,8 +267,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, ShareTrip) => "📤 Share trip",
         (Lang::Es, InviteAdmin) => "➕ Invitar admin",
         (Lang::En, InviteAdmin) => "➕ Invite an admin",
-        (Lang::Es, RemoveAdmin) => "❌ Quitar",
-        (Lang::En, RemoveAdmin) => "❌ Remove",
+        (Lang::Es, RemoveAdmin) => "❌ Quitar admin",
+        (Lang::En, RemoveAdmin) => "❌ Remove admin",
         (Lang::Es, Block24h) => "⛔ Bloquear 24 h",
         (Lang::En, Block24h) => "⛔ Block 24 h",
         (Lang::Es, Block) => "⛔ Bloquear",
@@ -1706,15 +1706,26 @@ pub fn admin_invite_created(lang: Lang, link: &str) -> String {
 }
 
 /// Superadmins (read-only: they come from `.env`) and admins.
-pub fn admins_list(lang: Lang, superadmins: &[String], admins: &[String]) -> String {
-    let (supers_head, admins_head, none) = match lang {
-        Lang::Es => ("⭐ Superadmins (en .env, no se cambian desde el bot):", "👮 Admins:", "ninguno todavía"),
-        Lang::En => ("⭐ Superadmins (in .env, not changed from the bot):", "👮 Admins:", "none yet"),
-    };
-    let list = |names: &[String]| {
-        if names.is_empty() { format!("• {none}") } else { names.iter().map(|n| format!("• {n}")).collect::<Vec<_>>().join("\n") }
-    };
-    format!("{supers_head}\n{}\n\n{admins_head}\n{}", list(superadmins), list(admins))
+pub fn admins_list(lang: Lang, superadmins: &[String], admins: usize) -> String {
+    let supers = superadmins.iter().map(|n| format!("• {n}")).collect::<Vec<_>>().join("\n");
+    match (lang, admins) {
+        (Lang::Es, 0) => format!("⭐ Superadmins (en .env, no se cambian desde el bot):\n{supers}\n\n👮 Admins: ninguno todavía."),
+        (Lang::En, 0) => format!("⭐ Superadmins (in .env, not changed from the bot):\n{supers}\n\n👮 Admins: none yet."),
+        (Lang::Es, n) => format!(
+            "⭐ Superadmins (en .env, no se cambian desde el bot):\n{supers}\n\n👮 Admins: {n}\nToca uno para ver su ficha y actuar sobre él."
+        ),
+        (Lang::En, n) => format!(
+            "⭐ Superadmins (in .env, not changed from the bot):\n{supers}\n\n👮 Admins: {n}\nTap one to see their card and act on it."
+        ),
+    }
+}
+
+/// One admin, for a superadmin.
+pub fn admin_card(lang: Lang, name: &str, appointed_by: &str, since: &str) -> String {
+    match lang {
+        Lang::Es => format!("👮 {name}\nAdmin desde el {since}, nombrado por {appointed_by}."),
+        Lang::En => format!("👮 {name}\nAdmin since {since}, appointed by {appointed_by}."),
+    }
 }
 
 #[cfg(test)]
