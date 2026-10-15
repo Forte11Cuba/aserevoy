@@ -857,6 +857,26 @@ mod tests {
     }
 
     #[test]
+    fn once_a_driver_is_assigned_the_other_offers_leave_the_clients_chat() {
+        // Accepting one counteroffer: the others' messages are deleted.
+        let mut r = open();
+        r.counteroffer(DRIVER, 630, T0).unwrap();
+        r.counteroffer(OTHER_DRIVER, 700, T0).unwrap();
+        r.counteroffers[1].client_msg_id = Some(78);
+        let effects = r.accept_counteroffer(CLIENT, DRIVER, T0 + 10).unwrap();
+        assert!(effects.contains(&Effect::HideOffer { client: CLIENT, msg: 78 }));
+
+        // A driver accepts the price and the client confirms: the same.
+        let mut r = open();
+        r.counteroffer(OTHER_DRIVER, 700, T0).unwrap();
+        r.counteroffers[0].client_msg_id = Some(78);
+        r.accept(DRIVER, T0 + 5).unwrap();
+        let effects = r.confirm(CLIENT, T0 + 10).unwrap();
+        assert!(effects.contains(&Effect::HideOffer { client: CLIENT, msg: 78 }));
+        assert!(matches!(notified(&effects, OTHER_DRIVER)[..], [Notice::RequestGone { .. }]));
+    }
+
+    #[test]
     fn expired_or_unknown_counteroffers_cannot_be_accepted() {
         let mut r = open();
         r.counteroffer(DRIVER, 630, T0).unwrap();
