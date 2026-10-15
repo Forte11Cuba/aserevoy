@@ -208,6 +208,9 @@ pub struct Request {
     /// Holding the request (`Confirming`) or doing the trip (`Assigned`).
     pub driver: Option<UserId>,
     pub channel_msg_id: Option<i32>,
+    /// The client's card to confirm the driver (`Confirming`), to delete it
+    /// when it no longer applies.
+    pub confirm_msg_id: Option<i32>,
     pub created_at: UnixTime,
     pub assigned_at: Option<UnixTime>,
     /// When to ask "still waiting?"; `None` once asked.
@@ -262,6 +265,7 @@ impl Request {
             state: State::Open,
             driver: None,
             channel_msg_id: None,
+            confirm_msg_id: None,
             created_at: now,
             assigned_at: None,
             check_at: Some(now + STILL_WAITING_AFTER_SECS),

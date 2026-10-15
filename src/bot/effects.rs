@@ -237,10 +237,12 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
         Notice::ConfirmDriver { request: id, driver } => {
             let driver = driver_profile(*driver).await?;
             let photo = InputFile::file_id(FileId(driver.profile.photo_file_id.clone()));
-            bot.send_photo(chat(to), photo)
+            let sent = bot
+                .send_photo(chat(to), photo)
                 .caption(i18n::confirm_driver(lang, id, &driver.profile, &shown(app, driver.id, Role::Driver).await?))
                 .reply_markup(keyboards::confirm_driver(lang, id, driver.id))
                 .await?;
+            db::requests::set_confirm_msg(&app.pool, id, Some(sent.id.0)).await?;
         }
         Notice::DriverConfirmed { request: id, driver } | Notice::DriverAssigned { request: id, driver } => {
             // The client's card: the driver, their bike, what to pay, who to write to.
@@ -303,7 +305,12 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 .reply_markup(keyboards::awaiting_client(lang, id))
                 .await?;
         }
-        Notice::DriverWithdrew { .. } => {
+        Notice::DriverWithdrew { request: id } => {
+            // The card to confirm that driver no longer applies.
+            if let Some(msg) = request.confirm_msg_id {
+                log_failure(bot.delete_message(chat(to), MessageId(msg)).await, "delete confirm card");
+                db::requests::set_confirm_msg(&app.pool, id, None).await?;
+            }
             bot.send_message(chat(to), i18n::notice(lang, notice)).await?;
         }
         // The trip's buttons again, on the latest message: the first ones
@@ -330,15 +337,21 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 .reply_markup(app.menu(to, lang).await?)
                 .await?;
         }
-        Notice::CancelledByDriver { .. }
-        | Notice::ConfirmTimedOut { .. }
-        | Notice::DeclinedDriver { .. }
-        | Notice::Expired { .. } => {
+        Notice::CancelledByDriver { .. } => {
             offer_republish(app, request).await?;
-            // The menu back first (it may still be the trip's), then the offer
-            // to publish again with its button.
+            // The trip's menu goes first (a message can't carry both kinds of
+            // buttons), then the offer to publish again with its button.
             bot.send_message(chat(to), i18n::notice(lang, notice)).reply_markup(app.menu(to, lang).await?).await?;
             bot.send_message(chat(to), i18n::republish_hint(lang)).reply_markup(keyboards::republish(lang)).await?;
+        }
+        Notice::ConfirmTimedOut { .. } | Notice::DeclinedDriver { .. } | Notice::Expired { .. } => {
+            // The card to confirm a driver, if any, no longer applies.
+            if let Some(msg) = request.confirm_msg_id {
+                log_failure(bot.delete_message(chat(to), MessageId(msg)).await, "delete confirm card");
+            }
+            offer_republish(app, request).await?;
+            let text = format!("{}\n\n{}", i18n::notice(lang, notice), i18n::republish_hint(lang));
+            bot.send_message(chat(to), text).reply_markup(keyboards::republish(lang)).await?;
         }
     }
     Ok(())

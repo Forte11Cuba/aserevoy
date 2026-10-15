@@ -218,6 +218,12 @@ pub async fn set_channel_msg(pool: &SqlitePool, id: &RequestId, msg_id: i32) -> 
     Ok(())
 }
 
+/// The client's card to confirm the driver; `None` once it is gone.
+pub async fn set_confirm_msg(pool: &SqlitePool, id: &RequestId, msg_id: Option<i32>) -> sqlx::Result<()> {
+    sqlx::query("UPDATE requests SET confirm_msg_id = ? WHERE id = ?").bind(msg_id).bind(id.as_str()).execute(pool).await?;
+    Ok(())
+}
+
 /// The post left the channel (the trip was taken): nothing to delete at the end.
 pub async fn clear_channel_msg(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<()> {
     sqlx::query("UPDATE requests SET channel_msg_id = NULL WHERE id = ?").bind(id.as_str()).execute(pool).await?;
@@ -351,6 +357,7 @@ fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
         state: State::parse(&state).ok_or_else(|| decode_err("state"))?,
         driver: row.try_get::<Option<i64>, _>("driver_id")?.map(UserId),
         channel_msg_id: row.try_get("channel_msg_id")?,
+        confirm_msg_id: row.try_get("confirm_msg_id")?,
         created_at: row.try_get("created_at")?,
         assigned_at: row.try_get("assigned_at")?,
         check_at: row.try_get("check_at")?,
