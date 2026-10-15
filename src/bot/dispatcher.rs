@@ -110,6 +110,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
         Some(Button::DriverMenu) => driver::menu(&cx).await,
         Some(Button::MyStats) => driver::stats(&cx).await,
+        Some(Button::OffersChannel) => driver::offers_channel(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
         Some(

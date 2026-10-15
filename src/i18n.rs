@@ -60,6 +60,7 @@ pub enum Button {
     MyProfile,
     DriverMenu,
     MyStats,
+    OffersChannel,
     FieldAlias,
     FieldFullName,
     FieldPhone,
@@ -137,7 +138,7 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 30] = [
+const REPLY_BUTTONS: [Button; 31] = [
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -152,6 +153,7 @@ const REPLY_BUTTONS: [Button; 30] = [
     Button::MyProfile,
     Button::DriverMenu,
     Button::MyStats,
+    Button::OffersChannel,
     Button::InviteDriver,
     Button::Support,
     Button::MyTrip,
@@ -217,6 +219,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Reject) => "❌ Reject",
         (Lang::Es, DriverMenu) => "🏍 Chofer",
         (Lang::En, DriverMenu) => "🏍 Driver",
+        (Lang::Es, OffersChannel) => "📢 Canal de ofertas",
+        (Lang::En, OffersChannel) => "📢 Offers channel",
         (Lang::Es, MyStats) => "📊 Mis estadísticas",
         (Lang::En, MyStats) => "📊 My stats",
         (Lang::Es, FieldAlias) => "Alias",
@@ -400,6 +404,8 @@ pub enum Text {
     NoActiveRequest,
     // Driver profile.
     AskAlias,
+    InOffersChannel,
+    ChannelNotActive,
     TripMenuBelow,
     NoActiveTrip,
     Notified,
@@ -639,6 +645,14 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, NoActiveTrip) => "You have no trip in progress. Here's the menu.",
         (Lang::Es, Notified) => "✅ Aviso enviado.",
         (Lang::En, Notified) => "✅ Notice sent.",
+        (Lang::Es, InOffersChannel) => "✅ Ya estás en el canal de ofertas. Ahí te llegan las solicitudes de viaje.",
+        (Lang::En, InOffersChannel) => "✅ You're already in the offers channel. Trip requests reach you there.",
+        (Lang::Es, ChannelNotActive) => {
+            "El canal de ofertas es solo para choferes activos. Si tu ficha está pendiente, te aviso cuando un admin la apruebe."
+        }
+        (Lang::En, ChannelNotActive) => {
+            "The offers channel is only for active drivers. If your profile is pending, I'll tell you when an admin approves it."
+        }
         (Lang::Es, AskAlias) => "👤 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
         (Lang::En, AskAlias) => "👤 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
@@ -1242,6 +1256,18 @@ pub fn application(lang: Lang, p: &Profile, invited: bool) -> String {
         (Lang::Es, false) => format!("🆕 Solicitud de chofer\n\n{card}"),
         (Lang::En, true) => format!("🆕 Driver application (invited)\n\n{card}"),
         (Lang::En, false) => format!("🆕 Driver application\n\n{card}"),
+    }
+}
+
+/// "📢 Offers channel" for an active driver not in it yet.
+pub fn channel_invite(lang: Lang, channel_link: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "📢 Aún no estás en el canal de ofertas, y ahí es donde llegan los viajes.\n\nÚnete aquí: {channel_link}\nCuando pidas unirte, te apruebo enseguida."
+        ),
+        Lang::En => format!(
+            "📢 You're not in the offers channel yet, and that's where trips arrive.\n\nJoin here: {channel_link}\nWhen you ask to join, I'll approve you right away."
+        ),
     }
 }
 
