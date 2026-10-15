@@ -178,8 +178,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, WorkWithUs) => "🤝 Work with us",
         (Lang::Es, ApplyManager) => "🏢 Aplicar a gestor (próximamente)",
         (Lang::En, ApplyManager) => "🏢 Apply as a manager (coming soon)",
-        (Lang::Es, ApplyDriver) => "🧑‍✈️ Aplicar a ser chofer",
-        (Lang::En, ApplyDriver) => "🧑‍✈️ Apply to drive",
+        (Lang::Es, ApplyDriver) => "🏍 Aplicar a ser chofer",
+        (Lang::En, ApplyDriver) => "🏍 Apply to drive",
         (Lang::Es, MyProfile) => "🪪 Mi ficha",
         (Lang::En, MyProfile) => "🪪 My profile",
         (Lang::Es, InviteDriver) => "➕ Invitar chofer",
@@ -300,8 +300,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, StepBack) => "↩️ Back",
         (Lang::Es, AdminPanel) => "⚙️ Administración",
         (Lang::En, AdminPanel) => "⚙️ Administration",
-        (Lang::Es, PanelDrivers) => "🧑‍✈️ Choferes",
-        (Lang::En, PanelDrivers) => "🧑‍✈️ Drivers",
+        (Lang::Es, PanelDrivers) => "🏍 Choferes",
+        (Lang::En, PanelDrivers) => "🏍 Drivers",
         (Lang::Es, PanelAdmins) => "👮 Admins",
         (Lang::En, PanelAdmins) => "👮 Admins",
         (Lang::Es, PanelFares) => "💰 Tarifas",
@@ -601,10 +601,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::Es, NameRejected) => "❌ Tu cambio de nombre no fue aprobado. Si crees que es un error, escribe a soporte.",
         (Lang::En, NameRejected) => "❌ Your name change wasn't approved. If you think it's a mistake, write to support.",
         (Lang::Es, WorkWithUs) => {
-            "🤝 Trabaja con nosotros\n\n🧑‍✈️ Chofer: recibe ofertas de viaje en el canal, acepta las que te convengan o propón tu precio.\n\n🏢 Gestor (próximamente): conecta a tus clientes con nuestros choferes. Pones tu tarifa para el chofer y la de tu cliente, y cuando un chofer acepta, ganas la diferencia.\n\nElige abajo."
+            "🤝 Trabaja con nosotros\n\n🏍 Chofer: recibe ofertas de viaje en el canal, acepta las que te convengan o propón tu precio.\n\n🏢 Gestor (próximamente): conecta a tus clientes con nuestros choferes. Pones tu tarifa para el chofer y la de tu cliente, y cuando un chofer acepta, ganas la diferencia.\n\nElige abajo."
         }
         (Lang::En, WorkWithUs) => {
-            "🤝 Work with us\n\n🧑‍✈️ Driver: get trip offers in the channel, take the ones that suit you or propose your price.\n\n🏢 Manager (coming soon): connect your clients with our drivers. You set your rate for the driver and the one for your client, and when a driver accepts, you keep the difference.\n\nChoose below."
+            "🤝 Work with us\n\n🏍 Driver: get trip offers in the channel, take the ones that suit you or propose your price.\n\n🏢 Manager (coming soon): connect your clients with our drivers. You set your rate for the driver and the one for your client, and when a driver accepts, you keep the difference.\n\nChoose below."
         }
         (Lang::Es, ManagerSoon) => "🏢 Los gestores llegan pronto. Ya avisé al equipo de que te interesa; te escribiremos.",
         (Lang::En, ManagerSoon) => "🏢 Managers are coming soon. I've told the team you're interested; we'll write to you.",
@@ -636,8 +636,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, NoActiveTrip) => "You have no trip in progress. Here's the menu.",
         (Lang::Es, Notified) => "✅ Aviso enviado.",
         (Lang::En, Notified) => "✅ Notice sent.",
-        (Lang::Es, AskAlias) => "🧑 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
-        (Lang::En, AskAlias) => "🧑 How should clients see you? Type your alias.",
+        (Lang::Es, AskAlias) => "👤 ¿Cómo quieres que te vean los clientes? Escribe tu alias.",
+        (Lang::En, AskAlias) => "👤 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
         (Lang::En, AskDriverPhone) => "📞 Your mobile number, so clients can call you. Share it with the button or type it.",
         (Lang::Es, AskPlate) => "🔢 Número de chapa de la moto:",
@@ -940,7 +940,7 @@ fn trip_card(lang: Lang, title: String, c: &TripCard, extra: &[String], money: S
         Lang::En => "Client",
     };
     let names = if c.names.is_empty() { fallback.to_owned() } else { c.names.join(" · ") };
-    let mut lines = vec![title, format!("👤 {names} · {}", reputation(lang, c.reputation))];
+    let mut lines = vec![title, format!("👤 {names}")];
     lines.extend(extra.iter().cloned());
     if let Some(phone) = c.phone {
         lines.push(format!("📞 {phone}"));
@@ -954,6 +954,7 @@ fn trip_card(lang: Lang, title: String, c: &TripCard, extra: &[String], money: S
         (Lang::Es, None, None) => "💬 Te esperará en el punto de recogida.".into(),
         (Lang::En, None, None) => "💬 They'll wait at the pickup point.".into(),
     });
+    lines.push(reputation(lang, c.reputation));
     lines.join("\n")
 }
 
@@ -980,11 +981,11 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
     let name = p.full_name.as_deref().map(|n| format!("\n🪪 {n}")).unwrap_or_default();
     let mut card = match lang {
         Lang::Es => format!(
-            "🧑 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Chapa: {}",
+            "👤 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Chapa: {}",
             p.alias, p.phone, p.bike_model, p.bike_color, p.plate
         ),
         Lang::En => format!(
-            "🧑 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Plate: {}",
+            "👤 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Plate: {}",
             p.alias, p.phone, p.bike_model, p.bike_color, p.plate
         ),
     };
@@ -1028,8 +1029,8 @@ pub fn guide_button(lang: Lang, g: Guide) -> &'static str {
         (Lang::En, Guide::About) => "🤔 What is Asere Voy?",
         (Lang::Es, Guide::Ride) => "🛵 Pedir un viaje",
         (Lang::En, Guide::Ride) => "🛵 Requesting a ride",
-        (Lang::Es, Guide::Driver) => "🧑‍✈️ Ser chofer",
-        (Lang::En, Guide::Driver) => "🧑‍✈️ Being a driver",
+        (Lang::Es, Guide::Driver) => "🏍 Ser chofer",
+        (Lang::En, Guide::Driver) => "🏍 Being a driver",
         (Lang::Es, Guide::Manager) => "🏢 Ser gestor",
         (Lang::En, Guide::Manager) => "🏢 Being a manager",
     }
@@ -1068,14 +1069,14 @@ Mientras esperas puedes subir el precio o cancelar. En «🔧 Ajustes» puedes p
 5. A driver accepts or sends a counteroffer. Check their profile and confirm them.\n\
 6. You get their contact. When you arrive, tap \"🏁 Completed\" and rate them.\n\n\
 While you wait you can raise the price or cancel. In \"🔧 Settings\" you can add your name, phone and photo so the driver finds you more easily.",
-        (Lang::Es, Some(Guide::Driver)) => "🧑‍✈️ Ser chofer\n\n\
+        (Lang::Es, Some(Guide::Driver)) => "🏍 Ser chofer\n\n\
 1. En «🤝 Trabaja con nosotros», pulsa «Aplicar a ser chofer» y completa tu ficha: alias, nombre completo, celular, chapa, moto y fotos.\n\
 2. Un admin la revisa. Al aprobarte, el bot te manda el enlace del canal de ofertas.\n\
 3. En el canal, «✅ Aceptar» toma el viaje al precio del cliente; «💬 Contraofertar» te deja proponer otro con −/+ y «✅ Enviar».\n\
 4. Cuando el cliente te confirma, recibes la recogida, el destino y su contacto. Marca «📍 Llegué» y «🏁 Completado».\n\
 5. En «🏍 Chofer» tienes tus estadísticas y tu ficha, que puedes editar campo por campo.\n\n\
 Cobras directamente al cliente. Tu reputación (estrellas y viajes) la ven los clientes.",
-        (Lang::En, Some(Guide::Driver)) => "🧑‍✈️ Being a driver\n\n\
+        (Lang::En, Some(Guide::Driver)) => "🏍 Being a driver\n\n\
 1. In \"🤝 Work with us\", tap \"Apply to drive\" and fill in your profile: alias, full name, phone, plate, bike and photos.\n\
 2. An admin reviews it. Once approved, the bot sends you the link to the offers channel.\n\
 3. In the channel, \"✅ Accept\" takes the trip at the client's price; \"💬 Counteroffer\" lets you propose another with −/+ and \"✅ Send\".\n\
@@ -1350,11 +1351,11 @@ pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile, driver: &Sho
     let name = full_name_line(p);
     match lang {
         Lang::Es => format!(
-            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Chapa: {}\n\nTienes 5 min para confirmarlo o cancelar.",
+            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n👤 {}{name}\n🏍 {}, {}\n🔢 Chapa: {}\n{rep}\n\nTienes 5 min para confirmarlo o cancelar.",
             p.alias, p.bike_model, p.bike_color, p.plate
         ),
         Lang::En => format!(
-            "🛵 A driver wants to take your trip {request}:\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Plate: {}\n\nYou have 5 min to confirm or cancel.",
+            "🛵 A driver wants to take your trip {request}:\n\n👤 {}{name}\n🏍 {}, {}\n🔢 Plate: {}\n{rep}\n\nYou have 5 min to confirm or cancel.",
             p.alias, p.bike_model, p.bike_color, p.plate
         ),
     }
@@ -1371,11 +1372,11 @@ pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup, dri
     let rep = reputation(lang, driver);
     match lang {
         Lang::Es => format!(
-            "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n🧑 {} · {rep}\n🏍 {}, {}\n\nVale 5 min.",
+            "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n👤 {}\n🏍 {}, {}\n{rep}\n\nVale 5 min.",
             p.alias, p.bike_model, p.bike_color
         ),
         Lang::En => format!(
-            "💬 Counteroffer for your trip {request}\n\n💰 {amount} CUP\n🧑 {} · {rep}\n🏍 {}, {}\n\nValid for 5 min.",
+            "💬 Counteroffer for your trip {request}\n\n💰 {amount} CUP\n👤 {}\n🏍 {}, {}\n{rep}\n\nValid for 5 min.",
             p.alias, p.bike_model, p.bike_color
         ),
     }
@@ -1456,28 +1457,39 @@ Map data © OpenStreetMap contributors (ODbL license)."
     }
 }
 
-/// "⭐4.7 · 23 viajes · 120 días en el bot": the average stars (from the
-/// first rating), trips completed and days using the bot.
+/// The reputation at the end of a card, in two lines: "⭐4.7 · 23 viajes"
+/// and "📅 120 días usando Asere Voy". Stars from the first rating.
 pub fn reputation(lang: Lang, shown: &Shown) -> String {
+    format!("{}\n📅 {}", stars_and_trips(lang, shown), days_using(lang, shown.days))
+}
+
+/// The same in one line, for staff messages.
+fn reputation_inline(lang: Lang, shown: &Shown) -> String {
+    format!("{} · {}", stars_and_trips(lang, shown), days_using(lang, shown.days))
+}
+
+fn stars_and_trips(lang: Lang, shown: &Shown) -> String {
     let stars = match (lang, shown.stars) {
         (_, Some(avg)) => format!("⭐{avg:.1}"),
         (Lang::Es, None) => "⭐ sin calificaciones".to_owned(),
         (Lang::En, None) => "⭐ no ratings yet".to_owned(),
     };
-    let (trips, days) = (shown.trips, shown.days);
-    let trips = match (lang, trips) {
+    let trips = match (lang, shown.trips) {
         (Lang::Es, 1) => "1 viaje".to_owned(),
         (Lang::Es, n) => format!("{n} viajes"),
         (Lang::En, 1) => "1 trip".to_owned(),
         (Lang::En, n) => format!("{n} trips"),
     };
-    let days = match (lang, days) {
-        (Lang::Es, 1) => "1 día en el bot".to_owned(),
-        (Lang::Es, n) => format!("{n} días en el bot"),
-        (Lang::En, 1) => "1 day in the bot".to_owned(),
-        (Lang::En, n) => format!("{n} days in the bot"),
-    };
-    format!("{stars} · {trips} · {days}")
+    format!("{stars} · {trips}")
+}
+
+fn days_using(lang: Lang, days: i64) -> String {
+    match (lang, days) {
+        (Lang::Es, 1) => "1 día usando Asere Voy".to_owned(),
+        (Lang::Es, n) => format!("{n} días usando Asere Voy"),
+        (Lang::En, 1) => "1 day using Asere Voy".to_owned(),
+        (Lang::En, n) => format!("{n} days using Asere Voy"),
+    }
 }
 
 pub fn cancel_reason(lang: Lang, reason: CancelReason) -> &'static str {
@@ -1566,7 +1578,7 @@ pub fn case_summary(
         Lang::Es => "sin viajes",
         Lang::En => "no trips",
     };
-    let rep = |s: Option<&Shown>| s.map(|s| reputation(lang, s)).unwrap_or_else(|| none.into());
+    let rep = |s: Option<&Shown>| s.map(|s| reputation_inline(lang, s)).unwrap_or_else(|| none.into());
     let mut lines = vec![match lang {
         Lang::Es => format!("🔎 Código {code}"),
         Lang::En => format!("🔎 Code {code}"),
@@ -1615,7 +1627,7 @@ pub fn alert_cancellations(lang: Lang) -> String {
 }
 
 pub fn alert_low_rating(lang: Lang, role: Role, shown: &Shown) -> String {
-    let rep = reputation(lang, shown);
+    let rep = reputation_inline(lang, shown);
     match (lang, role) {
         (Lang::Es, Role::Client) => format!("📉 Un cliente bajó de 3.5 estrellas ({rep})."),
         (Lang::En, Role::Client) => format!("📉 A client fell below 3.5 stars ({rep})."),
@@ -1638,8 +1650,8 @@ pub fn drivers_list(lang: Lang, filter: crate::bot::panel::Filter, total: i64) -
         (Lang::En, Filter::Blocked) => "blocked",
     };
     match lang {
-        Lang::Es => format!("🧑‍✈️ Choferes ({which}): {total}\nToca uno para ver su ficha y actuar sobre él."),
-        Lang::En => format!("🧑‍✈️ Drivers ({which}): {total}\nTap one to see their profile and act on it."),
+        Lang::Es => format!("🏍 Choferes ({which}): {total}\nToca uno para ver su ficha y actuar sobre él."),
+        Lang::En => format!("🏍 Drivers ({which}): {total}\nTap one to see their profile and act on it."),
     }
 }
 
@@ -1788,7 +1800,7 @@ mod tests {
         };
         let text = channel_post(Lang::Es, &post);
         assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
-        assert!(text.contains("👤 ⭐4.7 · 23 viajes · 120 días en el bot\n❌ Cancelaciones (30 días): 1"), "{text}");
+        assert!(text.contains("👤 ⭐4.7 · 23 viajes\n📅 120 días usando Asere Voy\n❌ Cancelaciones (30 días): 1"), "{text}");
     }
 
     #[test]
@@ -1817,14 +1829,14 @@ mod tests {
         let client = client_trip_card(Lang::Es, &card, &p, false);
         assert_eq!(
             client,
-            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n👤 Pepe · José Pérez Díaz · ⭐4.8 · 23 viajes · 100 días en el bot\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje."
+            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n👤 Pepe · José Pérez Díaz\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje.\n⭐4.8 · 23 viajes\n📅 100 días usando Asere Voy"
         );
         assert_eq!(client.matches("@pepe").count(), 1);
 
         let rep = Shown { stars: None, trips: 2, days: 3 };
         let card = TripCard { names: vec![], reputation: &rep, phone: None, username: Some("ana"), ..card };
         let driver = driver_trip_card(Lang::Es, &card, Some("frente a la bodega"));
-        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n👤 Cliente · ⭐ sin calificaciones · 2 viajes · 3 días en el bot\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
+        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n👤 Cliente\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
         assert!(!driver.contains("📞"), "{driver}");
     }
 
