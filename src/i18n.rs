@@ -388,7 +388,6 @@ pub enum Text {
     // Driver profile.
     AskAlias,
     Settings,
-    DetailsFromProfile,
     DetailsSaved,
     DetailsDeleted,
     AskClientName,
@@ -598,12 +597,6 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, ManagerSoon) => "🏢 Managers are coming soon. I've told the team you're interested; we'll write to you.",
         (Lang::Es, Settings) => "🔧 Ajustes",
         (Lang::En, Settings) => "🔧 Settings",
-        (Lang::Es, DetailsFromProfile) => {
-            "👤 Como chofer, cuando pides un viaje le damos al chofer los datos de tu ficha (nombre completo, celular y foto). Se cambian en 🏍 Chofer → 🪪 Mi ficha."
-        }
-        (Lang::En, DetailsFromProfile) => {
-            "👤 As a driver, when you request a ride the driver gets the details of your profile (full name, phone and photo). Change them in 🏍 Driver → 🪪 My profile."
-        }
         (Lang::Es, DetailsSaved) => "✅ Guardado.",
         (Lang::En, DetailsSaved) => "✅ Saved.",
         (Lang::Es, DetailsDeleted) => "🗑 Tus datos se borraron.",

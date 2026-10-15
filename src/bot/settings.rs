@@ -1,5 +1,6 @@
 //! 🔧 Settings: the client's optional details (name, phone, photo) for the
-//! driver of their trip, and the language. Drivers' details are their profile.
+//! driver of their trip, and the language. Everyone has them, drivers too,
+//! apart from the driver profile; changes need no approval.
 
 use teloxide::prelude::*;
 use teloxide::types::{FileId, InputFile, KeyboardButton};
@@ -47,12 +48,8 @@ pub async fn on_callback(cx: &Ctx<'_>, arg: &str) -> anyhow::Result<()> {
 }
 
 /// "👤 My details": what the driver of a trip will get, with a button per
-/// detail. A driver's come from their profile and are edited there.
+/// detail.
 async fn my_details(cx: &Ctx<'_>) -> anyhow::Result<()> {
-    if cx.app.driver_status(cx.user).await?.is_some() {
-        cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::DetailsFromProfile)).await?;
-        return Ok(());
-    }
     let p = db::clients::get(&cx.app.pool, &cx.app.cipher, cx.user).await?.unwrap_or_default();
     let card = i18n::client_details(cx.lang, p.name.as_deref(), p.phone.as_deref(), p.photo_file_id.is_some());
     let markup = keyboards::client_details(cx.lang, !p.is_empty());
@@ -69,9 +66,6 @@ async fn my_details(cx: &Ctx<'_>) -> anyhow::Result<()> {
 }
 
 async fn ask(cx: &Ctx<'_>, field: ClientField) -> anyhow::Result<()> {
-    if cx.app.driver_status(cx.user).await?.is_some() {
-        return my_details(cx).await;
-    }
     db::dialogs::set(&cx.app.pool, cx.user, &Dialog::EditClient { field }, now()).await?;
     let (question, extra): (Text, Vec<KeyboardButton>) = match field {
         ClientField::Name => (Text::AskClientName, Vec::new()),
