@@ -618,7 +618,7 @@ pub async fn republish(cx: &Ctx<'_>, again: Republish) -> anyhow::Result<()> {
         pickup: again.pickup,
         dropoff: again.dropoff,
         km: again.km,
-        minutes: 0.0,
+        minutes: again.minutes,
         suggested,
         minimum: fare::minimum_price(suggested, &fares),
     };
@@ -651,6 +651,7 @@ async fn publish(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -
         reference: trip.pickup.note,
         dropoff_note: trip.dropoff.note,
         km: trip.km,
+        minutes: trip.minutes,
         price,
         payment,
     };

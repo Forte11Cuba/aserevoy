@@ -12,6 +12,7 @@ use crate::db;
 use crate::db::clients::ClientProfile;
 use crate::domain::driver::{self, ALIAS_MAX};
 use crate::domain::phone;
+use crate::domain::reputation::Role;
 use crate::i18n::{self, Button, Text, parse_button};
 
 /// "🔧 Settings".
@@ -27,6 +28,16 @@ pub async fn show(cx: &Ctx<'_>) -> anyhow::Result<()> {
 pub async fn on_callback(cx: &Ctx<'_>, arg: &str) -> anyhow::Result<()> {
     match arg {
         "me" => my_details(cx).await,
+        "rep" => {
+            let now = now();
+            let pool = &cx.app.pool;
+            let rep = db::reputation::get(pool, cx.user, Role::Client).await?;
+            let tags = db::reputation::tags(pool, cx.user, Role::Client).await?;
+            let cancellations = db::moderation::recent_cancellations(pool, cx.user, now).await?;
+            let text = i18n::client_stats(cx.lang, rep.as_ref(), &tags, cancellations, now);
+            cx.bot.send_message(chat(cx.user), text).await?;
+            Ok(())
+        }
         "name" => ask(cx, ClientField::Name).await,
         "phone" => ask(cx, ClientField::Phone).await,
         "photo" => ask(cx, ClientField::Photo).await,

@@ -509,6 +509,7 @@ pub fn guides(lang: Lang, open: Option<i18n::Guide>) -> InlineKeyboardMarkup {
 pub fn settings(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
         vec![inline(lang, Button::MyDetails, "set:me")],
+        vec![inline(lang, Button::MyReputation, "set:rep")],
         vec![inline(lang, Button::Language, "set:lang")],
     ])
 }

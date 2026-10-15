@@ -40,6 +40,8 @@ pub struct Republish {
     pub pickup: Spot,
     pub dropoff: Spot,
     pub km: f64,
+    #[serde(default)]
+    pub minutes: f64,
     pub price: Cup,
     pub payment: PaymentMethod,
 }

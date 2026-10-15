@@ -111,6 +111,7 @@ pub async fn post_of<'a>(app: &'a App, request: &'a Request) -> anyhow::Result<P
     Ok(Post {
         request: &request.id,
         km: request.km,
+        minutes: request.minutes,
         price: request.price,
         payment: request.payment,
         from: app.zones.municipality(request.pickup),
@@ -256,6 +257,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 request: id,
                 price: request.price,
                 pay: request.payment,
+                distance: i18n::distance(lang, request.km, request.minutes, request.pickup_approx || request.dropoff_approx),
                 names,
                 reputation: &rep,
                 phone: Some(&p.phone),
@@ -283,6 +285,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 request: id,
                 price: request.price,
                 pay: request.payment,
+                distance: i18n::distance(lang, request.km, request.minutes, request.pickup_approx || request.dropoff_approx),
                 names: contact.name.as_deref().into_iter().collect(),
                 reputation: &rep,
                 phone: contact.phone.as_deref().or(request.client_phone.as_deref()),
@@ -396,6 +399,7 @@ async fn offer_republish(app: &App, request: &Request) -> anyhow::Result<()> {
         pickup: Spot { point: request.pickup, approx: request.pickup_approx, note: request.reference.clone() },
         dropoff: Spot { point: request.dropoff, approx: request.dropoff_approx, note: request.dropoff_note.clone() },
         km: request.km,
+        minutes: request.minutes,
         price: request.price,
         payment: request.payment,
     };
