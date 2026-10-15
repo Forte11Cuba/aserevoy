@@ -112,6 +112,14 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::MyStats) => driver::stats(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
+        Some(
+            b @ (Button::OnMyWay
+            | Button::Arrived
+            | Button::ShareTrip
+            | Button::Complete
+            | Button::CancelTrip
+            | Button::MyTrip),
+        ) => trip::from_menu(&bot, &app, cx.user, cx.lang, b).await,
         Some(Button::Settings) => settings::show(&cx).await,
         Some(Button::HowItWorks) => {
             bot.send_message(chat(cx.user), i18n::guide(cx.lang, None))

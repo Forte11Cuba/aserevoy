@@ -34,6 +34,28 @@ pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup 
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }
 
+/// The client's menu while their trip is assigned.
+pub fn client_trip_menu(lang: Lang) -> KeyboardMarkup {
+    KeyboardMarkup::new(vec![
+        vec![reply(lang, Button::OnMyWay), reply(lang, Button::ShareTrip)],
+        vec![reply(lang, Button::Complete), reply(lang, Button::CancelTrip)],
+        vec![reply(lang, Button::MyTrip)],
+    ])
+    .resize_keyboard()
+    .persistent()
+}
+
+/// The driver's menu while doing a trip.
+pub fn driver_trip_menu(lang: Lang) -> KeyboardMarkup {
+    KeyboardMarkup::new(vec![
+        vec![reply(lang, Button::Arrived)],
+        vec![reply(lang, Button::Complete), reply(lang, Button::CancelTrip)],
+        vec![reply(lang, Button::MyTrip)],
+    ])
+    .resize_keyboard()
+    .persistent()
+}
+
 /// While a form runs: optional extra buttons, then Back (to the previous
 /// step) on the left and Cancel (the whole form) on the right.
 pub fn step(lang: Lang, extra: &[KeyboardButton]) -> KeyboardMarkup {

@@ -28,7 +28,7 @@ use crate::db;
 use crate::domain::driver::DriverStatus;
 use crate::domain::ids::UserId;
 use crate::domain::reputation::Role;
-use crate::domain::request::UnixTime;
+use crate::domain::request::{State, UnixTime};
 use crate::i18n::{self, Lang, TERMS_VERSION};
 use crate::location::routing::Osrm;
 use crate::location::jev::Jev;
@@ -102,7 +102,19 @@ impl App {
     }
 
     /// The main menu, with the buttons this user's roles allow.
+    /// The menu below: the trip's while one is assigned (the driver's or the
+    /// client's, by their part in it), the main menu otherwise. Every message that
+    /// starts or ends a trip carries it, so it follows the trip.
     pub async fn menu(&self, user: UserId, lang: Lang) -> anyhow::Result<KeyboardMarkup> {
+        if let Some(trip) = db::requests::active_for(&self.pool, user).await?
+            && trip.state == State::Assigned
+        {
+            return Ok(if trip.driver == Some(user) {
+                keyboards::driver_trip_menu(lang)
+            } else {
+                keyboards::client_trip_menu(lang)
+            });
+        }
         let is_driver = self.driver_status(user).await?.is_some();
         Ok(keyboards::main_menu(lang, is_driver, self.is_staff(user).await?))
     }

@@ -612,8 +612,14 @@ impl Request {
             State::Assigned if self.assigned_at.is_some_and(|at| now >= at + AUTO_COMPLETE_SECS) => {
                 let driver = self.driver.expect("assigned request has a driver");
                 self.state = State::Completed;
-                let rate = vec![Effect::StartRating { client: self.client, driver }];
-                Some(Tick::Close(self.close_effects(rate)))
+                // Both are told (and get their menu back), then asked to rate.
+                let id = self.id.clone();
+                let effects = vec![
+                    Effect::Notify { to: self.client, notice: Notice::Completed { request: id.clone() } },
+                    Effect::Notify { to: driver, notice: Notice::Completed { request: id } },
+                    Effect::StartRating { client: self.client, driver },
+                ];
+                Some(Tick::Close(self.close_effects(effects)))
             }
             _ => None,
         }
@@ -1002,7 +1008,9 @@ mod tests {
     fn tick_auto_completes_forgotten_trips() {
         let mut r = assigned();
         assert!(r.tick(T0 + 20 + AUTO_COMPLETE_SECS - 1).is_none());
-        assert!(matches!(r.tick(T0 + 20 + AUTO_COMPLETE_SECS), Some(Tick::Close(_))));
+        let Some(Tick::Close(effects)) = r.tick(T0 + 20 + AUTO_COMPLETE_SECS) else { panic!("not closed") };
         assert_eq!(r.state, State::Completed);
+        assert!(matches!(notified(&effects, CLIENT)[..], [Notice::Completed { .. }]));
+        assert!(matches!(notified(&effects, DRIVER)[..], [Notice::Completed { .. }]));
     }
 }
