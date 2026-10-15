@@ -850,7 +850,7 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
         });
     }
     if let Some(client) = &p.client {
-        post.push_str(&format!("\n👤 {}", reputation(lang, client, true)));
+        post.push_str(&format!("\n👤 {}", reputation(lang, client)));
     }
     if let Some(n) = p.cancellations {
         post.push_str(&match lang {
@@ -871,78 +871,89 @@ pub fn place(lang: Lang, place: Place) -> &'static str {
     }
 }
 
-/// To the client when a driver accepts: who is coming and how to reach them.
-pub fn driver_assigned(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown, username: Option<&str>) -> String {
-    let rep = reputation(lang, driver, false);
-    let name = full_name_line(p);
-    let contact = username.map(|u| format!("\n💬 @{u}")).unwrap_or_default();
-    let card = match lang {
-        Lang::Es => format!(
-            "✅ ¡Un chofer aceptó tu viaje {request}!\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Chapa: {}\n📞 {}",
-            p.alias, p.bike_model, p.bike_color, p.plate, p.phone
-        ),
-        Lang::En => format!(
-            "✅ A driver accepted your trip {request}!\n\n🧑 {} · {rep}{name}\n🏍 {}, {}\n🔢 Plate: {}\n📞 {}",
-            p.alias, p.bike_model, p.bike_color, p.plate, p.phone
-        ),
-    };
-    card + &contact
-}
 
-/// To the driver who won: the client's contact and the details of the trip.
-/// How the driver reaches the client: whatever the client shared.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ClientContact<'a> {
-    pub username: Option<&'a str>,
-    pub name: Option<&'a str>,
+/// The two trip cards (the client's and the driver's) use the same lines
+/// and emojis, each detail once: 🛵 the trip, 👤 the other person with their
+/// reputation, 📞 their phone, 💰 what is paid at the end, 💬 who to write to.
+pub struct TripCard<'a> {
+    pub request: &'a RequestId,
+    pub price: Cup,
+    pub pay: PaymentMethod,
+    /// The other person's names: the driver's alias and full name, or the
+    /// client's name (none: "Client").
+    pub names: Vec<&'a str>,
+    pub reputation: &'a Shown,
     pub phone: Option<&'a str>,
+    pub username: Option<&'a str>,
 }
 
-pub fn trip_assigned(
-    lang: Lang,
-    request: &RequestId,
-    price: Cup,
-    pay: PaymentMethod,
-    reference: Option<&str>,
-    client: &ClientContact<'_>,
-) -> String {
-    let ClientContact { username, name, phone } = *client;
-    let pay = payment(lang, pay);
-    let mut lines = match lang {
-        Lang::Es => vec![format!("🛵 El viaje {request} es tuyo.\n💰 {price} CUP · {pay}")],
-        Lang::En => vec![format!("🛵 Trip {request} is yours.\n💰 {price} CUP · {pay}")],
+/// What the client sees once their driver is set: `accepted` when it came
+/// from a counteroffer (or a driver they had not confirmed yet).
+pub fn client_trip_card(lang: Lang, c: &TripCard, p: &Profile, accepted: bool) -> String {
+    let request = c.request;
+    let title = match (lang, accepted) {
+        (Lang::Es, false) => format!("🛵 Viaje {request} confirmado: tu chofer va hacia ti."),
+        (Lang::Es, true) => format!("🛵 ¡Un chofer aceptó tu viaje {request}! Va hacia ti."),
+        (Lang::En, false) => format!("🛵 Trip {request} confirmed: your driver is on the way."),
+        (Lang::En, true) => format!("🛵 A driver accepted your trip {request}! They're on the way."),
     };
-    if let Some(r) = reference {
-        lines.push(match lang {
+    let bike = match lang {
+        Lang::Es => format!("🏍 {}, {} · Chapa {}", p.bike_model, p.bike_color, p.plate),
+        Lang::En => format!("🏍 {}, {} · Plate {}", p.bike_model, p.bike_color, p.plate),
+    };
+    let money = match lang {
+        Lang::Es => format!("💰 Al terminar le pagas {} CUP · {}", c.price, payment(lang, c.pay)),
+        Lang::En => format!("💰 When it ends you pay {} CUP · {}", c.price, payment(lang, c.pay)),
+    };
+    trip_card(lang, title, c, &[bike], money)
+}
+
+/// What the driver sees once the trip is theirs.
+pub fn driver_trip_card(lang: Lang, c: &TripCard, reference: Option<&str>) -> String {
+    let request = c.request;
+    let title = match lang {
+        Lang::Es => format!("🛵 Viaje {request}: es tuyo."),
+        Lang::En => format!("🛵 Trip {request}: it's yours."),
+    };
+    let extra: Vec<String> = reference
+        .map(|r| match lang {
             Lang::Es => format!("📝 Referencia: {r}"),
             Lang::En => format!("📝 Landmark: {r}"),
-        });
+        })
+        .into_iter()
+        .collect();
+    let money = match lang {
+        Lang::Es => format!("💰 Al terminar cobras {} CUP · {}", c.price, payment(lang, c.pay)),
+        Lang::En => format!("💰 When it ends you charge {} CUP · {}", c.price, payment(lang, c.pay)),
+    };
+    let mut card = trip_card(lang, title, c, &extra, money);
+    card.push_str(match lang {
+        Lang::Es => "\nAbajo tienes la recogida y el destino.",
+        Lang::En => "\nThe pickup and destination are below.",
+    });
+    card
+}
+
+fn trip_card(lang: Lang, title: String, c: &TripCard, extra: &[String], money: String) -> String {
+    let fallback = match lang {
+        Lang::Es => "Cliente",
+        Lang::En => "Client",
+    };
+    let names = if c.names.is_empty() { fallback.to_owned() } else { c.names.join(" · ") };
+    let mut lines = vec![title, format!("👤 {names} · {}", reputation(lang, c.reputation))];
+    lines.extend(extra.iter().cloned());
+    if let Some(phone) = c.phone {
+        lines.push(format!("📞 {phone}"));
     }
-    if let Some(n) = name {
-        lines.push(format!("🙋 {n}"));
-    }
-    if let Some(u) = username {
-        lines.push(format!("👤 @{u}"));
-    }
-    if let Some(p) = phone {
-        lines.push(format!("📞 {p}"));
-    }
-    if username.is_none() && phone.is_none() {
-        lines.push(
-            match lang {
-                Lang::Es => "El cliente no dejó contacto: te esperará en el punto de recogida.",
-                Lang::En => "The client left no contact: they'll wait at the pickup point.",
-            }
-            .into(),
-        );
-    }
-    lines.push(
-        match lang {
-            Lang::Es => "Abajo tienes la recogida y el destino.",
-            Lang::En => "The pickup and destination are below.",
-        }
-        .into(),
-    );
+    lines.push(money);
+    lines.push(match (lang, c.username, c.phone) {
+        (Lang::Es, Some(u), _) => format!("💬 Escríbele a @{u} para terminar de coordinar el viaje."),
+        (Lang::En, Some(u), _) => format!("💬 Write to @{u} to finish arranging the trip."),
+        (Lang::Es, None, Some(p)) => format!("💬 Llámale al {p} para terminar de coordinar el viaje."),
+        (Lang::En, None, Some(p)) => format!("💬 Call {p} to finish arranging the trip."),
+        (Lang::Es, None, None) => "💬 Te esperará en el punto de recogida.".into(),
+        (Lang::En, None, None) => "💬 They'll wait at the pickup point.".into(),
+    });
     lines.join("\n")
 }
 
@@ -1335,7 +1346,7 @@ pub fn channel_confirming(lang: Lang, request: &RequestId) -> String {
 /// To the client when a driver accepts: who wants the trip, without the
 /// phone until they confirm.
 pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown) -> String {
-    let rep = reputation(lang, driver, false);
+    let rep = reputation(lang, driver);
     let name = full_name_line(p);
     match lang {
         Lang::Es => format!(
@@ -1355,21 +1366,9 @@ fn full_name_line(p: &Profile) -> String {
     p.full_name.as_deref().map(|n| format!("\n🪪 {n}")).unwrap_or_default()
 }
 
-/// To the client after confirming: how to reach the driver.
-pub fn driver_confirmed(lang: Lang, request: &RequestId, p: &Profile, username: Option<&str>) -> String {
-    let mut text = match lang {
-        Lang::Es => format!("✅ Viaje {request} confirmado. {} va hacia ti.\n📞 {}", p.alias, p.phone),
-        Lang::En => format!("✅ Trip {request} confirmed. {} is on the way.\n📞 {}", p.alias, p.phone),
-    };
-    if let Some(u) = username {
-        text.push_str(&format!("\n💬 @{u}"));
-    }
-    text
-}
-
 /// One counteroffer, as its own message to the client.
 pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup, driver: &Shown) -> String {
-    let rep = reputation(lang, driver, false);
+    let rep = reputation(lang, driver);
     match lang {
         Lang::Es => format!(
             "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n🧑 {} · {rep}\n🏍 {}, {}\n\nVale 5 min.",
@@ -1457,23 +1456,26 @@ Map data © OpenStreetMap contributors (ODbL license)."
     }
 }
 
-/// "⭐4.7 · 23 trips · 120 days", or "New" instead of the stars.
-pub fn reputation(lang: Lang, shown: &Shown, with_days: bool) -> String {
+/// "⭐4.7 · 23 viajes · 120 días en el bot": the average stars (from the
+/// first rating), trips completed and days using the bot.
+pub fn reputation(lang: Lang, shown: &Shown) -> String {
     let stars = match (lang, shown.stars) {
         (_, Some(avg)) => format!("⭐{avg:.1}"),
-        (Lang::Es, None) => "🆕 Nuevo".to_owned(),
-        (Lang::En, None) => "🆕 New".to_owned(),
+        (Lang::Es, None) => "⭐ sin calificaciones".to_owned(),
+        (Lang::En, None) => "⭐ no ratings yet".to_owned(),
     };
-    let trips = match lang {
-        Lang::Es => format!("{} viajes", shown.trips),
-        Lang::En => format!("{} trips", shown.trips),
+    let (trips, days) = (shown.trips, shown.days);
+    let trips = match (lang, trips) {
+        (Lang::Es, 1) => "1 viaje".to_owned(),
+        (Lang::Es, n) => format!("{n} viajes"),
+        (Lang::En, 1) => "1 trip".to_owned(),
+        (Lang::En, n) => format!("{n} trips"),
     };
-    if !with_days {
-        return format!("{stars} · {trips}");
-    }
-    let days = match lang {
-        Lang::Es => format!("{} días en el bot", shown.days),
-        Lang::En => format!("{} days in the bot", shown.days),
+    let days = match (lang, days) {
+        (Lang::Es, 1) => "1 día en el bot".to_owned(),
+        (Lang::Es, n) => format!("{n} días en el bot"),
+        (Lang::En, 1) => "1 day in the bot".to_owned(),
+        (Lang::En, n) => format!("{n} days in the bot"),
     };
     format!("{stars} · {trips} · {days}")
 }
@@ -1564,7 +1566,7 @@ pub fn case_summary(
         Lang::Es => "sin viajes",
         Lang::En => "no trips",
     };
-    let rep = |s: Option<&Shown>| s.map(|s| reputation(lang, s, true)).unwrap_or_else(|| none.into());
+    let rep = |s: Option<&Shown>| s.map(|s| reputation(lang, s)).unwrap_or_else(|| none.into());
     let mut lines = vec![match lang {
         Lang::Es => format!("🔎 Código {code}"),
         Lang::En => format!("🔎 Code {code}"),
@@ -1613,7 +1615,7 @@ pub fn alert_cancellations(lang: Lang) -> String {
 }
 
 pub fn alert_low_rating(lang: Lang, role: Role, shown: &Shown) -> String {
-    let rep = reputation(lang, shown, false);
+    let rep = reputation(lang, shown);
     match (lang, role) {
         (Lang::Es, Role::Client) => format!("📉 Un cliente bajó de 3.5 estrellas ({rep})."),
         (Lang::En, Role::Client) => format!("📉 A client fell below 3.5 stars ({rep})."),
@@ -1662,7 +1664,7 @@ pub fn driver_admin_card(
         card.push_str(&format!("\n💬 @{u}"));
     }
     let rep = match (lang, shown) {
-        (_, Some(s)) => reputation(lang, s, true),
+        (_, Some(s)) => reputation(lang, s),
         (Lang::Es, None) => "sin viajes".into(),
         (Lang::En, None) => "no trips".into(),
     };
@@ -1787,6 +1789,43 @@ mod tests {
         let text = channel_post(Lang::Es, &post);
         assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
         assert!(text.contains("👤 ⭐4.7 · 23 viajes · 120 días en el bot\n❌ Cancelaciones (30 días): 1"), "{text}");
+    }
+
+    #[test]
+    fn both_trip_cards_say_each_thing_once_with_the_same_emojis() {
+        let id = RequestId::parse("K7X2").unwrap();
+        let p = Profile {
+            alias: "Pepe".into(),
+            full_name: Some("José Pérez Díaz".into()),
+            phone: "+5351234567".into(),
+            plate: "P123".into(),
+            bike_model: "Suzuki".into(),
+            bike_color: "roja".into(),
+            photo_file_id: "f".into(),
+            bike_photo_file_id: None,
+        };
+        let rep = Shown { stars: Some(4.8), trips: 23, days: 100 };
+        let card = TripCard {
+            request: &id,
+            price: 3300,
+            pay: PaymentMethod::Cash,
+            names: vec!["Pepe", "José Pérez Díaz"],
+            reputation: &rep,
+            phone: Some("+5351234567"),
+            username: Some("pepe"),
+        };
+        let client = client_trip_card(Lang::Es, &card, &p, false);
+        assert_eq!(
+            client,
+            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n👤 Pepe · José Pérez Díaz · ⭐4.8 · 23 viajes · 100 días en el bot\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje."
+        );
+        assert_eq!(client.matches("@pepe").count(), 1);
+
+        let rep = Shown { stars: None, trips: 2, days: 3 };
+        let card = TripCard { names: vec![], reputation: &rep, phone: None, username: Some("ana"), ..card };
+        let driver = driver_trip_card(Lang::Es, &card, Some("frente a la bodega"));
+        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n👤 Cliente · ⭐ sin calificaciones · 2 viajes · 3 días en el bot\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
+        assert!(!driver.contains("📞"), "{driver}");
     }
 
     #[test]
