@@ -25,12 +25,10 @@ pub async fn apply(cx: &Ctx<'_>) -> anyhow::Result<()> {
 
 /// "🤝 Work with us": what each role is, with a button to apply.
 pub async fn work_with_us(cx: &Ctx<'_>) -> anyhow::Result<()> {
-    if cx.app.driver_status(cx.user).await?.is_some() {
-        return menu(cx).await;
-    }
+    let is_driver = cx.app.driver_status(cx.user).await?.is_some();
     cx.bot
         .send_message(chat(cx.user), i18n::text(cx.lang, Text::WorkWithUs))
-        .reply_markup(keyboards::work_with_us(cx.lang))
+        .reply_markup(keyboards::work_with_us(cx.lang, is_driver))
         .await?;
     Ok(())
 }
