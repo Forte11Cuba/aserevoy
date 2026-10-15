@@ -836,6 +836,8 @@ pub struct Post<'a> {
     /// By road; 0 when unknown.
     pub minutes: f64,
     pub price: Cup,
+    /// What the app suggests for this trip, to compare with `price`.
+    pub suggested: Cup,
     pub payment: PaymentMethod,
     /// Municipalities of pickup and destination, when known.
     pub from: Option<&'a str>,
@@ -869,6 +871,7 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
         post.push_str(&format!("📍 {}\n⬇️\n🏁 {}\n", zone(p.from, &p.from_corner), zone(p.to, &p.to_corner)));
     }
     post.push_str(&format!("{}\n💰 {price} CUP · {pay}", distance(lang, km, p.minutes, p.approx)));
+    post.push_str(&format!("\n{}", against_suggested(lang, price, p.suggested, p.approx)));
     if p.approx {
         post.push_str(match lang {
             Lang::Es => "\n📝 Dirección escrita, sin ubicación exacta",
@@ -885,6 +888,22 @@ pub fn channel_post(lang: Lang, p: &Post) -> String {
         });
     }
     post
+}
+
+/// How the offer compares with the suggested price, for drivers:
+/// "🔴⬇️ 200 CUP menos que el precio sugerido (800 CUP)", "🟢⬆️ …más…", or
+/// "⚪🟰 Es el precio sugerido". "≈" when a point is approximate.
+fn against_suggested(lang: Lang, price: Cup, suggested: Cup, approx: bool) -> String {
+    let about = if approx { "≈" } else { "" };
+    let diff = price - suggested;
+    match (lang, diff.signum()) {
+        (Lang::Es, -1) => format!("🔴⬇️ {} CUP menos que el precio sugerido ({about}{suggested} CUP)", -diff),
+        (Lang::En, -1) => format!("🔴⬇️ {} CUP below the suggested price ({about}{suggested} CUP)", -diff),
+        (Lang::Es, 1) => format!("🟢⬆️ {diff} CUP más que el precio sugerido ({about}{suggested} CUP)"),
+        (Lang::En, 1) => format!("🟢⬆️ {diff} CUP above the suggested price ({about}{suggested} CUP)"),
+        (Lang::Es, _) => "⚪🟰 Es el precio sugerido".to_owned(),
+        (Lang::En, _) => "⚪🟰 It's the suggested price".to_owned(),
+    }
 }
 
 /// Title of a pin sent to the driver.
@@ -2041,6 +2060,7 @@ mod tests {
             km: 3.5,
             minutes: 9.4,
             price: 600,
+            suggested: 800,
             payment: PaymentMethod::Cash,
             from: Some("Plaza de la Revolución"),
             to: Some("Habana del Este"),
@@ -2052,6 +2072,9 @@ mod tests {
         };
         let text = channel_post(Lang::Es, &post);
         assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
+        assert!(text.contains("💰 600 CUP · 💵 Efectivo\n🔴⬇️ 200 CUP menos que el precio sugerido (800 CUP)\n"), "{text}");
+        assert_eq!(against_suggested(Lang::Es, 1100, 800, true), "🟢⬆️ 300 CUP más que el precio sugerido (≈800 CUP)");
+        assert_eq!(against_suggested(Lang::Es, 800, 800, false), "⚪🟰 Es el precio sugerido");
         assert!(text.contains("👤 ⭐4.7 · 23 viajes\n📅 120 días usando Asere Voy\n❌ Cancelaciones (30 días): 1"), "{text}");
     }
 
