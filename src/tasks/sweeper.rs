@@ -65,6 +65,12 @@ async fn handle_due(bot: &Bot, app: &App, mut request: Request, now: UnixTime) -
                 effects::apply(bot, app, &mut request, effects).await?;
             }
         }
+        Some(Tick::SuggestRaise(effects)) => {
+            if db::requests::raise_suggested(&app.pool, &request.id).await? {
+                tracing::info!(request = %request.id, "suggested raising the price");
+                effects::apply(bot, app, &mut request, effects).await?;
+            }
+        }
         Some(Tick::AskStillWaiting(effects)) => {
             let answer_by = request.answer_by.expect("asking sets the deadline");
             if db::requests::ask_still_waiting(&app.pool, &request.id, answer_by).await? {

@@ -147,6 +147,22 @@ pub fn raise_options(request: &RequestId, price: Cup) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![row])
 }
 
+/// Nobody took the request in 5 min: the suggested prices (as "+50 · 550
+/// CUP" when above the suggested price, as "800 CUP" below it), and Keep.
+pub fn suggest_raise(lang: Lang, request: &RequestId, price: Cup, below_suggested: bool, options: &[Cup]) -> InlineKeyboardMarkup {
+    let row = options
+        .iter()
+        .map(|&o| {
+            let label = if below_suggested { format!("{o} CUP") } else { format!("+{} · {o} CUP", o - price) };
+            InlineKeyboardButton::callback(label, format!("rai:{request}:{o}"))
+        })
+        .collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(vec![
+        row,
+        vec![InlineKeyboardButton::callback(i18n::keep_price(lang, price), format!("rkp:{request}"))],
+    ])
+}
+
 /// For the client when a driver accepted: confirm them or cancel. The card
 /// names its driver, so a stale one (that driver withdrew, maybe another
 /// took the request) cannot cancel the request or confirm someone unseen.

@@ -20,8 +20,8 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
         "INSERT INTO requests (id, client_id, client_phone, pickup_lat, pickup_lon,
              dropoff_lat, dropoff_lon, reference, km, price, payment, state, driver_id,
              channel_msg_id, created_at, assigned_at, check_at, answer_by, confirm_by, on_my_way_at,
-             arrived_at, expires_at, pickup_approx, dropoff_approx, dropoff_note, suggested, minutes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             arrived_at, expires_at, pickup_approx, dropoff_approx, dropoff_note, suggested, minutes, nudge_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id.as_str())
     .bind(r.client.0)
@@ -50,6 +50,7 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     .bind(&r.dropoff_note)
     .bind(r.suggested)
     .bind(r.minutes)
+    .bind(r.nudge_at)
     .execute(pool)
     .await;
 
@@ -166,7 +167,7 @@ pub async fn assign_counteroffer(
 /// Raises the price of an open request; also answers "still waiting?".
 pub async fn raise_price(pool: &SqlitePool, id: &RequestId, price: Cup) -> sqlx::Result<bool> {
     let done = sqlx::query(
-        "UPDATE requests SET price = ?, answer_by = NULL WHERE id = ? AND state = 'open' AND price < ?",
+        "UPDATE requests SET price = ?, answer_by = NULL, nudge_at = NULL WHERE id = ? AND state = 'open' AND price < ?",
     )
     .bind(price)
     .bind(id.as_str())
@@ -189,6 +190,15 @@ pub async fn ask_still_waiting(pool: &SqlitePool, id: &RequestId, answer_by: Uni
     .bind(id.as_str())
     .execute(pool)
     .await?;
+    Ok(done.rows_affected() == 1)
+}
+
+/// The price raise was suggested (once). False if the request changed meanwhile.
+pub async fn raise_suggested(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE requests SET nudge_at = NULL WHERE id = ? AND state = 'open' AND nudge_at IS NOT NULL")
+        .bind(id.as_str())
+        .execute(pool)
+        .await?;
     Ok(done.rows_affected() == 1)
 }
 
@@ -316,10 +326,12 @@ pub async fn forget(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<()> {
 pub async fn due(pool: &SqlitePool, now: UnixTime, auto_complete_secs: i64) -> sqlx::Result<Vec<Request>> {
     let ids: Vec<String> = sqlx::query_scalar(
         "SELECT id FROM requests
-         WHERE (state = 'open' AND (expires_at <= ? OR answer_by <= ? OR (check_at <= ? AND answer_by IS NULL)))
+         WHERE (state = 'open' AND (expires_at <= ? OR answer_by <= ? OR (check_at <= ? AND answer_by IS NULL)
+                                    OR nudge_at <= ?))
             OR (state = 'confirming' AND confirm_by <= ?)
             OR (state = 'assigned' AND assigned_at <= ?)",
     )
+    .bind(now)
     .bind(now)
     .bind(now)
     .bind(now)
@@ -363,6 +375,7 @@ fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
         created_at: row.try_get("created_at")?,
         assigned_at: row.try_get("assigned_at")?,
         check_at: row.try_get("check_at")?,
+        nudge_at: row.try_get("nudge_at")?,
         answer_by: row.try_get("answer_by")?,
         confirm_by: row.try_get("confirm_by")?,
         on_my_way_at: row.try_get("on_my_way_at")?,
@@ -602,7 +615,8 @@ mod tests {
             }
         };
         assert!(ids(T0 + 10).await.is_empty());
-        assert_eq!(ids(T0 + 1 + CONFIRM_SECS).await, vec!["CD8M"]);
+        // AB7K: 5 minutes without a driver, the raise suggestion is due.
+        assert_eq!(ids(T0 + 1 + CONFIRM_SECS).await, vec!["AB7K", "CD8M"]);
         assert_eq!(ids(T0 + STILL_WAITING_AFTER_SECS).await, vec!["AB7K", "CD8M"]);
         assert_eq!(ids(T0 + 7202).await, vec!["AB7K", "CD8M", "EF9N"]);
 
