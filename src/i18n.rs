@@ -893,42 +893,105 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
 }
 
 /// To admins: a new driver application to approve or reject.
-/// "❓ How it works": the client's steps, and the driver's if they drive.
-pub fn how_it_works(lang: Lang, is_driver: bool) -> String {
-    let client = match lang {
-        Lang::Es => "❓ Cómo funciona\n\n\
-🛵 Pedir un viaje\n\
+/// The guides behind "❓ How it works".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Guide {
+    About,
+    Ride,
+    Driver,
+    Manager,
+}
+
+impl Guide {
+    pub const ALL: [Guide; 4] = [Guide::About, Guide::Ride, Guide::Driver, Guide::Manager];
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Guide::About => "about",
+            Guide::Ride => "ride",
+            Guide::Driver => "driver",
+            Guide::Manager => "manager",
+        }
+    }
+
+    pub fn parse(code: &str) -> Option<Guide> {
+        Guide::ALL.into_iter().find(|g| g.code() == code)
+    }
+}
+
+pub fn guide_button(lang: Lang, g: Guide) -> &'static str {
+    match (lang, g) {
+        (Lang::Es, Guide::About) => "🤔 ¿Qué es Asere Voy?",
+        (Lang::En, Guide::About) => "🤔 What is Asere Voy?",
+        (Lang::Es, Guide::Ride) => "🛵 Pedir un viaje",
+        (Lang::En, Guide::Ride) => "🛵 Requesting a ride",
+        (Lang::Es, Guide::Driver) => "🧑‍✈️ Ser chofer",
+        (Lang::En, Guide::Driver) => "🧑‍✈️ Being a driver",
+        (Lang::Es, Guide::Manager) => "🏢 Ser gestor",
+        (Lang::En, Guide::Manager) => "🏢 Being a manager",
+    }
+}
+
+/// One guide; `None` is the index ("pick a guide").
+pub fn guide(lang: Lang, g: Option<Guide>) -> &'static str {
+    match (lang, g) {
+        (Lang::Es, None) => "❓ Cómo funciona\n\nElige una guía:",
+        (Lang::En, None) => "❓ How it works\n\nPick a guide:",
+        (Lang::Es, Some(Guide::About)) => "🤔 ¿Qué es Asere Voy?\n\n\
+Un bot de Telegram que conecta pasajeros y choferes de moto-taxi en La Habana.\n\n\
+• Tú propones el precio: los choferes lo aceptan o te hacen una contraoferta.\n\
+• El pago es en CUP, directo al chofer (efectivo, transferencia o Bitcoin). El bot no maneja dinero.\n\
+• Ves la foto, la moto, la chapa, el nombre y la reputación del chofer antes de confirmarlo.\n\
+• No guardamos historial de viajes: cada solicitud se borra al terminar.",
+        (Lang::En, Some(Guide::About)) => "🤔 What is Asere Voy?\n\n\
+A Telegram bot that connects passengers and moto-taxi drivers in Havana.\n\n\
+• You set the price: drivers accept it or send you a counteroffer.\n\
+• You pay in CUP, directly to the driver (cash, transfer or Bitcoin). The bot handles no money.\n\
+• You see the driver's photo, bike, plate, name and reputation before confirming them.\n\
+• We keep no trip history: each request is deleted when it ends.",
+        (Lang::Es, Some(Guide::Ride)) => "🛵 Pedir un viaje\n\n\
 1. Pulsa «🛵 Pedir viaje».\n\
 2. Marca la recogida y el destino: tu ubicación, un punto en el mapa, una dirección («23 e/ L y M, Vedado») o un lugar («Coppelia»). Confirma cada punto en el mapa.\n\
-3. Pon tu precio con los botones −/+ y elige cómo pagas: efectivo, transferencia o Bitcoin.\n\
+3. Pon tu precio con los botones −/+ y elige cómo pagas.\n\
 4. Publica. Los choferes ven solo la zona, nunca tu ubicación exacta.\n\
 5. Un chofer acepta o te hace una contraoferta. Mira su ficha y confírmalo.\n\
 6. Recibes su contacto. Al terminar, pulsa «🏁 Completado» y califícalo.\n\n\
-💰 El pago es directo al chofer; el bot no maneja dinero. Mientras esperas puedes subir el precio o cancelar.",
-        Lang::En => "❓ How it works\n\n\
-🛵 Requesting a ride\n\
+Mientras esperas puedes subir el precio o cancelar.",
+        (Lang::En, Some(Guide::Ride)) => "🛵 Requesting a ride\n\n\
 1. Tap \"🛵 Request a ride\".\n\
 2. Mark the pickup and the destination: your location, a point on the map, an address (\"23 e/ L y M, Vedado\") or a place (\"Coppelia\"). Confirm each point on the map.\n\
-3. Set your price with the −/+ buttons and choose how you pay: cash, transfer or Bitcoin.\n\
+3. Set your price with the −/+ buttons and choose how you pay.\n\
 4. Publish. Drivers only see the area, never your exact location.\n\
 5. A driver accepts or sends a counteroffer. Check their profile and confirm them.\n\
 6. You get their contact. When you arrive, tap \"🏁 Completed\" and rate them.\n\n\
-💰 You pay the driver directly; the bot handles no money. While you wait you can raise the price or cancel.",
-    };
-    if !is_driver {
-        return client.to_owned();
+While you wait you can raise the price or cancel.",
+        (Lang::Es, Some(Guide::Driver)) => "🧑‍✈️ Ser chofer\n\n\
+1. En «🤝 Trabaja con nosotros», pulsa «Aplicar a ser chofer» y completa tu ficha: alias, nombre completo, celular, chapa, moto y fotos.\n\
+2. Un admin la revisa. Al aprobarte, el bot te manda el enlace del canal de ofertas.\n\
+3. En el canal, «✅ Aceptar» toma el viaje al precio del cliente; «💬 Contraofertar» te deja proponer otro con −/+ y «✅ Enviar».\n\
+4. Cuando el cliente te confirma, recibes la recogida, el destino y su contacto. Marca «📍 Llegué» y «🏁 Completado».\n\
+5. En «🏍 Chofer» tienes tus estadísticas y tu ficha, que puedes editar campo por campo.\n\n\
+Cobras directamente al cliente. Tu reputación (estrellas y viajes) la ven los clientes.",
+        (Lang::En, Some(Guide::Driver)) => "🧑‍✈️ Being a driver\n\n\
+1. In \"🤝 Work with us\", tap \"Apply to drive\" and fill in your profile: alias, full name, phone, plate, bike and photos.\n\
+2. An admin reviews it. Once approved, the bot sends you the link to the offers channel.\n\
+3. In the channel, \"✅ Accept\" takes the trip at the client's price; \"💬 Counteroffer\" lets you propose another with −/+ and \"✅ Send\".\n\
+4. When the client confirms you, you get the pickup, the destination and their contact. Tap \"📍 I'm here\" and \"🏁 Completed\".\n\
+5. In \"🏍 Driver\" you have your stats and your profile, which you can edit field by field.\n\n\
+You get paid directly by the client. Clients see your reputation (stars and trips).",
+        (Lang::Es, Some(Guide::Manager)) => "🏢 Ser gestor (próximamente)\n\n\
+Si tienes una agencia, podrás conectar a tus clientes con nuestros choferes:\n\n\
+• Pides el viaje por tu cliente y en el canal sale como «Viaje de agencia: tu nombre».\n\
+• Acuerdas con tu cliente lo que paga y fijas cuánto pagas al chofer.\n\
+• El chofer cobra a tu cliente y te entrega la diferencia. Ejemplo: tu cliente paga 3500 CUP y el viaje se cierra en 3300; el chofer te entrega 200.\n\n\
+Si te interesa, pulsa «🤝 Trabaja con nosotros» → «Aplicar a gestor» y te avisaremos.",
+        (Lang::En, Some(Guide::Manager)) => "🏢 Being a manager (coming soon)\n\n\
+If you run an agency, you'll be able to connect your clients with our drivers:\n\n\
+• You request the ride for your client and the channel shows it as \"Agency trip: your name\".\n\
+• You agree with your client what they pay and set what you pay the driver.\n\
+• The driver charges your client and hands you the difference. Example: your client pays 3500 CUP and the trip closes at 3300; the driver hands you 200.\n\n\
+If you're interested, tap \"🤝 Work with us\" → \"Apply as a manager\" and we'll let you know.",
     }
-    let driver = match lang {
-        Lang::Es => "\n\n🏍 Como chofer\n\
-• En el canal de ofertas, «✅ Aceptar» toma el viaje al precio del cliente; «💬 Contraofertar» te deja proponer otro con −/+ y «✅ Enviar».\n\
-• Cuando el cliente te confirma, recibes la recogida, el destino y su contacto. Marca «📍 Llegué» y «🏁 Completado».\n\
-• En «🏍 Chofer» tienes tus estadísticas y tu ficha.",
-        Lang::En => "\n\n🏍 As a driver\n\
-• In the offers channel, \"✅ Accept\" takes the trip at the client's price; \"💬 Counteroffer\" lets you propose another with −/+ and \"✅ Send\".\n\
-• When the client confirms you, you get the pickup, the destination and their contact. Tap \"📍 I'm here\" and \"🏁 Completed\".\n\
-• In \"🏍 Driver\" you have your stats and your profile.",
-    };
-    format!("{client}{driver}")
 }
 
 /// To staff: someone wants to be a manager (not available yet).

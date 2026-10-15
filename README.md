@@ -6,6 +6,8 @@ Todo pasa en Telegram: no hay que instalar nada más. El pago es en CUP, directo
 
 ## Cómo funciona
 
+Dentro del bot, el botón **❓ Cómo funciona** tiene estas mismas guías.
+
 ### Para el cliente
 
 1. Pulsa **🛵 Pedir viaje**.

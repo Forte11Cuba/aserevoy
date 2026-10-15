@@ -441,6 +441,19 @@ pub fn profile_fields(lang: Lang) -> InlineKeyboardMarkup {
     ])
 }
 
+/// Under "❓ How it works": one button per guide, the open one marked.
+pub fn guides(lang: Lang, open: Option<i18n::Guide>) -> InlineKeyboardMarkup {
+    let rows = i18n::Guide::ALL
+        .into_iter()
+        .map(|g| {
+            let label = i18n::guide_button(lang, g);
+            let label = if Some(g) == open { format!("• {label}") } else { label.to_owned() };
+            vec![InlineKeyboardButton::callback(label, format!("help:{}", g.code()))]
+        })
+        .collect::<Vec<_>>();
+    InlineKeyboardMarkup::new(rows)
+}
+
 /// "🤝 Work with us": apply as a driver, or as a manager (coming soon).
 pub fn work_with_us(lang: Lang) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
