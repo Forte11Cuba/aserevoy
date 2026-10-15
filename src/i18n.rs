@@ -416,7 +416,6 @@ pub enum Text {
     AskAlias,
     HistoryDeleted,
     ConfirmFinished,
-    InOffersChannel,
     ChannelNotActive,
     TripMenuBelow,
     NoActiveTrip,
@@ -657,8 +656,6 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, NoActiveTrip) => "You have no trip in progress. Here's the menu.",
         (Lang::Es, Notified) => "✅ Aviso enviado.",
         (Lang::En, Notified) => "✅ Notice sent.",
-        (Lang::Es, InOffersChannel) => "✅ Ya estás en el canal de ofertas. Ahí te llegan las solicitudes de viaje.",
-        (Lang::En, InOffersChannel) => "✅ You're already in the offers channel. Trip requests reach you there.",
         (Lang::Es, ChannelNotActive) => {
             "El canal de ofertas es solo para choferes activos. Si tu ficha está pendiente, te aviso cuando un admin la apruebe."
         }
@@ -1384,6 +1381,19 @@ pub fn application(lang: Lang, p: &Profile, invited: bool) -> String {
         (Lang::Es, false) => format!("🆕 Solicitud de chofer\n\n{card}"),
         (Lang::En, true) => format!("🆕 Driver application (invited)\n\n{card}"),
         (Lang::En, false) => format!("🆕 Driver application\n\n{card}"),
+    }
+}
+
+/// "📢 Offers channel" for a driver already in it: the link again, in case
+/// they can't find the channel among their chats.
+pub fn in_channel(lang: Lang, channel_link: &str) -> String {
+    match lang {
+        Lang::Es => format!(
+            "✅ Ya estás en el canal de ofertas. Ahí te llegan las solicitudes de viaje.\n\nSi no lo encuentras entre tus chats, ábrelo aquí: {channel_link}"
+        ),
+        Lang::En => format!(
+            "✅ You're already in the offers channel. Trip requests reach you there.\n\nIf you can't find it among your chats, open it here: {channel_link}"
+        ),
     }
 }
 

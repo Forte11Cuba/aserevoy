@@ -88,7 +88,7 @@ pub async fn offers_channel(cx: &Ctx<'_>) -> anyhow::Result<()> {
             let member = teloxide::types::UserId(cx.user.0 as u64);
             let inside = cx.bot.get_chat_member(cx.app.channel, member).await.is_ok_and(|m| m.is_present());
             if inside {
-                i18n::text(cx.lang, Text::InOffersChannel).to_owned()
+                i18n::in_channel(cx.lang, &cx.app.channel_link)
             } else {
                 i18n::channel_invite(cx.lang, &cx.app.channel_link)
             }
