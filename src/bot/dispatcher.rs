@@ -103,6 +103,11 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::MyStats) => driver::stats(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
         Some(Button::Support) => support::open(&cx).await,
+        Some(Button::HowItWorks) => {
+            let is_driver = app.driver_status(cx.user).await?.is_some();
+            bot.send_message(chat(cx.user), i18n::how_it_works(cx.lang, is_driver)).await?;
+            Ok(())
+        }
         Some(Button::AdminPanel) => panel::show(&cx).await,
         Some(b @ (Button::PanelDrivers | Button::PanelAdmins | Button::PanelFares | Button::PanelMetrics)) => {
             panel::section(&cx, b).await

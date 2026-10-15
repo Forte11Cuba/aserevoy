@@ -24,6 +24,7 @@ pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup 
     if is_staff {
         rows.push(vec![reply(lang, Button::AdminPanel)]);
     }
+    rows.push(vec![reply(lang, Button::HowItWorks)]);
     rows.push(vec![reply(lang, Button::Support), reply(lang, Button::SwitchLang)]);
     KeyboardMarkup::new(rows).resize_keyboard().persistent()
 }

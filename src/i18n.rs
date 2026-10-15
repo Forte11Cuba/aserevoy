@@ -95,6 +95,7 @@ pub enum Button {
     Withdraw,
     NoneOfThese,
     Support,
+    HowItWorks,
     OnMyWay,
     Arrived,
     ShareTrip,
@@ -127,7 +128,7 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 21] = [
+const REPLY_BUTTONS: [Button; 22] = [
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -143,6 +144,7 @@ const REPLY_BUTTONS: [Button; 21] = [
     Button::MyStats,
     Button::InviteDriver,
     Button::Support,
+    Button::HowItWorks,
     Button::SwitchLang,
     Button::Cancel,
     Button::Skip,
@@ -230,6 +232,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Withdraw) => "🚪 Withdraw",
         (Lang::Es, NoneOfThese) => "❌ Ninguna de estas",
         (Lang::En, NoneOfThese) => "❌ None of these",
+        (Lang::Es, HowItWorks) => "❓ Cómo funciona",
+        (Lang::En, HowItWorks) => "❓ How it works",
         (Lang::Es, Support) => "💬 Soporte",
         (Lang::En, Support) => "💬 Support",
         (Lang::Es, OnMyWay) => "🚶 Ya voy",
@@ -889,6 +893,44 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
 }
 
 /// To admins: a new driver application to approve or reject.
+/// "❓ How it works": the client's steps, and the driver's if they drive.
+pub fn how_it_works(lang: Lang, is_driver: bool) -> String {
+    let client = match lang {
+        Lang::Es => "❓ Cómo funciona\n\n\
+🛵 Pedir un viaje\n\
+1. Pulsa «🛵 Pedir viaje».\n\
+2. Marca la recogida y el destino: tu ubicación, un punto en el mapa, una dirección («23 e/ L y M, Vedado») o un lugar («Coppelia»). Confirma cada punto en el mapa.\n\
+3. Pon tu precio con los botones −/+ y elige cómo pagas: efectivo, transferencia o Bitcoin.\n\
+4. Publica. Los choferes ven solo la zona, nunca tu ubicación exacta.\n\
+5. Un chofer acepta o te hace una contraoferta. Mira su ficha y confírmalo.\n\
+6. Recibes su contacto. Al terminar, pulsa «🏁 Completado» y califícalo.\n\n\
+💰 El pago es directo al chofer; el bot no maneja dinero. Mientras esperas puedes subir el precio o cancelar.",
+        Lang::En => "❓ How it works\n\n\
+🛵 Requesting a ride\n\
+1. Tap \"🛵 Request a ride\".\n\
+2. Mark the pickup and the destination: your location, a point on the map, an address (\"23 e/ L y M, Vedado\") or a place (\"Coppelia\"). Confirm each point on the map.\n\
+3. Set your price with the −/+ buttons and choose how you pay: cash, transfer or Bitcoin.\n\
+4. Publish. Drivers only see the area, never your exact location.\n\
+5. A driver accepts or sends a counteroffer. Check their profile and confirm them.\n\
+6. You get their contact. When you arrive, tap \"🏁 Completed\" and rate them.\n\n\
+💰 You pay the driver directly; the bot handles no money. While you wait you can raise the price or cancel.",
+    };
+    if !is_driver {
+        return client.to_owned();
+    }
+    let driver = match lang {
+        Lang::Es => "\n\n🏍 Como chofer\n\
+• En el canal de ofertas, «✅ Aceptar» toma el viaje al precio del cliente; «💬 Contraofertar» te deja proponer otro con −/+ y «✅ Enviar».\n\
+• Cuando el cliente te confirma, recibes la recogida, el destino y su contacto. Marca «📍 Llegué» y «🏁 Completado».\n\
+• En «🏍 Chofer» tienes tus estadísticas y tu ficha.",
+        Lang::En => "\n\n🏍 As a driver\n\
+• In the offers channel, \"✅ Accept\" takes the trip at the client's price; \"💬 Counteroffer\" lets you propose another with −/+ and \"✅ Send\".\n\
+• When the client confirms you, you get the pickup, the destination and their contact. Tap \"📍 I'm here\" and \"🏁 Completed\".\n\
+• In \"🏍 Driver\" you have your stats and your profile.",
+    };
+    format!("{client}{driver}")
+}
+
 /// To staff: someone wants to be a manager (not available yet).
 pub fn manager_interest(lang: Lang, username: Option<&str>) -> String {
     let who = username.map(|u| format!("@{u}")).unwrap_or_else(|| "?".into());
