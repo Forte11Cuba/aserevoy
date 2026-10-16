@@ -284,12 +284,18 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             // Done: the buttons of the pressed message are spent; the
             // "is the trip over?" question goes away.
             if result.is_none() {
-                if kind == "fok"
-                    && let Some(msg) = pressed
-                {
-                    let _ = bot.delete_message(chat(cx.user), msg).await;
-                } else {
-                    spend(pressed).await;
+                match (kind, pressed) {
+                    ("fok", Some(msg)) => {
+                        let _ = bot.delete_message(chat(cx.user), msg).await;
+                    }
+                    // The message where the price was picked says what it is now,
+                    // so no message is left with an old price.
+                    ("rai", Some(msg)) => {
+                        if let Some(price) = number(arg) {
+                            let _ = bot.edit_message_text(chat(cx.user), msg, i18n::raised_to(cx.lang, price)).await;
+                        }
+                    }
+                    _ => spend(pressed).await,
                 }
             }
             result

@@ -265,7 +265,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 .reply_markup(app.menu(to, lang).await?)
                 .await?;
         }
-        Notice::PriceRaised { request: id } => {
+        Notice::PriceRaised { request: id, .. } => {
             bot.send_message(chat(to), i18n::notice(lang, notice))
                 .reply_markup(keyboards::open_request(lang, id))
                 .await?;
