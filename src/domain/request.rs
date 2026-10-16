@@ -493,7 +493,7 @@ impl Request {
         let id = self.id.clone();
         let mut effects = vec![
             Effect::UpdateChannelPost { request: id.clone() },
-            Effect::Notify { to: self.client, notice: Notice::PriceRaised { request: id.clone() } },
+            Effect::Notify { to: self.client, notice: Notice::PriceRaised { request: id.clone(), price } },
         ];
         let (outbid, kept): (Vec<_>, Vec<_>) =
             std::mem::take(&mut self.counteroffers).into_iter().partition(|o| o.amount <= price);

@@ -1460,8 +1460,10 @@ pub fn notice(lang: Lang, notice: &Notice) -> String {
         ),
         (Lang::Es, SuggestRaise { request }) => format!("⏳ Ningún chofer ha tomado aún tu viaje {request}."),
         (Lang::En, SuggestRaise { request }) => format!("⏳ No driver has taken your trip {request} yet."),
-        (Lang::Es, PriceRaised { request }) => format!("⬆️ Precio actualizado en la solicitud {request}."),
-        (Lang::En, PriceRaised { request }) => format!("⬆️ Price updated on request {request}."),
+        (Lang::Es, PriceRaised { request, price }) => {
+            format!("⬆️ Subiste el precio de la solicitud {request} a {price} CUP.")
+        }
+        (Lang::En, PriceRaised { request, price }) => format!("⬆️ You raised request {request} to {price} CUP."),
         (Lang::Es, StillWaiting { request }) => format!(
             "⏳ Tu solicitud {request} lleva 30 min publicada. ¿Sigues esperando? Si no respondes en 10 min, la retiro."
         ),
@@ -1680,6 +1682,15 @@ pub fn suggest_raise(lang: Lang, request: &RequestId, price: Cup, suggested: Cup
         }
     });
     text
+}
+
+/// What a raise-price message (the 5-minute suggestion, "how much do you
+/// raise it to?") becomes once a price was picked.
+pub fn raised_to(lang: Lang, price: Cup) -> String {
+    match lang {
+        Lang::Es => format!("✅ Subiste a {price} CUP."),
+        Lang::En => format!("✅ You raised it to {price} CUP."),
+    }
 }
 
 pub fn keep_price(lang: Lang, price: Cup) -> String {

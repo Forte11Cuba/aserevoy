@@ -54,7 +54,7 @@ pub enum Notice {
     /// To the client: their request is in the channel.
     Published { request: RequestId },
     /// To the client: their new price is in the channel.
-    PriceRaised { request: RequestId },
+    PriceRaised { request: RequestId, price: Cup },
     /// To the client, 30 minutes in: are they still waiting?
     StillWaiting { request: RequestId },
     /// To the client: a driver accepted; confirm or cancel (rendered with the
