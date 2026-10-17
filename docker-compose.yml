@@ -1,7 +1,8 @@
 # Asere Voy: the bot plus its own OSRM (routing for prices).
 #
 #   cp .env.example .env    # then fill it in
-#   docker compose up -d --build
+#   docker compose up -d --build   # builds the bot from this folder
+#   docker compose pull bot && docker compose up -d   # or uses the published image
 #
 # The first start downloads the Cuba map and prepares it (a few minutes);
 # later starts reuse it. See docs/docker.md.
@@ -55,6 +56,9 @@ services:
     restart: unless-stopped
 
   bot:
+    # Published by GitHub Actions for each version tag (docs/docker.md).
+    # ASEREVOY_VERSION in .env picks one; `--build` builds it here instead.
+    image: ghcr.io/forte11cuba/aserevoy:${ASEREVOY_VERSION:-latest}
     build: .
     # Your settings (copied from .env.example). Without it the bot stops at
     # start with a message saying what is missing.

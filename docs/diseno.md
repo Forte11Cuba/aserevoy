@@ -381,6 +381,7 @@ aserevoy/
   docs/diseno.md          # este documento
   docs/docker.md          # arrancar con Docker, volúmenes, copias y actualizar el mapa
   Dockerfile, docker-compose.yml, docker/osrm-prepare.sh
+  .github/workflows/ci.yml # tests y clippy; la imagen del bot en cada versión
   data/zones.geojson      # contornos de los municipios de La Habana (zona aproximada, ODbL)
   data/streets.sqlite     # calles, esquinas, repartos y lugares de La Habana (ODbL)
   data/README.md          # origen y atribución de los datos de OpenStreetMap
@@ -634,3 +635,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 112 | A los 5 min de publicar (fijos, una sola vez), si ningún chofer tomó la solicitud, se sugiere subir el precio: por debajo del sugerido, el sugerido y un 10 % y un 20 % más; si ya está en el sugerido o por encima, un 10 %, 20 % y 30 % más, mostrados como el precio final ("550 CUP"), igual en los dos casos; redondeado a 50 CUP; se puede escribir otro monto o mantenerlo. Menciona las contraofertas si las hay. No salta si el cliente ya subió el precio | 2026-10-15 |
 | 113 | En el canal, debajo del precio, cómo se compara con el sugerido: "🔴⬇️ 200 CUP menos que el precio sugerido (800 CUP)", "🟢⬆️ 300 CUP más que…" o "⚪🟰 Es el precio sugerido"; "≈" si algún punto es aproximado. Se actualiza al subir el precio | 2026-10-15 |
 | 114 | Al subir el precio, el aviso al cliente dice el precio nuevo ("Subiste el precio de la solicitud VB4A a 600 CUP") y el mensaje donde lo eligió (la sugerencia de los 5 min o "¿A cuánto lo subes?") cambia a "✅ Subiste a 600 CUP", para que ningún mensaje quede con un precio viejo | 2026-10-15 |
+| 115 | GitHub Actions pasa `cargo clippy` y `cargo test` en cada pull request y push a `main`. La imagen del bot solo se construye y publica en `ghcr.io/forte11cuba/aserevoy` con una etiqueta de versión (`v0.1.0` → `:0.1.0`, `:0.1`, `:latest`), si los tests pasan y la etiqueta coincide con `Cargo.toml`. Solo `amd64`. El servidor usa la imagen publicada (`ASEREVOY_VERSION` en `.env` fija la versión); `--build` sigue compilando en local | 2026-10-16 |

@@ -14,6 +14,36 @@ El **primer arranque** descarga el mapa de Cuba de Geofabrik (unos 60 MB) y lo p
 
 No hace falta poner `OSRM_URL`, `DATABASE_URL` ni `STREETS_DB` en `.env`: el compose los fija para los contenedores.
 
+`--build` compila el bot a partir del código de la carpeta (para probar cambios). En el servidor es mejor usar la imagen ya publicada, que no necesita compilar:
+
+```bash
+docker compose pull bot
+docker compose up -d
+```
+
+## Imagen publicada
+
+GitHub Actions (`.github/workflows/ci.yml`) pasa `cargo clippy` y `cargo test` en cada pull request y en cada push a `main`. Al crear una **etiqueta de versión** también construye la imagen del bot y la publica en `ghcr.io/forte11cuba/aserevoy`, solo si los tests pasan. No se publica nada en cada push: solo las versiones.
+
+Para sacar una versión, sube antes `version` en `Cargo.toml` (la etiqueta debe coincidir, o el workflow falla) y luego:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+La versión `v0.1.0` publica las etiquetas `:0.1.0`, `:0.1` y `:latest`.
+
+Por defecto el compose usa `:latest`. Para fijar una versión (y poder volver a una anterior), ponla en `.env`:
+
+```bash
+ASEREVOY_VERSION=0.1.0
+```
+
+y ejecuta `docker compose pull bot && docker compose up -d`.
+
+La imagen no lleva secretos (`.env` queda fuera por `.dockerignore`) y es solo para `amd64`.
+
 ## Qué corre
 
 | Servicio | Qué hace | Memoria |
