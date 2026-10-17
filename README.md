@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="img/logo-amarillo-contorno.svg" alt="Asere Voy" width="360">
+</p>
+
 # Asere Voy
 
 Bot de Telegram que conecta pasajeros y choferes de moto-taxi en La Habana. **Tú propones el precio**: el cliente dice cuánto paga, y los choferes aceptan o contraofertan, al estilo de inDrive.
