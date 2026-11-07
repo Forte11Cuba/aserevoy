@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::domain::fare::Cup;
 use crate::domain::ids::UserId;
 use crate::domain::request::{PaymentMethod, Point};
+use crate::domain::vehicle::VehicleKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Dialog {
@@ -44,6 +45,8 @@ pub struct Republish {
     pub minutes: f64,
     pub price: Cup,
     pub payment: PaymentMethod,
+    #[serde(default)]
+    pub kind: VehicleKind,
 }
 
 /// A client requesting a ride, step by step. Pickup and destination are each
@@ -91,6 +94,9 @@ pub enum Ride {
     /// A description placed at a reparto: "is it around here?" before going
     /// on. `pickup` is `None` while the pickup itself is being confirmed.
     ConfirmApprox { pickup: Option<Spot>, spot: Spot },
+    /// Several kinds of vehicle can do the trip: the client picks one, each
+    /// with its suggested price (decision 117).
+    Vehicle { pickup: Spot, dropoff: Spot, km: f64, minutes: f64 },
     /// The client adjusts their offer, starting at the suggested price.
     Price { trip: Trip, offer: Cup },
     Payment { trip: Trip, price: Cup },
@@ -132,6 +138,11 @@ pub struct Trip {
     pub minutes: f64,
     pub suggested: Cup,
     pub minimum: Cup,
+    #[serde(default)]
+    pub kind: VehicleKind,
+    /// The client picked the kind: Back from the price goes to that step.
+    #[serde(default)]
+    pub chose_kind: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

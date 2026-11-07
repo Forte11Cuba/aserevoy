@@ -58,8 +58,6 @@ pub async fn set(pool: &SqlitePool, kind: VehicleKind, key: FareKey, value: i64)
     Ok(())
 }
 
-// Temporary until the vehicles work wires it in (issue #29).
-#[allow(dead_code)]
 pub async fn load_table(pool: &SqlitePool) -> sqlx::Result<FareTable> {
     Ok(FareTable {
         moto: load_kind(pool, VehicleKind::Moto).await?,
@@ -82,7 +80,7 @@ async fn load_kind(pool: &SqlitePool, kind: VehicleKind) -> sqlx::Result<Fares> 
     })
 }
 
-/// The moto's fares, the only ones in use until the client picks a kind.
+/// The moto's fares.
 pub async fn load(pool: &SqlitePool) -> sqlx::Result<Fares> {
     load_kind(pool, VehicleKind::Moto).await
 }

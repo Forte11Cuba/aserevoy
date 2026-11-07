@@ -8,7 +8,7 @@ use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::reputation::{Role, Tag};
 use crate::domain::request::CancelReason;
-use crate::domain::vehicle::Vehicle;
+use crate::domain::vehicle::{Vehicle, VehicleKind};
 use super::vehicles::Then;
 use crate::i18n::{self, Button, Lang, button};
 
@@ -100,6 +100,15 @@ pub fn price_adjust(lang: Lang, offer: Cup) -> InlineKeyboardMarkup {
         vec![step(100), step(1000), step(5000), step(10000)],
         vec![InlineKeyboardButton::callback(i18n::offer_button(lang, offer), "pok")],
     ])
+}
+
+/// The kinds the client can pick, one per row with its suggested price:
+/// "🏍 Moto · 550 CUP".
+pub fn ride_kinds(lang: Lang, options: &[(VehicleKind, Cup)]) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(options.iter().map(|&(kind, price)| {
+        let label = format!("{} · {price} CUP", i18n::vehicle_kind(lang, kind));
+        vec![InlineKeyboardButton::callback(label, format!("rkind:{}", kind.code()))]
+    }))
 }
 
 /// One method per row, so the labels read well on a phone.

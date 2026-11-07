@@ -397,7 +397,8 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             driver::show_profile(&cx).await?;
             None
         }
-        ("pick" | "drop" | "apx" | "cand" | "mun" | "zone" | "zpg" | "dback" | "padj" | "pok" | "pay" | "pub" | "sback", _) => {
+        ("pick" | "drop" | "apx" | "cand" | "mun" | "zone" | "zpg" | "dback" | "rkind" | "padj" | "pok" | "pay" | "pub"
+         | "sback", _) => {
             if let Some(Dialog::Ride(ride)) = db::dialogs::get(&app.pool, cx.user).await? {
                 client::on_callback(&cx, ride, kind, arg, pressed).await?;
             }

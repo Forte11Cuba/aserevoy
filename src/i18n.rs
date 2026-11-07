@@ -748,6 +748,15 @@ pub fn price_prompt(
     }
 }
 
+/// Before the price, when several kinds can do the trip (decision 117).
+pub fn ask_vehicle(lang: Lang, km: f64, minutes: f64, approx: bool) -> String {
+    let distance = distance(lang, km, minutes, approx);
+    match lang {
+        Lang::Es => format!("{distance}\n\n¿En qué quieres ir? Cada opción tiene su precio sugerido."),
+        Lang::En => format!("{distance}\n\nWhat do you want to go in? Each option has its suggested price."),
+    }
+}
+
 pub fn offer_button(lang: Lang, offer: Cup) -> String {
     match lang {
         Lang::Es => format!("✅ Ofrecer {offer} CUP"),
@@ -763,24 +772,30 @@ pub fn reparto_not_found(lang: Lang, municipality: &str) -> String {
 }
 
 /// The last look before publishing.
-pub fn ride_summary(
-    lang: Lang,
-    from: &str,
-    to: &str,
-    km: f64,
-    approx: bool,
-    price: Cup,
-    pay: PaymentMethod,
-) -> String {
+/// What the client checks before publishing.
+pub struct Summary<'a> {
+    /// Only when the client picked it, so a pilot with motos alone sees no change.
+    pub kind: Option<VehicleKind>,
+    pub from: &'a str,
+    pub to: &'a str,
+    pub km: f64,
+    pub approx: bool,
+    pub price: Cup,
+    pub payment: PaymentMethod,
+}
+
+pub fn ride_summary(lang: Lang, s: &Summary) -> String {
+    let Summary { kind, from, to, km, approx, price, payment: pay } = *s;
     let about = if approx { "≈" } else { "" };
     let per_km = if km > 0.0 { (price as f64 / km).round() as Cup } else { price };
     let pay = payment(lang, pay);
+    let kind = kind.map(|k| format!("{}\n", vehicle_kind(lang, k))).unwrap_or_default();
     match lang {
         Lang::Es => format!(
-            "📋 Revisa tu solicitud\n\n📍 Recogida: {from}\n🏁 Destino: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP por km) · {pay}\n\nSi está bien, publícala; si no, vuelve atrás."
+            "📋 Revisa tu solicitud\n\n{kind}📍 Recogida: {from}\n🏁 Destino: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP por km) · {pay}\n\nSi está bien, publícala; si no, vuelve atrás."
         ),
         Lang::En => format!(
-            "📋 Check your request\n\n📍 Pickup: {from}\n🏁 Destination: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP per km) · {pay}\n\nIf it's right, publish it; if not, go back."
+            "📋 Check your request\n\n{kind}📍 Pickup: {from}\n🏁 Destination: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP per km) · {pay}\n\nIf it's right, publish it; if not, go back."
         ),
     }
 }
@@ -2212,9 +2227,21 @@ mod tests {
 
     #[test]
     fn the_summary_shows_everything_before_publishing() {
-        let text = ride_summary(Lang::Es, "Plaza (23 y L)", "Centro Habana", 3.5, false, 600, PaymentMethod::Cash);
+        let summary = Summary {
+            kind: None,
+            from: "Plaza (23 y L)",
+            to: "Centro Habana",
+            km: 3.5,
+            approx: false,
+            price: 600,
+            payment: PaymentMethod::Cash,
+        };
+        let text = ride_summary(Lang::Es, &summary);
         assert!(text.contains("Recogida: Plaza (23 y L)") && text.contains("Destino: Centro Habana"), "{text}");
         assert!(text.contains("3.5 km · 💰 600 CUP (≈171 CUP por km)"), "{text}");
+        assert!(text.starts_with("📋 Revisa tu solicitud\n\n📍"), "{text}");
+        let text = ride_summary(Lang::Es, &Summary { kind: Some(VehicleKind::Car), ..summary });
+        assert!(text.starts_with("📋 Revisa tu solicitud\n\n🚗 Carro\n📍 Recogida"), "{text}");
     }
 
     #[test]

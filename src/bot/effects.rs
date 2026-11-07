@@ -454,6 +454,7 @@ async fn offer_republish(app: &App, request: &Request) -> anyhow::Result<()> {
         minutes: request.minutes,
         price: request.price,
         payment: request.payment,
+        kind: request.vehicle_kind,
     };
     db::dialogs::set(&app.pool, request.client, &Dialog::Republish(republish), now()).await
 }
