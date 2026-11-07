@@ -122,7 +122,9 @@ Un gestor suele ser una **agencia**: tiene sus propios clientes y los conecta co
 
 ## Vehículos
 
-> **Planificado, sin programar** (decisiones 116 a 130). Hasta que se programe, todos los viajes son en moto.
+> **Programado en la rama `vehiculos`** (issue #29, decisiones 116 a 130), pendiente de la prueba en vivo con un chofer de moto y uno de carro.
+>
+> Detalles de la implementación que no estaban decididos (por confirmar con el usuario): el atajo de la decisión 128 vale también para 💬 Contraofertar ("🚗 Usar Lada rojo y contraofertar"); el tiempo del viaje ya no dice "en moto" ("⏱ unos 9 min"); en el resumen y el paso de precio el tipo solo sale si el cliente lo eligió; un chofer pendiente de aprobación no puede añadir vehículos (el primero va en su solicitud); quitar un vehículo pide confirmación; los términos cambian "motos" por "vehículos" sin subir `TERMS_VERSION`.
 
 Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 116). Un triciclo es una moto de tres ruedas, o una moto con un carro de carga detrás, eléctrica o de gasolina; lleva chapa como una moto. Por ahora no hay más tipos: los colectivos (almendrón, microbús) cambiarían el modelo, porque varias personas comparten un viaje.
 
