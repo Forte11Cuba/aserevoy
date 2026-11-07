@@ -11,6 +11,7 @@ use crate::db::invitations::InviteRole;
 use crate::db::moderation::BlockReason;
 use crate::domain::driver::DriverStatus;
 use crate::domain::fare::FareKey;
+use crate::domain::vehicle::VehicleKind;
 use crate::domain::ids::{InviteCode, UserId};
 use crate::domain::reputation::{CANCELLATION_BLOCK_SECS, Role};
 use crate::i18n::{self, Text};
@@ -141,7 +142,7 @@ pub async fn set_fare(cx: &Ctx<'_>, args: &str) -> anyhow::Result<()> {
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::FareUsage)).await?;
         return Ok(());
     };
-    db::fares::set(&cx.app.pool, key, value).await?;
+    db::fares::set(&cx.app.pool, VehicleKind::Moto, key, value).await?;
     tracing::info!(?key, value, "fare changed");
     show_fares(cx).await
 }

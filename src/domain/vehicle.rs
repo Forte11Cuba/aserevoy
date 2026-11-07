@@ -103,6 +103,16 @@ impl Vehicle {
     }
 }
 
+/// What the driver fills in for a new vehicle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewVehicle {
+    pub kind: VehicleKind,
+    pub plate: String,
+    pub model: String,
+    pub color: String,
+    pub photo_file_id: Option<String>,
+}
+
 pub const MAX_PER_DRIVER: usize = 5;
 
 /// Whether a driver can accept or counteroffer a request for `wanted`, with

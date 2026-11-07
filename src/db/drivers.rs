@@ -83,16 +83,36 @@ pub async fn status(pool: &SqlitePool, id: UserId) -> sqlx::Result<Option<Driver
     Ok(status.as_deref().and_then(DriverStatus::parse))
 }
 
-/// `pending` → `active`. Returns false if someone else already decided.
+/// `pending` → `active`, with the vehicle of the application, which becomes
+/// their active one (decision 121). Returns false if someone else already
+/// decided.
 pub async fn approve(pool: &SqlitePool, id: UserId, by: UserId) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
     let done = sqlx::query(
         "UPDATE drivers SET status = 'active', approved_by = ? WHERE telegram_id = ? AND status = 'pending'",
     )
     .bind(by.0)
     .bind(id.0)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
-    Ok(done.rows_affected() == 1)
+    if done.rows_affected() != 1 {
+        return Ok(false);
+    }
+    sqlx::query("UPDATE vehicles SET status = 'approved', approved_by = ? WHERE driver_id = ? AND status = 'pending'")
+        .bind(by.0)
+        .bind(id.0)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "UPDATE drivers SET active_vehicle_id = (SELECT MIN(id) FROM vehicles WHERE driver_id = ?)
+         WHERE telegram_id = ? AND active_vehicle_id IS NULL",
+    )
+    .bind(id.0)
+    .bind(id.0)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(true)
 }
 
 /// Deletes a pending application. Returns false if it was already decided.
@@ -229,6 +249,26 @@ mod tests {
         let driver = get(&pool, &c, id).await.unwrap().unwrap();
         assert_eq!(driver.status, DriverStatus::Active);
         assert_eq!(driver.profile, profile("Pepito"));
+    }
+
+    #[tokio::test]
+    async fn approving_a_driver_approves_their_first_vehicle() {
+        use crate::db::vehicles;
+        use crate::domain::vehicle::{NewVehicle, VehicleKind, VehicleStatus};
+        let (pool, _dir) = test_pool().await;
+        let (id, admin) = (UserId(7), UserId(1));
+        save_profile(&pool, &cipher(), id, &profile("Pepe"), None, 10).await.unwrap();
+        let car = NewVehicle {
+            kind: VehicleKind::Car,
+            plate: "P123456".into(),
+            model: "Lada".into(),
+            color: "rojo".into(),
+            photo_file_id: None,
+        };
+        let vehicle = vehicles::add(&pool, id, &car, 10).await.unwrap().unwrap();
+        assert!(approve(&pool, id, admin).await.unwrap());
+        let active = vehicles::active(&pool, id).await.unwrap().unwrap();
+        assert_eq!((active.id, active.status), (vehicle, VehicleStatus::Approved));
     }
 
     #[tokio::test]

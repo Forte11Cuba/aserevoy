@@ -15,6 +15,9 @@ pub mod requests;
 pub mod settings;
 pub mod support;
 pub mod users;
+// Temporary until the vehicles work wires it in (issue #29).
+#[allow(dead_code)]
+pub mod vehicles;
 
 use std::str::FromStr;
 use std::time::Duration;

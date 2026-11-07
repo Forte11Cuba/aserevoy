@@ -13,6 +13,7 @@ use super::{admin, chat, keyboards, now};
 use crate::db;
 use crate::domain::driver::DriverStatus;
 use crate::domain::fare::FareKey;
+use crate::domain::vehicle::VehicleKind;
 use crate::domain::ids::UserId;
 use crate::domain::reputation::Role;
 use crate::i18n::{self, Button, Text};
@@ -129,7 +130,7 @@ pub async fn on_callback(cx: &Ctx<'_>, arg: &str, pressed: Option<MessageId>) ->
                 if !key.valid(value) {
                     return Ok(Some(i18n::text(cx.lang, Text::FareOutOfRange).into()));
                 }
-                db::fares::set(&cx.app.pool, key, value).await?;
+                db::fares::set(&cx.app.pool, VehicleKind::Moto, key, value).await?;
                 tracing::info!(?key, value, "fare changed");
                 fares(cx, pressed).await?;
             }
