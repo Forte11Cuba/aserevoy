@@ -14,7 +14,7 @@ Dentro del bot, el botón **❓ Cómo funciona** tiene estas mismas guías.
 
 ### Para el cliente
 
-1. Pulsa **🛵 Pedir viaje**.
+1. Pulsa **🚕 Pedir viaje**.
 2. Marca la **recogida**: tu ubicación, un punto en el mapa, una dirección escrita ("23 e/ L y M, Vedado", "Calle L 23 y 21") o un lugar conocido ("Coppelia"). El bot te lo enseña en el mapa y confirmas con **"Sí, es aquí"**.
 3. Marca el **destino** de la misma forma.
 4. Si hay choferes de varios tipos, eliges **en qué quieres ir** (🏍 moto, 🚗 carro o 🛺 triciclo), cada uno con su precio sugerido; si solo hay de un tipo, el paso no sale. El bot calcula la distancia y te sugiere un precio. **Ajústalo** con −/+ 100, 1k, 5k o 10k (nunca por debajo del mínimo) y elige cómo pagas.

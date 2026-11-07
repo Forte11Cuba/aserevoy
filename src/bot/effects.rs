@@ -253,7 +253,7 @@ async fn trip_menu(bot: &Bot, app: &App, to: UserId, lang: i18n::Lang) -> anyhow
     Ok(())
 }
 
-/// "🛵 My trip": the trip's details again, as when it was assigned.
+/// "🧭 My trip": the trip's details again, as when it was assigned.
 pub async fn resend_trip(bot: &Bot, app: &App, request: &mut Request, to: UserId) -> anyhow::Result<()> {
     let id = request.id.clone();
     let Some(driver) = request.driver else {
@@ -318,6 +318,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
             names.extend(p.full_name.as_deref());
             let card = i18n::TripCard {
                 request: id,
+                kind: request.vehicle_kind,
                 price: request.price,
                 pay: request.payment,
                 distance: i18n::distance(lang, request.km, request.minutes, request.pickup_approx || request.dropoff_approx),
@@ -347,6 +348,7 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
             let handle = username(bot, *client).await;
             let card = i18n::TripCard {
                 request: id,
+                kind: request.vehicle_kind,
                 price: request.price,
                 pay: request.payment,
                 distance: i18n::distance(lang, request.km, request.minutes, request.pickup_approx || request.dropoff_approx),

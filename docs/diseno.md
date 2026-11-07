@@ -718,3 +718,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 129 | Un vehículo que un admin rechaza se borra y se avisa al chofer, que puede añadirlo de nuevo | 2026-11-07 |
 | 130 | La foto propia del chofer se cambia sin aprobación, solo con aviso a los admins, como hoy; la aprobación de la 122 es solo para la chapa y la foto de los vehículos. El primer vehículo se aprueba junto con el chofer, no por separado | 2026-11-07 |
 | 131 | La oferta del canal empieza con el tipo y el ID en una línea, "🚗 Carro · 🆔 ESWA", en vez de "🛵 Solicitud ESWA" debajo del tipo | 2026-11-07 |
+| 132 | El 🛵 deja de marcar el viaje: los mensajes de un viaje (fichas, "un chofer quiere hacer tu viaje", Compartir viaje) llevan el emoji de su tipo (🏍, 🚗, 🛺); los botones generales pasan a 🚕 Pedir viaje y 🧭 Mi viaje, y los teclados viejos con 🛵 siguen funcionando. Sustituye el 🛵 de la 95, la 101 y la 102 | 2026-11-07 |
