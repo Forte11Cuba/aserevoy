@@ -940,7 +940,7 @@ pub fn place(lang: Lang, place: Place) -> &'static str {
 }
 
 
-/// "📏 3.5 km · ⏱ unos 9 min en moto"; "≈" for an approximate point, and
+/// "📏 3.5 km · ⏱ unos 9 min"; "≈" for an approximate point, and
 /// no time when it is unknown.
 pub fn distance(lang: Lang, km: f64, minutes: f64, approx: bool) -> String {
     let about = if approx { "≈" } else { "" };
@@ -948,8 +948,8 @@ pub fn distance(lang: Lang, km: f64, minutes: f64, approx: bool) -> String {
     if minutes > 0.0 {
         let minutes = minutes.round().max(1.0);
         line.push_str(&match lang {
-            Lang::Es => format!(" · ⏱ unos {minutes} min en moto"),
-            Lang::En => format!(" · ⏱ about {minutes} min by motorbike"),
+            Lang::Es => format!(" · ⏱ unos {minutes} min"),
+            Lang::En => format!(" · ⏱ about {minutes} min"),
         });
     }
     line
@@ -962,7 +962,7 @@ pub struct TripCard<'a> {
     pub request: &'a RequestId,
     pub price: Cup,
     pub pay: PaymentMethod,
-    /// "📏 3.5 km · ⏱ unos 9 min en moto".
+    /// "📏 3.5 km · ⏱ unos 9 min".
     pub distance: String,
     /// The other person's names: the driver's alias and full name, or the
     /// client's name (none: "Client").
@@ -974,7 +974,7 @@ pub struct TripCard<'a> {
 
 /// What the client sees once their driver is set: `accepted` when it came
 /// from a counteroffer (or a driver they had not confirmed yet).
-pub fn client_trip_card(lang: Lang, c: &TripCard, p: &Profile, accepted: bool) -> String {
+pub fn client_trip_card(lang: Lang, c: &TripCard, kind: VehicleKind, vehicle: Option<&Vehicle>, accepted: bool) -> String {
     let request = c.request;
     let title = match (lang, accepted) {
         (Lang::Es, false) => format!("🛵 Viaje {request} confirmado: tu chofer va hacia ti."),
@@ -982,9 +982,11 @@ pub fn client_trip_card(lang: Lang, c: &TripCard, p: &Profile, accepted: bool) -
         (Lang::En, false) => format!("🛵 Trip {request} confirmed: your driver is on the way."),
         (Lang::En, true) => format!("🛵 A driver accepted your trip {request}! They're on the way."),
     };
-    let bike = match lang {
-        Lang::Es => format!("🏍 {}, {} · Chapa {}", p.bike_model, p.bike_color, p.plate),
-        Lang::En => format!("🏍 {}, {} · Plate {}", p.bike_model, p.bike_color, p.plate),
+    let name = vehicle_name(lang, kind, vehicle);
+    let bike = match (lang, vehicle) {
+        (Lang::Es, Some(v)) => format!("{name} · Chapa {}", v.plate),
+        (Lang::En, Some(v)) => format!("{name} · Plate {}", v.plate),
+        (_, None) => name,
     };
     let money = match lang {
         Lang::Es => format!("💰 Al terminar le pagas {} CUP · {}", c.price, payment(lang, c.pay)),
@@ -1308,6 +1310,7 @@ pub struct HistoryLine<'a> {
     /// Empty when the client gave no name.
     pub counterpart: &'a str,
     pub stars: Option<i64>,
+    pub kind: VehicleKind,
 }
 
 /// "🧾 My trips": a page of trips, the most recent first, with the user's
@@ -1353,8 +1356,13 @@ pub fn history(lang: Lang, role: Role, trips: &[HistoryLine], total: i64) -> Str
             Lang::En => "Trip",
         };
         text.push_str(&format!(
-            "\n\n{trip} nº {} · {} · {}\n📍 {}\n🏁 {}\n{money}\n👤 {who}{stars}",
-            t.number, t.request, t.when, t.origin, t.destination
+            "\n\n{} {trip} nº {} · {} · {}\n📍 {}\n🏁 {}\n{money}\n👤 {who}{stars}",
+            t.kind.emoji(),
+            t.number,
+            t.request,
+            t.when,
+            t.origin,
+            t.destination
         ));
     }
     text
@@ -1652,18 +1660,43 @@ pub fn channel_confirming(lang: Lang, request: &RequestId) -> String {
 
 /// To the client when a driver accepts: who wants the trip, without the
 /// phone until they confirm.
-pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown) -> String {
+pub fn confirm_driver(
+    lang: Lang,
+    request: &RequestId,
+    p: &Profile,
+    (kind, vehicle): (VehicleKind, Option<&Vehicle>),
+    driver: &Shown,
+) -> String {
     let rep = reputation(lang, driver);
     let name = full_name_line(p);
+    let bike = vehicle_lines(lang, kind, vehicle);
     match lang {
         Lang::Es => format!(
-            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n👤 {}{name}\n🏍 {}, {}\n🔢 Chapa: {}\n{rep}\n\nTienes 5 min para confirmarlo o cancelar.",
-            p.alias, p.bike_model, p.bike_color, p.plate
+            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n👤 {}{name}\n{bike}\n{rep}\n\nTienes 5 min para confirmarlo o cancelar.",
+            p.alias
         ),
         Lang::En => format!(
-            "🛵 A driver wants to take your trip {request}:\n\n👤 {}{name}\n🏍 {}, {}\n🔢 Plate: {}\n{rep}\n\nYou have 5 min to confirm or cancel.",
-            p.alias, p.bike_model, p.bike_color, p.plate
+            "🛵 A driver wants to take your trip {request}:\n\n👤 {}{name}\n{bike}\n{rep}\n\nYou have 5 min to confirm or cancel.",
+            p.alias
         ),
+    }
+}
+
+/// "🚗 Lada, rojo"; only the kind ("🚗 Carro") if the vehicle is gone.
+pub fn vehicle_name(lang: Lang, kind: VehicleKind, vehicle: Option<&Vehicle>) -> String {
+    match vehicle {
+        Some(v) => format!("{} {}, {}", v.kind.emoji(), v.model, v.color),
+        None => vehicle_kind(lang, kind),
+    }
+}
+
+/// The vehicle and, on its own line, its plate.
+pub fn vehicle_lines(lang: Lang, kind: VehicleKind, vehicle: Option<&Vehicle>) -> String {
+    let name = vehicle_name(lang, kind, vehicle);
+    match (lang, vehicle) {
+        (Lang::Es, Some(v)) => format!("{name}\n🔢 Chapa: {}", v.plate),
+        (Lang::En, Some(v)) => format!("{name}\n🔢 Plate: {}", v.plate),
+        (_, None) => name,
     }
 }
 
@@ -1674,16 +1707,24 @@ fn full_name_line(p: &Profile) -> String {
 }
 
 /// One counteroffer, as its own message to the client.
-pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup, driver: &Shown) -> String {
+pub fn offer_card(
+    lang: Lang,
+    request: &RequestId,
+    p: &Profile,
+    (kind, vehicle): (VehicleKind, Option<&Vehicle>),
+    amount: Cup,
+    driver: &Shown,
+) -> String {
     let rep = reputation(lang, driver);
+    let bike = vehicle_name(lang, kind, vehicle);
     match lang {
         Lang::Es => format!(
-            "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n👤 {}\n🏍 {}, {}\n{rep}\n\nVale 5 min.",
-            p.alias, p.bike_model, p.bike_color
+            "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n👤 {}\n{bike}\n{rep}\n\nVale 5 min.",
+            p.alias
         ),
         Lang::En => format!(
-            "💬 Counteroffer for your trip {request}\n\n💰 {amount} CUP\n👤 {}\n🏍 {}, {}\n{rep}\n\nValid for 5 min.",
-            p.alias, p.bike_model, p.bike_color
+            "💬 Counteroffer for your trip {request}\n\n💰 {amount} CUP\n👤 {}\n{bike}\n{rep}\n\nValid for 5 min.",
+            p.alias
         ),
     }
 }
@@ -1893,17 +1934,37 @@ pub fn blocked(lang: Lang, until: Option<&str>) -> String {
 }
 
 /// To the client after "Share trip", to forward to someone they trust.
-pub fn share_trip(lang: Lang, request: &RequestId, p: &Profile, time: &str) -> String {
-    match lang {
-        Lang::Es => format!(
-            "🛵 Voy en moto con Asere Voy.\nChofer: {}\nMoto: {}, {}\nChapa: {}\nSalida: {time}\nViaje: {request}",
-            p.alias, p.bike_model, p.bike_color, p.plate
-        ),
-        Lang::En => format!(
-            "🛵 I'm riding with Asere Voy.\nDriver: {}\nMotorbike: {}, {}\nPlate: {}\nDeparture: {time}\nTrip: {request}",
-            p.alias, p.bike_model, p.bike_color, p.plate
-        ),
+pub fn share_trip(
+    lang: Lang,
+    request: &RequestId,
+    p: &Profile,
+    (kind, vehicle): (VehicleKind, Option<&Vehicle>),
+    time: &str,
+) -> String {
+    let (noun, label) = match (lang, kind) {
+        (Lang::Es, VehicleKind::Moto) => ("moto", "Moto"),
+        (Lang::Es, VehicleKind::Car) => ("carro", "Carro"),
+        (Lang::Es, VehicleKind::Tricycle) => ("triciclo", "Triciclo"),
+        (Lang::En, VehicleKind::Moto) => ("a motorbike", "Motorbike"),
+        (Lang::En, VehicleKind::Car) => ("a car", "Car"),
+        (Lang::En, VehicleKind::Tricycle) => ("a tricycle", "Tricycle"),
+    };
+    let alias = &p.alias;
+    let mut text = match lang {
+        Lang::Es => format!("🛵 Voy en {noun} con Asere Voy.\nChofer: {alias}"),
+        Lang::En => format!("🛵 I'm riding {noun} with Asere Voy.\nDriver: {alias}"),
+    };
+    if let Some(v) = vehicle {
+        text.push_str(&match lang {
+            Lang::Es => format!("\n{label}: {}, {}\nChapa: {}", v.model, v.color, v.plate),
+            Lang::En => format!("\n{label}: {}, {}\nPlate: {}", v.model, v.color, v.plate),
+        });
     }
+    text.push_str(&match lang {
+        Lang::Es => format!("\nSalida: {time}\nViaje: {request}"),
+        Lang::En => format!("\nDeparture: {time}\nTrip: {request}"),
+    });
+    text
 }
 
 /// 💬 Support: the support account to write to, and the code to include.
@@ -2166,15 +2227,17 @@ mod tests {
     #[test]
     fn both_trip_cards_say_each_thing_once_with_the_same_emojis() {
         let id = RequestId::parse("K7X2").unwrap();
-        let p = Profile {
-            alias: "Pepe".into(),
-            full_name: Some("José Pérez Díaz".into()),
-            phone: "+5351234567".into(),
+        let bike = Vehicle {
+            id: 1,
+            driver: crate::domain::ids::UserId(7),
+            kind: VehicleKind::Moto,
             plate: "P123".into(),
-            bike_model: "Suzuki".into(),
-            bike_color: "roja".into(),
-            photo_file_id: "f".into(),
-            bike_photo_file_id: None,
+            model: "Suzuki".into(),
+            color: "roja".into(),
+            photo_file_id: None,
+            status: crate::domain::vehicle::VehicleStatus::Approved,
+            pending_plate: None,
+            pending_photo_file_id: None,
         };
         let rep = Shown { stars: Some(4.8), trips: 23, days: 100 };
         let card = TripCard {
@@ -2187,17 +2250,20 @@ mod tests {
             phone: Some("+5351234567"),
             username: Some("pepe"),
         };
-        let client = client_trip_card(Lang::Es, &card, &p, false);
+        let client = client_trip_card(Lang::Es, &card, VehicleKind::Moto, Some(&bike), false);
         assert_eq!(
             client,
-            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n📏 3.5 km · ⏱ unos 9 min en moto\n👤 Pepe · José Pérez Díaz\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje.\n⭐4.8 · 23 viajes\n📅 100 días usando Asere Voy"
+            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n📏 3.5 km · ⏱ unos 9 min\n👤 Pepe · José Pérez Díaz\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje.\n⭐4.8 · 23 viajes\n📅 100 días usando Asere Voy"
         );
         assert_eq!(client.matches("@pepe").count(), 1);
+        // The vehicle was removed after the trip was assigned: only the kind.
+        let gone = client_trip_card(Lang::Es, &card, VehicleKind::Car, None, false);
+        assert!(gone.contains("\n🚗 Carro\n📞"), "{gone}");
 
         let rep = Shown { stars: None, trips: 2, days: 3 };
         let card = TripCard { names: vec![], reputation: &rep, phone: None, username: Some("ana"), ..card };
         let driver = driver_trip_card(Lang::Es, &card, Some("frente a la bodega"));
-        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n📏 3.5 km · ⏱ unos 9 min en moto\n👤 Cliente\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
+        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n📏 3.5 km · ⏱ unos 9 min\n👤 Cliente\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
         assert!(!driver.contains("📞"), "{driver}");
     }
 
@@ -2248,7 +2314,7 @@ mod tests {
     fn the_offer_shows_its_price_per_km() {
         let text = price_prompt(Lang::Es, 52.8, 68.0, 8010, 6410, 8010, true);
         assert!(text.contains("8010 CUP (≈152 CUP por km)"), "{text}");
-        assert!(text.contains("📏 ≈52.8 km · ⏱ unos 68 min en moto"), "{text}");
+        assert!(text.contains("📏 ≈52.8 km · ⏱ unos 68 min"), "{text}");
     }
 
     #[test]

@@ -14,6 +14,7 @@ use crate::domain::effect::{Alert, Effect, Notice, Place};
 use crate::domain::reputation::{CANCELLATION_BLOCK_SECS, Reputation, Role, Shown, cancellation_blocks};
 use crate::domain::ids::UserId;
 use crate::domain::request::{Point, Request};
+use crate::domain::vehicle::Vehicle;
 use crate::i18n::{self, Lang, Post, Text};
 
 /// The channel is shared by all drivers, so it uses the default language.
@@ -167,6 +168,15 @@ async fn publish(bot: &Bot, app: &App, request: &mut Request) -> anyhow::Result<
     Ok(())
 }
 
+/// The vehicle the request is held or done with (decision 123), even if the
+/// driver switched since; `None` if it was removed.
+pub async fn trip_vehicle(app: &App, request: &Request) -> anyhow::Result<Option<Vehicle>> {
+    Ok(match request.vehicle {
+        Some(id) => db::vehicles::get(&app.pool, id).await?,
+        None => None,
+    })
+}
+
 /// Sends the client one message with this driver's counteroffer, and records
 /// it so it can be deleted later. If the offer changed while sending, the
 /// message is already stale and goes at once.
@@ -175,12 +185,21 @@ async fn show_offer(bot: &Bot, app: &App, request: &Request, driver: UserId) -> 
         return Ok(());
     };
     let profile = db::drivers::get(&app.pool, &app.cipher, driver).await?.context("driver has no profile")?.profile;
+    // Their active vehicle: they cannot switch while the offer is live.
+    let vehicle = db::vehicles::active(&app.pool, driver).await?;
     let client = request.client;
     let lang = app.lang_of(client).await;
     let photo = InputFile::file_id(FileId(profile.photo_file_id.clone()));
     let sent = bot
         .send_photo(chat(client), photo)
-        .caption(i18n::offer_card(lang, &request.id, &profile, offer.amount, &shown(app, driver, Role::Driver).await?))
+        .caption(i18n::offer_card(
+            lang,
+            &request.id,
+            &profile,
+            (request.vehicle_kind, vehicle.as_ref()),
+            offer.amount,
+            &shown(app, driver, Role::Driver).await?,
+        ))
         .reply_markup(keyboards::offer(lang, &request.id, driver))
         .await?;
     if !db::counteroffers::set_msg(&app.pool, &request.id, driver, offer.expires_at, sent.id.0).await? {
@@ -219,6 +238,7 @@ async fn record_history(app: &App, request: &Request, client: UserId, driver: Us
             payment: request.payment,
             counterpart,
             stars: None,
+            vehicle_kind: request.vehicle_kind,
         };
         db::history::record(&app.pool, &app.cipher, user, role, &entry, code).await?;
     }
@@ -278,10 +298,12 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
         }
         Notice::ConfirmDriver { request: id, driver } => {
             let driver = driver_profile(*driver).await?;
+            let vehicle = trip_vehicle(app, request).await?;
             let photo = InputFile::file_id(FileId(driver.profile.photo_file_id.clone()));
+            let rep = shown(app, driver.id, Role::Driver).await?;
             let sent = bot
                 .send_photo(chat(to), photo)
-                .caption(i18n::confirm_driver(lang, id, &driver.profile, &shown(app, driver.id, Role::Driver).await?))
+                .caption(i18n::confirm_driver(lang, id, &driver.profile, (request.vehicle_kind, vehicle.as_ref()), &rep))
                 .reply_markup(keyboards::confirm_driver(lang, id, driver.id))
                 .await?;
             db::requests::set_confirm_msg(&app.pool, id, Some(sent.id.0)).await?;
@@ -305,7 +327,8 @@ async fn notify(bot: &Bot, app: &App, request: &Request, to: UserId, notice: &No
                 username: contact.as_deref(),
             };
             let accepted = matches!(notice, Notice::DriverAssigned { .. });
-            let text = i18n::client_trip_card(lang, &card, p, accepted);
+            let vehicle = trip_vehicle(app, request).await?;
+            let text = i18n::client_trip_card(lang, &card, request.vehicle_kind, vehicle.as_ref(), accepted);
             let markup = keyboards::client_trip(lang, id);
             if accepted {
                 // They have not seen this driver's photo yet.

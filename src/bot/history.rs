@@ -46,6 +46,7 @@ pub async fn show(cx: &Ctx<'_>, role: Role, page: i64, pressed: Option<MessageId
             pay: e.payment,
             counterpart: &e.counterpart,
             stars: e.stars,
+            kind: e.vehicle_kind,
         })
         .collect();
     let text = i18n::history(cx.lang, role, &lines, total);

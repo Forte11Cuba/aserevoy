@@ -300,6 +300,8 @@ pub async fn share(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &RequestId)
         return Ok(Some(i18n::text(lang, Text::SomethingFailed).into()));
     };
     let departure = local_time(request.assigned_at.unwrap_or_else(now));
-    bot.send_message(chat(by), i18n::share_trip(lang, id, &driver.profile, &departure)).await?;
+    let vehicle = effects::trip_vehicle(app, &request).await?;
+    let text = i18n::share_trip(lang, id, &driver.profile, (request.vehicle_kind, vehicle.as_ref()), &departure);
+    bot.send_message(chat(by), text).await?;
     Ok(None)
 }
