@@ -1180,13 +1180,13 @@ Un bot de Telegram que conecta pasajeros y choferes de moto, carro o triciclo en
 • Tú propones el precio: los choferes lo aceptan o te hacen una contraoferta.\n\
 • El pago es en CUP, directo al chofer (efectivo, transferencia o bitcoin). El bot no maneja dinero.\n\
 • Ves la foto, el vehículo, la chapa, el nombre y la reputación del chofer antes de confirmarlo.\n\
-• No guardamos historial de viajes: cada solicitud se borra al terminar.",
+• Tus viajes completados quedan 45 días en 🧾 Mis viajes, cifrados y sin ubicaciones exactas; solo los ves tú y puedes borrarlos.",
         (Lang::En, Some(Guide::About)) => "🤔 What is Asere Voy?\n\n\
 A Telegram bot that connects passengers with motorbike, car and tricycle drivers in Havana.\n\n\
 • You set the price: drivers accept it or send you a counteroffer.\n\
 • You pay in CUP, directly to the driver (cash, transfer or bitcoin). The bot handles no money.\n\
 • You see the driver's photo, vehicle, plate, name and reputation before confirming them.\n\
-• We keep no trip history: each request is deleted when it ends.",
+• Your completed trips stay 45 days in 🧾 My trips, encrypted and without exact locations; only you see them and you can delete them.",
         (Lang::Es, Some(Guide::Ride)) => "🛵 Pedir un viaje\n\n\
 1. Pulsa «🛵 Pedir viaje».\n\
 2. Marca la recogida y el destino: tu ubicación, un punto en el mapa, una dirección («23 e/ L y M, Vedado») o un lugar («Coppelia»). Confirma cada punto en el mapa.\n\
