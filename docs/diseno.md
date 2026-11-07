@@ -122,7 +122,7 @@ Un gestor suele ser una **agencia**: tiene sus propios clientes y los conecta co
 
 ## Vehículos
 
-> **Planificado, sin programar** (decisiones 116 a 126). Hasta que se programe, todos los viajes son en moto.
+> **Planificado, sin programar** (decisiones 116 a 127). Hasta que se programe, todos los viajes son en moto.
 
 Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 116). Un triciclo es una moto de tres ruedas, o una moto con un carro de carga detrás, eléctrica o de gasolina; lleva chapa como una moto. Por ahora no hay más tipos: los colectivos (almendrón, microbús) cambiarían el modelo, porque varias personas comparten un viaje.
 
@@ -135,7 +135,7 @@ Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 11
 **El cliente elige el tipo** (decisión 117).
 
 - El paso va **después de confirmar el destino y antes del precio**, porque el precio sugerido depende de los km: "¿En qué quieres ir?", con un botón por tipo y su precio sugerido (`🏍 Moto · 550 CUP`, `🚗 Carro · 900 CUP`, `🛺 Triciclo · 400 CUP`), uno por fila, y Atrás.
-- **Solo salen los tipos que alguien puede hacer**: los que tienen al menos un chofer `activo` con un vehículo aprobado de ese tipo como vehículo activo. Si solo hay un tipo, el paso se salta y el flujo queda como hoy.
+- **Solo salen los tipos que alguien puede hacer**: los que tienen al menos un chofer `activo` con un vehículo aprobado de ese tipo inscrito, **aunque no sea su vehículo activo** (decisión 127). Un chofer con moto y carro que tiene activa la moto cuenta para los dos: si cae un viaje de carro, activa el carro y lo toma. La lista se calcula en cada pedido: si no hay ninguna moto inscrita pero sí carros y triciclos, salen solo carro y triciclo. Si solo hay un tipo, el paso se salta y el flujo queda como hoy.
 - Al elegir un tipo, el paso de precio arranca en su precio sugerido y no deja bajar de su mínimo. El botón Atrás del precio vuelve a este paso. Subir el precio, la sugerencia de los 5 min, las contraofertas y el resumen funcionan igual, con el sugerido de ese tipo.
 - No se pregunta cuántos pasajeros van: el cliente sabe cuántos caben en cada tipo (decisión 125). No hay opción "Cualquiera".
 - 🔁 Publicar de nuevo y Republicar al mismo precio repiten el mismo tipo.
@@ -699,7 +699,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 114 | Al subir el precio, el aviso al cliente dice el precio nuevo ("Subiste el precio de la solicitud VB4A a 600 CUP") y el mensaje donde lo eligió (la sugerencia de los 5 min o "¿A cuánto lo subes?") cambia a "✅ Subiste a 600 CUP", para que ningún mensaje quede con un precio viejo | 2026-10-15 |
 | 115 | GitHub Actions pasa `cargo clippy` y `cargo test` en cada pull request y push a `main`. La imagen del bot solo se construye y publica en `ghcr.io/forte11cuba/aserevoy` con una etiqueta de versión (`v0.1.0` → `:0.1.0`, `:0.1`, `:latest`), si los tests pasan y la etiqueta coincide con `Cargo.toml`. Solo `amd64`. El servidor usa la imagen publicada (`ASEREVOY_VERSION` en `.env` fija la versión); `--build` sigue compilando en local | 2026-10-16 |
 | 116 | Además de moto, carro y triciclo (moto de tres ruedas o con carro de carga, eléctrica o de gasolina; lleva chapa). Sin más tipos por ahora: los colectivos quedan fuera | 2026-11-07 |
-| 117 | El cliente elige el tipo después del destino y antes del precio, con un botón por tipo y su precio sugerido; solo salen los tipos con al menos un chofer activo con ese vehículo activo, y el paso se salta si hay uno solo. Publicar de nuevo y Republicar repiten el tipo | 2026-11-07 |
+| 117 | El cliente elige el tipo después del destino y antes del precio, con un botón por tipo y su precio sugerido; solo salen los tipos con al menos un chofer activo con ese vehículo activo, y el paso se salta si hay uno solo. Publicar de nuevo y Republicar repiten el tipo. *Qué tipos salen, sustituido por la decisión 127* | 2026-11-07 |
 | 118 | Tarifas (`base`, `tarifa_km`, `% mínimo`) por tipo; las de carro y triciclo empiezan copiando las de moto. Tarifas en ⚙️ Administración elige primero el tipo; `/tarifa carro km 80`, y sin tipo, la moto | 2026-11-07 |
 | 119 | Un solo canal para los tres tipos, con el tipo en la primera línea de la oferta. Aceptar y contraofertar solo valen si el vehículo activo del chofer es del tipo de la solicitud; si no, se le explica cómo cambiarlo | 2026-11-07 |
 | 120 | Un chofer puede tener hasta 5 vehículos y uno activo, que elige cuando quiera, salvo con una solicitud en confirmación, un viaje asignado o contraofertas vigentes. Chapa obligatoria en los tres tipos; foto del vehículo opcional | 2026-11-07 |
@@ -709,3 +709,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 124 | La reputación, las estadísticas y los totales por mes son del chofer, no del vehículo | 2026-11-07 |
 | 125 | No se pregunta cuántos pasajeros van ni hay opción "Cualquiera" | 2026-11-07 |
 | 126 | Tabla `vehicles` y `drivers.active_vehicle_id`; `requests.vehicle_kind` y `vehicle_id`; claves de tarifa por tipo. La moto de cada chofer pasa a `vehicles`, aprobada si el chofer está activo, como vehículo activo; las columnas viejas quedan sin uso. Los textos de "moto-taxi" pasan a moto, carro o triciclo; 🏍 sigue marcando a los choferes | 2026-11-07 |
+| 127 | Al cliente le salen los tipos con al menos un chofer `activo` que tiene un vehículo aprobado de ese tipo, sea o no su vehículo activo; se calcula en cada pedido. El chofer que ve una oferta de otro de sus tipos cambia de vehículo activo y la toma. Sustituye en la 117 "con ese vehículo activo" | 2026-11-07 |
