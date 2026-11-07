@@ -8,7 +8,7 @@ use crate::domain::fare::{Cup, Fares};
 use crate::domain::ids::RequestId;
 use crate::domain::reputation::{Reputation, Role, Shown, Tag};
 use crate::domain::request::{CancelReason, DomainError, PaymentMethod, UnixTime};
-use crate::domain::vehicle::{VehicleKind, MAX_PER_DRIVER};
+use crate::domain::vehicle::{MAX_PER_DRIVER, Vehicle, VehicleKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Lang {
@@ -388,6 +388,8 @@ pub enum Text {
     AlreadyTaken,
     DriverBusy,
     AcceptedAlert,
+    /// The active vehicle does not fit; the bot wrote with a button to switch.
+    SwitchOffered,
     AlreadyClosed,
     KeptWaiting,
     Withdrawn,
@@ -540,6 +542,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AlreadyTaken) => "Already taken.",
         (Lang::Es, DriverBusy) => "Ya tienes un viaje asignado. Complétalo o cancélalo primero.",
         (Lang::En, DriverBusy) => "You already have an assigned trip. Complete or cancel it first.",
+        (Lang::Es, SwitchOffered) => "Tu vehículo activo no es de este tipo. Te escribí por privado para cambiarlo.",
+        (Lang::En, SwitchOffered) => "Your active vehicle is not of this kind. I wrote to you privately to switch it.",
         (Lang::Es, AcceptedAlert) => "¡Reservado! El cliente tiene 5 min para confirmarte. Te escribí por privado.",
         (Lang::En, AcceptedAlert) => "Reserved! The client has 5 min to confirm you. I've messaged you privately.",
         (Lang::Es, AlreadyClosed) => "Este viaje ya se cerró.",
@@ -833,6 +837,7 @@ pub fn approx_point(lang: Lang, place: Place, note: &str, municipality: Option<&
 /// What the channel shows of a request.
 pub struct Post<'a> {
     pub request: &'a RequestId,
+    pub vehicle_kind: VehicleKind,
     pub km: f64,
     /// By road; 0 when unknown.
     pub minutes: f64,
@@ -859,10 +864,12 @@ pub struct Post<'a> {
 pub fn channel_post(lang: Lang, p: &Post) -> String {
     let (request, km, price) = (p.request, p.km, p.price);
     let pay = payment(lang, p.payment);
-    let mut post = match lang {
+    // The kind first: drivers of other kinds skip it (decision 119).
+    let mut post = format!("{}\n", vehicle_kind(lang, p.vehicle_kind));
+    post.push_str(&match lang {
         Lang::Es => format!("🛵 Solicitud {request}\n"),
         Lang::En => format!("🛵 Request {request}\n"),
-    };
+    });
     if p.from.is_some() || p.to.is_some() {
         let zone = |m: Option<&str>, corner: &Option<String>| match corner {
             Some(c) => format!("{} ({c})", m.unwrap_or("?")),
@@ -1598,6 +1605,17 @@ pub fn domain_error(lang: Lang, error: &DomainError) -> String {
     }
 }
 
+/// "🚗 Usar Lada rojo y aceptar" (decision 128).
+pub fn use_vehicle_and(lang: Lang, v: &Vehicle, accept: bool) -> String {
+    let (emoji, name) = (v.kind.emoji(), format!("{} {}", v.model, v.color));
+    match (lang, accept) {
+        (Lang::Es, true) => format!("{emoji} Usar {name} y aceptar"),
+        (Lang::Es, false) => format!("{emoji} Usar {name} y contraofertar"),
+        (Lang::En, true) => format!("{emoji} Use {name} and accept"),
+        (Lang::En, false) => format!("{emoji} Use {name} and counteroffer"),
+    }
+}
+
 /// The kind with its emoji: "🚗 Carro".
 pub fn vehicle_kind(lang: Lang, kind: VehicleKind) -> String {
     let name = match (lang, kind) {
@@ -2107,6 +2125,7 @@ mod tests {
         let id = RequestId::parse("K7X2").unwrap();
         let post = Post {
             request: &id,
+            vehicle_kind: VehicleKind::Car,
             km: 3.5,
             minutes: 9.4,
             price: 600,
@@ -2121,6 +2140,7 @@ mod tests {
             cancellations: Some(1),
         };
         let text = channel_post(Lang::Es, &post);
+        assert!(text.starts_with("🚗 Carro\n🛵 Solicitud K7X2\n📍 Plaza"), "{text}");
         assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
         assert!(text.contains("💰 600 CUP · 💵 Efectivo\n🔴⬇️ 200 CUP menos que el precio sugerido (800 CUP)\n"), "{text}");
         assert_eq!(against_suggested(Lang::Es, 1100, 800, true), "🟢⬆️ 300 CUP más que el precio sugerido (≈800 CUP)");

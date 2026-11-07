@@ -8,6 +8,8 @@ use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::reputation::{Role, Tag};
 use crate::domain::request::CancelReason;
+use crate::domain::vehicle::Vehicle;
+use super::vehicles::Then;
 use crate::i18n::{self, Button, Lang, button};
 
 fn reply(lang: Lang, b: Button) -> KeyboardButton {
@@ -178,6 +180,13 @@ pub fn counteroffer_steps(request: &RequestId) -> InlineKeyboardMarkup {
         vec![step(-100), step(-1000), step(-5000), step(-10000)],
         vec![step(100), step(1000), step(5000), step(10000)],
     ])
+}
+
+/// "🚗 Use Lada rojo and accept" (decision 128).
+pub fn switch_vehicle(lang: Lang, request: &RequestId, vehicle: &Vehicle, then: Then) -> InlineKeyboardMarkup {
+    let label = i18n::use_vehicle_and(lang, vehicle, then == Then::Accept);
+    let data = format!("{}:{request}:{}", then.code(), vehicle.id);
+    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(label, data)]])
 }
 
 /// Below, while a driver makes a counteroffer: send the amount, or leave.

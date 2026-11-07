@@ -111,6 +111,7 @@ pub async fn apply(bot: &Bot, app: &App, request: &mut Request, effects: Vec<Eff
 pub async fn post_of<'a>(app: &'a App, request: &'a Request) -> anyhow::Result<Post<'a>> {
     Ok(Post {
         request: &request.id,
+        vehicle_kind: request.vehicle_kind,
         km: request.km,
         minutes: request.minutes,
         price: request.price,

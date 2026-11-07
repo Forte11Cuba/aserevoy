@@ -16,6 +16,7 @@ use crate::domain::fare::{self, Cup};
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::reputation::Role;
 use crate::domain::request::{DomainError, NewRequest, PaymentMethod, Point, Request, State};
+use crate::domain::vehicle::VehicleKind;
 use crate::domain::driver;
 use crate::i18n::{self, Button, Lang, Text, parse_button};
 use crate::location::jev::{self, Decision};
@@ -654,6 +655,7 @@ async fn publish(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -
         minutes: trip.minutes,
         price,
         payment,
+        vehicle_kind: VehicleKind::Moto,
     };
 
     // Ids are short, so a collision is possible: retry with a new one.

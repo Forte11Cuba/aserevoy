@@ -5,6 +5,7 @@ use super::counteroffers;
 use crate::domain::fare::Cup;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::request::{PaymentMethod, Point, Request, State, UnixTime};
+use crate::domain::vehicle::{VehicleId, VehicleKind};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InsertOutcome {
@@ -20,8 +21,9 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
         "INSERT INTO requests (id, client_id, client_phone, pickup_lat, pickup_lon,
              dropoff_lat, dropoff_lon, reference, km, price, payment, state, driver_id,
              channel_msg_id, created_at, assigned_at, check_at, answer_by, confirm_by, on_my_way_at,
-             arrived_at, expires_at, pickup_approx, dropoff_approx, dropoff_note, suggested, minutes, nudge_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             arrived_at, expires_at, pickup_approx, dropoff_approx, dropoff_note, suggested, minutes, nudge_at,
+             vehicle_kind, vehicle_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(r.id.as_str())
     .bind(r.client.0)
@@ -51,6 +53,8 @@ pub async fn insert(pool: &SqlitePool, r: &Request) -> sqlx::Result<InsertOutcom
     .bind(r.suggested)
     .bind(r.minutes)
     .bind(r.nudge_at)
+    .bind(r.vehicle_kind.code())
+    .bind(r.vehicle)
     .execute(pool)
     .await;
 
@@ -80,26 +84,34 @@ pub async fn get(pool: &SqlitePool, id: &RequestId) -> sqlx::Result<Option<Reque
 }
 
 /// The driver's hold on a free driver: reserves the request for them while the
-/// client confirms, only if it is still open and not expired and the driver
-/// holds nothing else. Exactly one concurrent caller wins.
+/// client confirms, only if it is still open and not expired, the driver
+/// holds nothing else and `vehicle` is still their approved active vehicle of
+/// the request's kind. Exactly one concurrent caller wins.
 pub async fn try_reserve(
     pool: &SqlitePool,
     id: &RequestId,
     driver: UserId,
+    vehicle: VehicleId,
     confirm_by: UnixTime,
     now: UnixTime,
 ) -> sqlx::Result<bool> {
     let result = sqlx::query(
-        "UPDATE requests SET state = 'confirming', driver_id = ?, confirm_by = ?, answer_by = NULL
+        "UPDATE requests SET state = 'confirming', driver_id = ?, vehicle_id = ?, confirm_by = ?, answer_by = NULL
          WHERE id = ? AND state = 'open' AND expires_at > ? AND client_id != ?
-           AND NOT EXISTS (SELECT 1 FROM requests WHERE driver_id = ? AND state IN ('confirming', 'assigned'))",
+           AND NOT EXISTS (SELECT 1 FROM requests WHERE driver_id = ? AND state IN ('confirming', 'assigned'))
+           AND EXISTS (SELECT 1 FROM drivers JOIN vehicles ON vehicles.id = drivers.active_vehicle_id
+                       WHERE drivers.telegram_id = ? AND vehicles.id = ? AND vehicles.status = 'approved'
+                         AND vehicles.kind = requests.vehicle_kind)",
     )
     .bind(driver.0)
+    .bind(vehicle)
     .bind(confirm_by)
     .bind(id.as_str())
     .bind(now)
     .bind(driver.0)
     .bind(driver.0)
+    .bind(driver.0)
+    .bind(vehicle)
     .execute(pool)
     .await;
     affected_one(result)
@@ -123,7 +135,7 @@ pub async fn confirm(pool: &SqlitePool, id: &RequestId, driver: UserId, now: Uni
 /// `confirming` → `open`: the reserved driver withdraws.
 pub async fn release(pool: &SqlitePool, id: &RequestId, driver: UserId) -> sqlx::Result<bool> {
     let done = sqlx::query(
-        "UPDATE requests SET state = 'open', driver_id = NULL, confirm_by = NULL
+        "UPDATE requests SET state = 'open', driver_id = NULL, vehicle_id = NULL, confirm_by = NULL
          WHERE id = ? AND state = 'confirming' AND driver_id = ?",
     )
     .bind(id.as_str())
@@ -139,17 +151,23 @@ pub async fn assign_counteroffer(
     pool: &SqlitePool,
     id: &RequestId,
     driver: UserId,
+    vehicle: VehicleId,
     amount: Cup,
     now: UnixTime,
 ) -> sqlx::Result<bool> {
     let result = sqlx::query(
-        "UPDATE requests SET state = 'assigned', driver_id = ?, price = ?, assigned_at = ?, answer_by = NULL
+        "UPDATE requests SET state = 'assigned', driver_id = ?, vehicle_id = ?, price = ?, assigned_at = ?,
+             answer_by = NULL
          WHERE id = ? AND state = 'open' AND expires_at > ?
            AND EXISTS (SELECT 1 FROM counteroffers
                        WHERE request_id = ? AND driver_id = ? AND amount = ? AND expires_at > ?)
-           AND NOT EXISTS (SELECT 1 FROM requests WHERE driver_id = ? AND state IN ('confirming', 'assigned'))",
+           AND NOT EXISTS (SELECT 1 FROM requests WHERE driver_id = ? AND state IN ('confirming', 'assigned'))
+           AND EXISTS (SELECT 1 FROM drivers JOIN vehicles ON vehicles.id = drivers.active_vehicle_id
+                       WHERE drivers.telegram_id = ? AND vehicles.id = ? AND vehicles.status = 'approved'
+                         AND vehicles.kind = requests.vehicle_kind)",
     )
     .bind(driver.0)
+    .bind(vehicle)
     .bind(amount)
     .bind(now)
     .bind(id.as_str())
@@ -159,6 +177,8 @@ pub async fn assign_counteroffer(
     .bind(amount)
     .bind(now)
     .bind(driver.0)
+    .bind(driver.0)
+    .bind(vehicle)
     .execute(pool)
     .await;
     affected_one(result)
@@ -353,6 +373,7 @@ fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
     let id: String = row.try_get("id")?;
     let state: String = row.try_get("state")?;
     let payment: String = row.try_get("payment")?;
+    let vehicle_kind: String = row.try_get("vehicle_kind")?;
     Ok(Request {
         id: RequestId::parse(&id).ok_or_else(|| decode_err("request id"))?,
         client: UserId(row.try_get("client_id")?),
@@ -370,6 +391,8 @@ fn from_row(row: &SqliteRow) -> sqlx::Result<Request> {
         payment: PaymentMethod::parse(&payment).ok_or_else(|| decode_err("payment"))?,
         state: State::parse(&state).ok_or_else(|| decode_err("state"))?,
         driver: row.try_get::<Option<i64>, _>("driver_id")?.map(UserId),
+        vehicle_kind: VehicleKind::parse(&vehicle_kind).ok_or_else(|| decode_err("vehicle kind"))?,
+        vehicle: row.try_get("vehicle_id")?,
         channel_msg_id: row.try_get("channel_msg_id")?,
         confirm_msg_id: row.try_get("confirm_msg_id")?,
         created_at: row.try_get("created_at")?,
@@ -408,13 +431,53 @@ mod tests {
             minutes: 6.0,
             price: 400,
             payment: PaymentMethod::Transfer,
+            vehicle_kind: VehicleKind::Moto,
         };
         let fares = Fares { base: 100, per_km: 150, min_percent: 80 };
         Request::open(RequestId::parse(id).unwrap(), new, &fares, T0).unwrap().0
     }
 
+    /// An active driver with an approved active vehicle of `kind` (created
+    /// the first time); its id.
+    async fn driver_with(pool: &SqlitePool, driver: i64, kind: VehicleKind) -> VehicleId {
+        sqlx::query("INSERT OR IGNORE INTO drivers (telegram_id, alias, status, created_at) VALUES (?, 'Pepe', 'active', 0)")
+            .bind(driver)
+            .execute(pool)
+            .await
+            .unwrap();
+        let existing: Option<i64> = sqlx::query_scalar(
+            "SELECT vehicles.id FROM vehicles JOIN drivers ON drivers.active_vehicle_id = vehicles.id
+             WHERE drivers.telegram_id = ? AND vehicles.kind = ?",
+        )
+        .bind(driver)
+        .bind(kind.code())
+        .fetch_optional(pool)
+        .await
+        .unwrap();
+        if let Some(id) = existing {
+            return id;
+        }
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO vehicles (driver_id, kind, plate, model, color, status, created_at)
+             VALUES (?, ?, 'P1', 'Suzuki', 'rojo', 'approved', 0) RETURNING id",
+        )
+        .bind(driver)
+        .bind(kind.code())
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE drivers SET active_vehicle_id = ? WHERE telegram_id = ?")
+            .bind(id)
+            .bind(driver)
+            .execute(pool)
+            .await
+            .unwrap();
+        id
+    }
+
     async fn reserve(pool: &SqlitePool, r: &Request, driver: i64) -> bool {
-        try_reserve(pool, &r.id, UserId(driver), T0 + 1 + CONFIRM_SECS, T0 + 1).await.unwrap()
+        let vehicle = driver_with(pool, driver, VehicleKind::Moto).await;
+        try_reserve(pool, &r.id, UserId(driver), vehicle, T0 + 1 + CONFIRM_SECS, T0 + 1).await.unwrap()
     }
 
     #[tokio::test]
@@ -518,7 +581,29 @@ mod tests {
         insert(&pool, &r).await.unwrap();
         assert!(!reserve(&pool, &r, 1).await);
         let late = T0 + REQUEST_TTL_SECS;
-        assert!(!try_reserve(&pool, &r.id, UserId(9), late + CONFIRM_SECS, late).await.unwrap());
+        let vehicle = driver_with(&pool, 9, VehicleKind::Moto).await;
+        assert!(!try_reserve(&pool, &r.id, UserId(9), vehicle, late + CONFIRM_SECS, late).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn only_the_active_vehicle_of_the_kind_reserves_and_is_kept() {
+        let (pool, _dir) = test_pool().await;
+        let mut r = request("AB7K", 1);
+        r.vehicle_kind = VehicleKind::Car;
+        insert(&pool, &r).await.unwrap();
+        let moto = driver_with(&pool, 9, VehicleKind::Moto).await;
+        let reserve_with = |vehicle| try_reserve(&pool, &r.id, UserId(9), vehicle, T0 + 1 + CONFIRM_SECS, T0 + 1);
+        assert!(!reserve_with(moto).await.unwrap());
+
+        // Switched to a car (after the check, before reserving: the moto's id no longer counts).
+        let car = driver_with(&pool, 9, VehicleKind::Car).await;
+        assert!(!reserve_with(moto).await.unwrap());
+        assert!(reserve_with(car).await.unwrap());
+        let stored = get(&pool, &r.id).await.unwrap().unwrap();
+        assert_eq!((stored.vehicle_kind, stored.vehicle), (VehicleKind::Car, Some(car)));
+
+        assert!(release(&pool, &r.id, UserId(9)).await.unwrap());
+        assert_eq!(get(&pool, &r.id).await.unwrap().unwrap().vehicle, None);
     }
 
     #[tokio::test]
@@ -526,13 +611,15 @@ mod tests {
         let (pool, _dir) = test_pool().await;
         let r = request("AB7K", 1);
         insert(&pool, &r).await.unwrap();
+        let moto = driver_with(&pool, 9, VehicleKind::Moto).await;
         counteroffers::upsert(&pool, &r.id, UserId(9), 500, T0 + 300).await.unwrap();
         // Wrong amount or expired: no.
-        assert!(!assign_counteroffer(&pool, &r.id, UserId(9), 450, T0 + 1).await.unwrap());
-        assert!(!assign_counteroffer(&pool, &r.id, UserId(9), 500, T0 + 300).await.unwrap());
-        assert!(assign_counteroffer(&pool, &r.id, UserId(9), 500, T0 + 1).await.unwrap());
+        assert!(!assign_counteroffer(&pool, &r.id, UserId(9), moto, 450, T0 + 1).await.unwrap());
+        assert!(!assign_counteroffer(&pool, &r.id, UserId(9), moto, 500, T0 + 300).await.unwrap());
+        assert!(assign_counteroffer(&pool, &r.id, UserId(9), moto, 500, T0 + 1).await.unwrap());
         let stored = get(&pool, &r.id).await.unwrap().unwrap();
         assert_eq!((stored.state, stored.price, stored.driver), (State::Assigned, 500, Some(UserId(9))));
+        assert_eq!(stored.vehicle, Some(moto));
     }
 
     #[tokio::test]

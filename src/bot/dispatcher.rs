@@ -12,6 +12,7 @@ use teloxide::types::{ChatJoinRequest, MessageId, User};
 use super::admin::{self, Action};
 use super::client::{self, Ctx};
 use super::dialog::Dialog;
+use super::vehicles::{self, Then};
 use super::{AppRef, HandlerResult, auction, chat, driver, history, keyboards, now, panel, rating, settings, support, trip, user_id};
 use crate::db;
 use crate::domain::driver::DriverStatus;
@@ -233,6 +234,16 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
     let id = arg.split(':').next().and_then(RequestId::parse);
     let alert = match (kind, id) {
         ("acc", Some(id)) => Some(trip::accept(bot, app, cx.user, cx.lang, &id).await?),
+        // "🚗 Use … and accept" / "… and counteroffer" (decision 128).
+        ("vsa" | "vsc", Some(id)) => match number(arg) {
+            Some(vehicle) => {
+                let then = if kind == "vsa" { Then::Accept } else { Then::Counteroffer };
+                let alert = vehicles::switch_and(&cx, &id, vehicle, then).await?;
+                spend(pressed).await;
+                alert
+            }
+            None => None,
+        },
         ("cad", Some(id)) => match number(arg) {
             Some(delta) => auction::adjust_counteroffer(&cx, &id, delta, pressed).await?,
             None => None,

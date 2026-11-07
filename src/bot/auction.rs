@@ -7,6 +7,7 @@ use teloxide::types::MessageId;
 
 use super::client::Ctx;
 use super::dialog::Dialog;
+use super::vehicles::{self, Then};
 use super::{chat, effects, keyboards, now};
 use crate::db;
 use crate::domain::driver::DriverStatus;
@@ -119,6 +120,13 @@ pub async fn start_counteroffer(cx: &Ctx<'_>, id: &str) -> anyhow::Result<()> {
     if request.client == cx.user {
         return say(i18n::domain_error(cx.lang, &DomainError::OwnRequest)).await;
     }
+    let active = db::vehicles::active(&cx.app.pool, cx.user).await?;
+    if let Err(e) = request.check_vehicle(active.as_ref()) {
+        return match vehicles::offer_switch(cx.bot, cx.app, cx.user, cx.lang, &request, &e, Then::Counteroffer).await? {
+            Some(why) => say(why).await,
+            None => Ok(()),
+        };
+    }
     // The amount starts at the client's price; ✅ Send and ❌ Cancel below.
     let dialog = Dialog::Counteroffer { request: request.id.as_str().to_owned(), amount: request.price };
     db::dialogs::set(&cx.app.pool, cx.user, &dialog, now()).await?;
@@ -201,7 +209,8 @@ pub async fn counteroffer(cx: &Ctx<'_>, id: &RequestId, amount: Cup) -> anyhow::
         return Ok(Some(i18n::domain_error(cx.lang, &DomainError::NotOpen)));
     };
     let now = now();
-    let effects = match request.counteroffer(cx.user, amount, now) {
+    let active = db::vehicles::active(&cx.app.pool, cx.user).await?;
+    let effects = match request.counteroffer(cx.user, active.as_ref(), amount, now) {
         Ok(effects) => effects,
         Err(DomainError::PriceNotHigher { current }) => return Ok(Some(i18n::counteroffer_too_low(cx.lang, current))),
         Err(e) => return Ok(Some(i18n::domain_error(cx.lang, &e))),
@@ -228,11 +237,13 @@ pub async fn accept_offer(cx: &Ctx<'_>, id: &RequestId, driver: UserId) -> anyho
         return Ok(Some(i18n::domain_error(cx.lang, &DomainError::OfferGone)));
     }
     let now = now();
-    let effects = match request.accept_counteroffer(cx.user, driver, now) {
+    let active = db::vehicles::active(&cx.app.pool, driver).await?;
+    let effects = match request.accept_counteroffer(cx.user, driver, active.as_ref(), now) {
         Ok(effects) => effects,
         Err(e) => return Ok(Some(i18n::domain_error(cx.lang, &e))),
     };
-    if !db::requests::assign_counteroffer(&cx.app.pool, id, driver, request.price, now).await? {
+    let vehicle = request.vehicle.expect("accepting an offer sets the vehicle");
+    if !db::requests::assign_counteroffer(&cx.app.pool, id, driver, vehicle, request.price, now).await? {
         // The offer expired, the driver got busy, or the request changed.
         return Ok(Some(i18n::domain_error(cx.lang, &DomainError::OfferGone)));
     }
