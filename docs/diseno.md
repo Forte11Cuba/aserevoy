@@ -122,7 +122,7 @@ Un gestor suele ser una **agencia**: tiene sus propios clientes y los conecta co
 
 ## Vehículos
 
-> **Planificado, sin programar** (decisiones 116 a 127). Hasta que se programe, todos los viajes son en moto.
+> **Planificado, sin programar** (decisiones 116 a 129). Hasta que se programe, todos los viajes son en moto.
 
 Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 116). Un triciclo es una moto de tres ruedas, o una moto con un carro de carga detrás, eléctrica o de gasolina; lleva chapa como una moto. Por ahora no hay más tipos: los colectivos (almendrón, microbús) cambiarían el modelo, porque varias personas comparten un viaje.
 
@@ -146,6 +146,7 @@ Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 11
 
 - **Aceptar** y **💬 Contraofertar** (al abrir el enlace y al enviar) solo valen si el vehículo activo del chofer es del tipo de la solicitud. Si no, se le explica: "Esta solicitud es para 🚗 Carro y tu vehículo activo es 🏍 Moto. Cámbialo en 🏍 Chofer → 🚘 Mis vehículos".
 - Un chofer sin vehículo activo aprobado no puede aceptar ni contraofertar.
+- **Atajo** (decisión 128): si el chofer tiene aprobado un vehículo del tipo de la solicitud, el bot le escribe por privado con el botón "🚗 Usar Lada rojo y aceptar", que lo activa y acepta de una vez. Si no tiene ninguno, solo se le explica.
 - Si el ruido molesta (un motorista ve ofertas de carro), se puede pasar a un canal por tipo; se decidirá con datos.
 
 **Varios vehículos por chofer** (decisión 120).
@@ -165,6 +166,7 @@ Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 11
 **Aprobación de los vehículos** (decisión 122).
 
 - **Un vehículo nuevo no se puede usar hasta que un admin lo aprueba.** Los admins reciben el aviso con su ficha y los botones Aprobar y Rechazar; el primero que decide gana, como con los cambios de nombre.
+- Un vehículo rechazado se borra y se avisa al chofer, que puede añadirlo de nuevo (decisión 129).
 - **Un cambio de chapa o de foto de un vehículo aprobado espera la aprobación de un admin**, con el antes y el después; mientras, el vehículo sigue funcionando con los datos anteriores (como el nombre completo, decisión 88). El modelo y el color se cambian sin aprobación.
 - En ⚙️ Administración, la ficha de cada chofer muestra sus vehículos.
 
@@ -710,3 +712,5 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 125 | No se pregunta cuántos pasajeros van ni hay opción "Cualquiera" | 2026-11-07 |
 | 126 | Tabla `vehicles` y `drivers.active_vehicle_id`; `requests.vehicle_kind` y `vehicle_id`; claves de tarifa por tipo. La moto de cada chofer pasa a `vehicles`, aprobada si el chofer está activo, como vehículo activo; las columnas viejas quedan sin uso. Los textos de "moto-taxi" pasan a moto, carro o triciclo; 🏍 sigue marcando a los choferes | 2026-11-07 |
 | 127 | Al cliente le salen los tipos con al menos un chofer `activo` que tiene un vehículo aprobado de ese tipo, sea o no su vehículo activo; se calcula en cada pedido. El chofer que ve una oferta de otro de sus tipos cambia de vehículo activo y la toma. Sustituye en la 117 "con ese vehículo activo" | 2026-11-07 |
+| 128 | Atajo al aceptar con otro tipo activo: si el chofer tiene un vehículo aprobado del tipo de la solicitud, el bot le escribe por privado con un botón "🚗 Usar <vehículo> y aceptar", que cambia el vehículo activo y acepta de una vez (con las mismas reglas que cambiarlo a mano); si no tiene ninguno de ese tipo, solo se le explica | 2026-11-07 |
+| 129 | Un vehículo que un admin rechaza se borra y se avisa al chofer, que puede añadirlo de nuevo | 2026-11-07 |
