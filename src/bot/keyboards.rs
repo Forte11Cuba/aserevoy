@@ -493,7 +493,7 @@ fn pager(lang: Lang, page: usize, pages: usize, data: impl Fn(usize) -> String) 
     Some(nav)
 }
 
-/// Under "🧾 My trips": the pages, and delete the history.
+/// Under "📅 My trips": the pages, and delete the history.
 pub fn history(lang: Lang, role: Role, page: usize, pages: usize, any: bool) -> InlineKeyboardMarkup {
     let code = if role == Role::Driver { "d" } else { "c" };
     let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();

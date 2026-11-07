@@ -1,4 +1,4 @@
-//! 🧾 My trips: each side's completed trips of the last 45 days, the most
+//! 📅 My trips: each side's completed trips of the last 45 days, the most
 //! recent first, by pages; and deleting them.
 
 use teloxide::prelude::*;

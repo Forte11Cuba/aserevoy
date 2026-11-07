@@ -283,8 +283,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Language) => "🌐 Español",
         (Lang::Es, YesFinished) => "✅ Sí, terminó",
         (Lang::En, YesFinished) => "✅ Yes, it's over",
-        (Lang::Es, MyTrips) => "🧾 Mis viajes",
-        (Lang::En, MyTrips) => "🧾 My trips",
+        (Lang::Es, MyTrips) => "📅 Mis viajes",
+        (Lang::En, MyTrips) => "📅 My trips",
         (Lang::Es, MyVehicles) => "🚘 Mis vehículos",
         (Lang::En, MyVehicles) => "🚘 My vehicles",
         (Lang::Es, AddVehicle) => "➕ Añadir vehículo",
@@ -382,6 +382,7 @@ fn old_label(text: &str) -> Option<Button> {
         "🏍 Chofer" | "🏍 Driver" => Some(Button::DriverMenu),
         "🏍 Aplicar a ser chofer" | "🏍 Apply to drive" => Some(Button::ApplyDriver),
         "🏍 Choferes" | "🏍 Drivers" => Some(Button::PanelDrivers),
+        "🧾 Mis viajes" | "🧾 My trips" => Some(Button::MyTrips),
         _ => None,
     }
 }
@@ -1190,13 +1191,13 @@ Un bot de Telegram que conecta pasajeros y choferes de moto, carro o triciclo en
 • Tú propones el precio: los choferes lo aceptan o te hacen una contraoferta.\n\
 • El pago es en CUP, directo al chofer (efectivo, transferencia o bitcoin). El bot no maneja dinero.\n\
 • Ves la foto, el vehículo, la chapa, el nombre y la reputación del chofer antes de confirmarlo.\n\
-• Tus viajes completados quedan 45 días en 🧾 Mis viajes, cifrados y sin ubicaciones exactas; solo los ves tú y puedes borrarlos.",
+• Tus viajes completados quedan 45 días en 📅 Mis viajes, cifrados y sin ubicaciones exactas; solo los ves tú y puedes borrarlos.",
         (Lang::En, Some(Guide::About)) => "🤔 What is Asere Voy?\n\n\
 A Telegram bot that connects passengers with motorbike, car and tricycle drivers in Havana.\n\n\
 • You set the price: drivers accept it or send you a counteroffer.\n\
 • You pay in CUP, directly to the driver (cash, transfer or bitcoin). The bot handles no money.\n\
 • You see the driver's photo, vehicle, plate, name and reputation before confirming them.\n\
-• Your completed trips stay 45 days in 🧾 My trips, encrypted and without exact locations; only you see them and you can delete them.",
+• Your completed trips stay 45 days in 📅 My trips, encrypted and without exact locations; only you see them and you can delete them.",
         (Lang::Es, Some(Guide::Ride)) => "🚕 Pedir un viaje\n\n\
 1. Pulsa «🚕 Pedir viaje».\n\
 2. Marca la recogida y el destino: tu ubicación, un punto en el mapa, una dirección («23 e/ L y M, Vedado») o un lugar («Coppelia»). Confirma cada punto en el mapa.\n\
@@ -1348,7 +1349,7 @@ fn month_name(lang: Lang, month: &str) -> String {
     }
 }
 
-/// One trip of "🧾 My trips".
+/// One trip of "📅 My trips".
 pub struct HistoryLine<'a> {
     pub number: i64,
     pub request: &'a str,
@@ -1363,14 +1364,14 @@ pub struct HistoryLine<'a> {
     pub kind: VehicleKind,
 }
 
-/// "🧾 My trips": a page of trips, the most recent first, with the user's
+/// "📅 My trips": a page of trips, the most recent first, with the user's
 /// trip number and the request id.
 pub fn history(lang: Lang, role: Role, trips: &[HistoryLine], total: i64) -> String {
     let title = match (lang, role) {
-        (Lang::Es, Role::Client) => "🧾 Tus viajes como cliente",
-        (Lang::En, Role::Client) => "🧾 Your trips as a client",
-        (Lang::Es, Role::Driver) => "🧾 Tus viajes como chofer",
-        (Lang::En, Role::Driver) => "🧾 Your trips as a driver",
+        (Lang::Es, Role::Client) => "📅 Tus viajes como cliente",
+        (Lang::En, Role::Client) => "📅 Your trips as a client",
+        (Lang::Es, Role::Driver) => "📅 Tus viajes como chofer",
+        (Lang::En, Role::Driver) => "📅 Your trips as a driver",
     };
     if trips.is_empty() {
         return match lang {
@@ -2008,7 +2009,7 @@ pub fn terms(lang: Lang) -> &'static str {
         Lang::Es => {
             "📜 Términos y privacidad de Asere Voy\n\n\
 1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de los vehículos y no asegura los viajes. El precio y el pago (efectivo, transferencia o bitcoin) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
-2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, sus vehículos con chapa y fotos). De los clientes que quieran, su nombre, su celular (cifrados) y su foto, hasta que los borren en 🔧 Ajustes. De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste. Tus viajes completados de los últimos 45 días (fecha, origen y destino como texto, sin ubicaciones exactas, precio, la otra persona y tu nota, cifrados), que solo ves tú en 🧾 Mis viajes y puedes borrar; y, de los choferes, sus viajes y ganancias totales por mes.\n\n\
+2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, sus vehículos con chapa y fotos). De los clientes que quieran, su nombre, su celular (cifrados) y su foto, hasta que los borren en 🔧 Ajustes. De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste. Tus viajes completados de los últimos 45 días (fecha, origen y destino como texto, sin ubicaciones exactas, precio, la otra persona y tu nota, cifrados), que solo ves tú en 📅 Mis viajes y puedes borrar; y, de los choferes, sus viajes y ganancias totales por mes.\n\n\
 3. Qué no guardamos: no hay historial de viajes. Cada solicitud (ubicaciones y referencia) se borra al cerrarse, y nunca guardamos el teléfono de los clientes. Las calificaciones son ciegas y solo se suman a los totales.\n\n\
 4. Quién ve qué: en el canal de ofertas los choferes ven el municipio, la distancia, el precio y tu reputación, nunca tu ubicación exacta ni tu contacto. Esos datos solo los recibe el chofer que confirmes.\n\n\
 5. Normas: respeto mutuo y nada ilegal. Tres cancelaciones en 7 días bloquean la cuenta 24 horas. Los admins pueden bloquear cuentas o quitar choferes.\n\n\
@@ -2019,7 +2020,7 @@ Datos del mapa © colaboradores de OpenStreetMap (licencia ODbL)."
         Lang::En => {
             "📜 Asere Voy terms and privacy\n\n\
 1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the vehicles and does not insure the trips. Price and payment (cash, transfer or bitcoin) are agreed directly between client and driver; the bot handles no money.\n\n\
-2. What we keep: for drivers, their profile (alias, encrypted full name and phone, their vehicles with plates and photos). For clients who choose to, their name, phone (encrypted) and photo, until they delete them in 🔧 Settings. For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it. Your completed trips of the last 45 days (date, origin and destination as text, no exact locations, price, the other person and your rating, encrypted), which only you see in 🧾 My trips and can delete; and, for drivers, their trips and earnings per month.\n\n\
+2. What we keep: for drivers, their profile (alias, encrypted full name and phone, their vehicles with plates and photos). For clients who choose to, their name, phone (encrypted) and photo, until they delete them in 🔧 Settings. For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it. Your completed trips of the last 45 days (date, origin and destination as text, no exact locations, price, the other person and your rating, encrypted), which only you see in 📅 My trips and can delete; and, for drivers, their trips and earnings per month.\n\n\
 3. What we don't keep: there is no trip history. Each request (locations and landmark) is deleted when it closes, and we never keep clients' phone numbers. Ratings are blind and only added to the totals.\n\n\
 4. Who sees what: in the offers channel drivers see the municipality, distance, price and your reputation, never your exact location or contact. Only the driver you confirm gets those.\n\n\
 5. Rules: mutual respect and nothing illegal. Three cancellations in 7 days block the account for 24 hours. Admins can block accounts or remove drivers.\n\n\
@@ -2546,6 +2547,8 @@ mod tests {
         assert_eq!(parse_button("🧭 Mi viaje"), Some(Button::MyTrip));
         assert_eq!(parse_button("🏍 Chofer"), Some(Button::DriverMenu));
         assert_eq!(parse_button("🧢 Chofer"), Some(Button::DriverMenu));
+        assert_eq!(parse_button("🧾 Mis viajes"), Some(Button::MyTrips));
+        assert_eq!(parse_button("📅 Mis viajes"), Some(Button::MyTrips));
     }
 
     #[test]
