@@ -1,4 +1,4 @@
-# Asere Voy — Moto-taxi por Telegram (subasta tipo inDrive) — Documento de diseño
+# Asere Voy — Moto-taxi (y carro y triciclo) por Telegram (subasta tipo inDrive) — Documento de diseño
 
 Oct 14, 2026 · @Forte · Revisión 4
 
@@ -16,7 +16,7 @@ El 14 de octubre de 2026, `@AsereVoyBot` no tenía página pública en Telegram,
 
 ## Visión
 
-Asere Voy es un bot de Telegram que conecta clientes y choferes de moto-taxi en una zona piloto de Cuba mediante una subasta de precio al estilo inDrive. Cada persona ve su historial de viajes de los últimos 45 días (decisión 110); además se conserva su reputación agregada (viajes, estrellas, cancelaciones) y, de los choferes, sus totales por mes. El pago es en CUP, directo al chofer.
+Asere Voy es un bot de Telegram que conecta clientes y choferes de moto-taxi (y, cuando se programe, de carro y triciclo; ver [Vehículos](#vehículos)) en una zona piloto de Cuba mediante una subasta de precio al estilo inDrive. Cada persona ve su historial de viajes de los últimos 45 días (decisión 110); además se conserva su reputación agregada (viajes, estrellas, cancelaciones) y, de los choferes, sus totales por mes. El pago es en CUP, directo al chofer.
 
 Principios de diseño:
 
@@ -36,7 +36,7 @@ Hay un solo bot. Lo que cada persona ve depende de su rol, y el rol se comprueba
 | Rol | Cómo se obtiene | Qué hace | Qué se guarda |
 | --- | --- | --- | --- |
 | Cliente | Cualquiera que abra el bot (`t.me/AsereVoyBot` o QR), acepte los términos y pulse Iniciar | Pide viaje, ofrece precio, elige método de pago, acepta o rechaza contraofertas, marca Ya voy y Completado, califica | Su reputación agregada y la fecha de su primer uso; su ID y su teléfono (opcional) mientras dura una solicitud |
-| Chofer | Aplica desde el bot o un admin lo invita; un admin lo aprueba | Además de lo anterior: ve ofertas en el canal, acepta o contraoferta, marca Llegué y Completado, califica al cliente | Registro permanente: alias, nombre completo y celular (cifrados), chapa, moto, fotos, estado; reputación agregada |
+| Chofer | Aplica desde el bot o un admin lo invita; un admin lo aprueba | Además de lo anterior: ve ofertas en el canal, acepta o contraoferta, marca Llegué y Completado, califica al cliente | Registro permanente: alias, nombre completo y celular (cifrados), chapa, moto, fotos, estado (con [Vehículos](#vehículos), sus vehículos aparte); reputación agregada |
 | Gestor *(versión 2)* | Aplica desde el bot o un admin lo invita; un admin lo aprueba | Además de lo que hace un cliente: pide viajes para sus propios clientes, con su propio precio, y puede tener varias solicitudes abiertas (ver [Gestores](#gestores)) | Registro permanente: alias, celular, estado; reputación agregada |
 | Admin | Un superadmin lo nombra y puede quitarlo en cualquier momento | Además de lo anterior: aprueba, invita o quita choferes y gestores, bloquea usuarios, atiende el soporte y recibe alertas | Su ID; quién hizo cada acción administrativa |
 | Superadmin | Definido en `.env`; no se añade ni se quita desde el bot | Además de lo anterior: nombra y quita admins, quita choferes y gestores en cualquier momento, ajusta tarifas | Su ID (en `.env`) |
@@ -119,6 +119,67 @@ Un gestor suele ser una **agencia**: tiene sus propios clientes y los conecta co
 
 - ¿El máximo de la agencia lo ven los choferes, o solo sirve para filtrar contraofertas sin revelarlo? Recomendación: oculto; al chofer que se pasa se le dice "por encima de lo que acepta esta agencia", sin el número.
 - ¿Una persona puede ser chofer y gestor a la vez? Si sí, el menú muestra los dos botones.
+
+## Vehículos
+
+> **Planificado, sin programar** (decisiones 116 a 126). Hasta que se programe, todos los viajes son en moto.
+
+Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 116). Un triciclo es una moto de tres ruedas, o una moto con un carro de carga detrás, eléctrica o de gasolina; lleva chapa como una moto. Por ahora no hay más tipos: los colectivos (almendrón, microbús) cambiarían el modelo, porque varias personas comparten un viaje.
+
+| Tipo | Emoji | En el código |
+| --- | --- | --- |
+| Moto | 🏍 | `moto` |
+| Carro | 🚗 | `car` |
+| Triciclo | 🛺 | `tricycle` |
+
+**El cliente elige el tipo** (decisión 117).
+
+- El paso va **después de confirmar el destino y antes del precio**, porque el precio sugerido depende de los km: "¿En qué quieres ir?", con un botón por tipo y su precio sugerido (`🏍 Moto · 550 CUP`, `🚗 Carro · 900 CUP`, `🛺 Triciclo · 400 CUP`), uno por fila, y Atrás.
+- **Solo salen los tipos que alguien puede hacer**: los que tienen al menos un chofer `activo` con un vehículo aprobado de ese tipo como vehículo activo. Si solo hay un tipo, el paso se salta y el flujo queda como hoy.
+- Al elegir un tipo, el paso de precio arranca en su precio sugerido y no deja bajar de su mínimo. El botón Atrás del precio vuelve a este paso. Subir el precio, la sugerencia de los 5 min, las contraofertas y el resumen funcionan igual, con el sugerido de ese tipo.
+- No se pregunta cuántos pasajeros van: el cliente sabe cuántos caben en cada tipo (decisión 125). No hay opción "Cualquiera".
+- 🔁 Publicar de nuevo y Republicar al mismo precio repiten el mismo tipo.
+
+**Tarifas por tipo** (decisión 118). Cada tipo tiene su `base`, `tarifa_km` y `% mínimo`. Las de carro y triciclo empiezan copiando las de moto, y un superadmin las ajusta antes de que haya choferes de ese tipo. En ⚙️ Administración → Tarifas se elige primero el tipo; el comando acepta el tipo delante (`/tarifa carro km 80`) y sin tipo sigue cambiando la moto (`/tarifa km 60`). `/tarifas` muestra los tres.
+
+**Un solo canal** (decisión 119). Todas las ofertas van al mismo canal y **la primera línea dice el tipo** ("🚗 Carro"), antes del 🛵 ID. El servidor comprueba el tipo en cada acción:
+
+- **Aceptar** y **💬 Contraofertar** (al abrir el enlace y al enviar) solo valen si el vehículo activo del chofer es del tipo de la solicitud. Si no, se le explica: "Esta solicitud es para 🚗 Carro y tu vehículo activo es 🏍 Moto. Cámbialo en 🏍 Chofer → 🚘 Mis vehículos".
+- Un chofer sin vehículo activo aprobado no puede aceptar ni contraofertar.
+- Si el ruido molesta (un motorista ve ofertas de carro), se puede pasar a un canal por tipo; se decidirá con datos.
+
+**Varios vehículos por chofer** (decisión 120).
+
+- Un chofer puede tener **hasta 5 vehículos**, de cualquier tipo, y **uno activo**: con ese trabaja. Lo elige él cuando quiera.
+- **No puede cambiar de vehículo activo** mientras tiene una solicitud en confirmación, un viaje asignado o contraofertas vigentes; se le explica por qué. Así el cliente que confirmó un carro no recibe una moto.
+- Cada vehículo lleva **tipo, chapa, modelo, color y foto** (opcional, como hoy la de la moto). La chapa es obligatoria en los tres tipos.
+- Si quita su vehículo activo, se queda sin vehículo activo hasta que elija otro.
+
+**🚘 Mis vehículos** en el menú 🏍 Chofer (decisión 121).
+
+- El menú 🏍 Chofer dice con qué trabaja: "Trabajando con: 🚗 Lada rojo · P123456" (o "Sin vehículo activo").
+- **🚘 Mis vehículos** lista los vehículos, con ✅ en el activo y ⏳ en los que esperan aprobación, y ➕ Añadir vehículo. Cada uno abre su ficha con ✅ Usar este, la edición campo por campo (como hoy la ficha, `df:`), 🗑 Quitar y Volver.
+- Añadir un vehículo pide el tipo con botones y luego chapa, modelo, color y foto.
+- **Alta de chofer:** la ficha de la persona (alias, nombre completo, celular, foto suya) se pide como hoy, y el primer vehículo va dentro de la misma solicitud. Al aprobar al chofer se aprueba su primer vehículo, que queda activo.
+
+**Aprobación de los vehículos** (decisión 122).
+
+- **Un vehículo nuevo no se puede usar hasta que un admin lo aprueba.** Los admins reciben el aviso con su ficha y los botones Aprobar y Rechazar; el primero que decide gana, como con los cambios de nombre.
+- **Un cambio de chapa o de foto de un vehículo aprobado espera la aprobación de un admin**, con el antes y el después; mientras, el vehículo sigue funcionando con los datos anteriores (como el nombre completo, decisión 88). El modelo y el color se cambian sin aprobación.
+- En ⚙️ Administración, la ficha de cada chofer muestra sus vehículos.
+
+**El viaje guarda su vehículo** (decisión 123). Al aceptar en el canal o al aceptar una contraoferta, la solicitud guarda el vehículo con el que se hace (`requests.vehicle_id`). La ficha para confirmar al chofer, la contraoferta, la ficha del viaje, Compartir viaje y el historial muestran ese vehículo con su emoji ("🚗 Lada rojo · P123456"), aunque el chofer cambie después de vehículo activo. El historial guarda el tipo.
+
+**La reputación es del chofer**, no del vehículo (decisión 124). Las estadísticas y los totales por mes siguen siendo por chofer.
+
+**Datos** (decisión 126).
+
+- Tabla nueva `vehicles`: `id`, `driver_id`, `kind` (`moto`, `car`, `tricycle`), chapa, modelo, color, `photo_file_id`, estado (`pending`, `active`, `rejected`), chapa y foto pendientes de aprobación, `created_at`, `approved_by`.
+- `drivers.active_vehicle_id`.
+- `requests.vehicle_kind` (obligatorio desde que se publica) y `requests.vehicle_id` (al reservar o asignar).
+- `fares`: claves por tipo (`car.base`, `car.per_km`, `car.min_percent`, `tricycle.…`); las de moto conservan sus claves actuales.
+- **Migración:** la moto de cada chofer actual (`plate`, `bike_model`, `bike_color`, `bike_photo_file_id`) pasa a `vehicles` como `moto`, aprobada si el chofer está `activo`, y queda como su vehículo activo. Las columnas viejas de `drivers` quedan sin uso, como `payment_methods`, para que la imagen anterior siga funcionando si hay que volver atrás.
+- Los textos que dicen "moto-taxi" o "moto" donde vale cualquier vehículo (descripción del bot, bienvenida, guías ❓ Cómo funciona, términos, `README.md`) pasan a hablar de "moto, carro o triciclo". El 🏍 de los choferes (decisión 105) y el botón 🏍 Chofer se mantienen.
 
 ## Ubicación y precio
 
@@ -468,6 +529,7 @@ El desarrollo va por fases; cada una deja algo que funciona de principio a fin. 
 | **3. Confianza** | Ya voy y Llegué, cancelaciones del cliente según el motivo, bloqueos, reputación ciega (estrellas, viajes y días en el bot), botón 💬 Soporte, Compartir viaje, rol de admin, términos y aviso de privacidad, anti-flood | Listo para usuarios que no conoces |
 | **4. Comodidad** | Direcciones escritas (reglas y `data/streets.sqlite`), descripción libre como último recurso situada en su reparto, con distancia aproximada, esquina más cercana en el canal, Jev para elegir entre candidatos (umbral 0,7), lugares de referencia de OSM, `metricas_diarias`, `/tarifa` | Menos fricción |
 | **5. Piloto** | Una zona, pocos choferes de confianza, despliegue en producción, copias de seguridad cifradas diarias, alertas de error a los superadmins | Datos reales |
+| **Vehículos** | Carro y triciclo además de moto: el cliente elige el tipo con su precio sugerido, tarifas por tipo, tipo en la primera línea de la oferta, varios vehículos por chofer con uno activo en 🚘 Mis vehículos, aprobación de cada vehículo (ver [Vehículos](#vehículos)) | Más choferes y viajes |
 | **Versión 2** | Gestores: rol, "Aplicar a ser gestor", solicitudes con precio para el chofer y para el cliente, varias solicitudes abiertas, oferta marcada "Vía gestor" en el canal | Después de validar el piloto |
 
 **Pruebas.**
@@ -507,7 +569,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 - [x] ¿Qué puede hacer exactamente un admin frente a un superadmin? → El admin gestiona choferes, bloqueos y reportes; el superadmin, además, gestiona admins y tarifas.
 - [x] ¿Se añade `/emergencia` con los números de Cuba? → No por ahora.
 - [ ] ¿Los clientes en la zona piloto realmente usan Telegram? **Decide si el proyecto sigue.** Se comprobará en el piloto, sin validación previa.
-- [x] Si un chofer ya activo cambia su foto, chapa o moto, ¿vuelve a necesitar la confirmación de un admin? → No. Los choferes ya están comprobados y editan su ficha libremente.
+- [x] Si un chofer ya activo cambia su foto, chapa o moto, ¿vuelve a necesitar la confirmación de un admin? → No. Los choferes ya están comprobados y editan su ficha libremente. *Con [Vehículos](#vehículos), un vehículo nuevo y los cambios de chapa o de foto de un vehículo sí esperan a un admin (decisión 122).*
 - [x] ¿Qué tal funciona Jev con direcciones cubanas reales? ¿Qué umbral de confianza se usa? → Bien: 10 de 12 en una prueba con direcciones de La Habana, ~360 ms por consulta; umbral 0,7 (decisión 63).
 - [ ] ¿El piloto es gratis? ¿Son razonables las métricas de éxito propuestas?
 - [ ] ¿Qué se dice a los usuarios sobre privacidad, datos y reputación?
@@ -558,7 +620,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 35 | Botón Compartir viaje; invitaciones de un solo uso con caducidad a las 48 h; token en `.env` con permisos `600`; términos y aviso de privacidad al iniciar | 2026-10-14 |
 | 36 | Permisos: el admin gestiona choferes, bloqueos y reportes; el superadmin, además, admins y tarifas. Sin `/emergencia` por ahora | 2026-10-14 |
 | 37 | Plan en 5 fases (núcleo, subasta, confianza, comodidad, piloto), sin fase de validación previa | 2026-10-14 |
-| 38 | El chofer completa y edita su ficha desde el bot, sin volver a confirmación; foto suya obligatoria, foto de la moto opcional (ver 88: el nombre completo sí vuelve a aprobación) | 2026-10-14 |
+| 38 | El chofer completa y edita su ficha desde el bot, sin volver a confirmación; foto suya obligatoria, foto de la moto opcional (ver 88: el nombre completo sí vuelve a aprobación). *Para los vehículos, sustituida en parte por la 122* | 2026-10-14 |
 | 39 | VPS y pagos de servicios (Jev, VPS) fuera de Cuba | 2026-10-14 |
 | 40 | Botones "Aplicar a ser chofer" y "Aplicar a ser gestor"; un admin aprueba | 2026-10-14 |
 | 41 | Versión 2 — Rol de gestor: crea solicitudes para sus clientes con precio para el chofer y precio para el cliente; varias solicitudes abiertas; el chofer paga la comisión directamente al gestor y el bot no asume responsabilidad | 2026-10-14 |
@@ -608,7 +670,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 85 | Al asignarse un viaje, su mensaje se borra del canal en vez de editarse a "Tomada": el canal muestra solo ofertas abiertas. "En confirmación" se mantiene, porque la solicitud puede volver al canal si el cliente no confirma | 2026-10-14 |
 | 86 | El cliente ajusta su precio con los mismos pasos que la contraoferta: arriba −100, −1k, −5k, −10k; abajo +100, +1k, +5k, +10k; nunca por debajo del mínimo | 2026-10-14 |
 | 87 | Menú 🏍 Chofer en lugar de "Mi ficha": teclado con 📊 Mis estadísticas (estrellas, calificaciones, viajes, días en el bot y etiquetas recibidas; nada de historial) y 🪪 Mi ficha | 2026-10-14 |
-| 88 | El chofer edita su ficha campo por campo con un botón por campo. Al aplicar se pide el nombre completo (al menos nombre y apellido), cifrado como el celular. Un cambio de nombre completo espera aprobación de un admin (sigue el anterior mientras); un cambio de chapa o de foto se guarda y se avisa a los admins; los demás campos, sin aviso. A los choferes de antes se les pide al abrir su ficha | 2026-10-14 |
+| 88 | El chofer edita su ficha campo por campo con un botón por campo. Al aplicar se pide el nombre completo (al menos nombre y apellido), cifrado como el celular. Un cambio de nombre completo espera aprobación de un admin (sigue el anterior mientras); un cambio de chapa o de foto se guarda y se avisa a los admins (*para los vehículos, sustituido por la 122*); los demás campos, sin aviso. A los choferes de antes se les pide al abrir su ficha | 2026-10-14 |
 | 89 | El cliente ve el nombre completo del chofer, por seguridad, en la ficha para confirmarlo y al asignarse el viaje | 2026-10-14 |
 | 90 | Sin canal de alertas por ahora: las alertas (solicitudes de chofer, cambios de nombre con el antes y el después y Aprobar o Rechazar, cambios de chapa o foto, reportes) llegan a cada admin y superadmin por privado; el primero que decide gana y a los demás el botón les dice que ya se decidió | 2026-10-14 |
 | 91 | Versión 2 — Gestores como agencias: en el canal, "🏢 Viaje de agencia: <nombre>"; la agencia fija el precio para el cliente y un precio mínimo (publicado) y máximo para el chofer; la subasta se mueve entre ambos; el chofer ve en el canal lo que cobra al cliente y la comisión | 2026-10-15 |
@@ -622,7 +684,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 99 | En el panel, los admins se listan como los choferes: un botón por admin (dos por fila) que abre su ficha (quién lo nombró y cuándo) con "Quitar admin" y "Volver"; nada se quita desde la lista. Las listas del panel muestran 20 por página (10 filas de 2) | 2026-10-15 |
 | 100 | Donde se pone un monto, siempre se puede escribir uno propio además de los botones, y el mensaje lo dice: precio del cliente, subir el precio ("Selecciona uno o escribe uno tú"), contraoferta y tarifas del panel (con `/tarifa`) | 2026-10-15 |
 | 101 | Mientras un viaje está asignado, el menú de abajo es el del viaje. Cliente: 🚶 Ya voy, 📤 Compartir viaje, 🏁 Completado, ❌ Cancelar viaje y 🛵 Mi viaje. Chofer: 📍 Llegué, 🏁 Completado, ❌ Cancelar viaje y 🛵 Mi viaje. Aparece al asignarse y vuelve el menú normal al cerrarse, también en el cierre automático. Los botones no llevan el ID: se busca el viaje activo; sin viaje, se repone el menú. Los botones dentro de los mensajes siguen | 2026-10-15 |
-| 102 | Al asignarse el viaje (y en 🛵 Mi viaje), el cliente y el chofer reciben una ficha con las mismas líneas y emojis, cada dato una vez: 🛵 el viaje; 👤 la otra persona (emoji sin sexo) con su reputación; 🏍 moto y chapa (solo el cliente); 📝 referencia (solo el chofer); 📞 el teléfono si lo hay; 💰 cuánto se paga o se cobra al terminar y cómo; 💬 "Escríbele a @usuario para terminar de coordinar el viaje" (el @ solo ahí) | 2026-10-15 |
+| 102 | Al asignarse el viaje (y en 🛵 Mi viaje), el cliente y el chofer reciben una ficha con las mismas líneas y emojis, cada dato una vez: 🛵 el viaje; 👤 la otra persona (emoji sin sexo) con su reputación; 🏍 moto y chapa (solo el cliente; *el vehículo con su emoji desde la 123*); 📝 referencia (solo el chofer); 📞 el teléfono si lo hay; 💰 cuánto se paga o se cobra al terminar y cómo; 💬 "Escríbele a @usuario para terminar de coordinar el viaje" (el @ solo ahí) | 2026-10-15 |
 | 103 | La reputación se muestra siempre igual en todo el bot: media de estrellas desde la primera calificación ("⭐ sin calificaciones" si no hay), viajes completados y días usando el bot. Se quita "🆕 Nuevo" | 2026-10-15 |
 | 104 | La ficha "Un chofer quiere hacer tu viaje" se borra del chat del cliente cuando ya no vale (no confirmó a tiempo, la rechazó, el chofer se retiró). El aviso de cierre y "Puedes publicarla de nuevo" van en un solo mensaje con su botón, salvo cuando el chofer cancela un viaje asignado (hace falta devolver el menú en otro mensaje) | 2026-10-15 |
 | 105 | Personas siempre con 👤 (emoji genérico, sin sexo ni color); los choferes con 🏍. No se pide a nadie que elija un emoji por sexo o raza. La reputación va al final de cada ficha: "⭐media · N viajes" y, en su propia línea, "📅 N días usando Asere Voy" | 2026-10-15 |
@@ -636,3 +698,14 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 113 | En el canal, debajo del precio, cómo se compara con el sugerido: "🔴⬇️ 200 CUP menos que el precio sugerido (800 CUP)", "🟢⬆️ 300 CUP más que…" o "⚪🟰 Es el precio sugerido"; "≈" si algún punto es aproximado. Se actualiza al subir el precio | 2026-10-15 |
 | 114 | Al subir el precio, el aviso al cliente dice el precio nuevo ("Subiste el precio de la solicitud VB4A a 600 CUP") y el mensaje donde lo eligió (la sugerencia de los 5 min o "¿A cuánto lo subes?") cambia a "✅ Subiste a 600 CUP", para que ningún mensaje quede con un precio viejo | 2026-10-15 |
 | 115 | GitHub Actions pasa `cargo clippy` y `cargo test` en cada pull request y push a `main`. La imagen del bot solo se construye y publica en `ghcr.io/forte11cuba/aserevoy` con una etiqueta de versión (`v0.1.0` → `:0.1.0`, `:0.1`, `:latest`), si los tests pasan y la etiqueta coincide con `Cargo.toml`. Solo `amd64`. El servidor usa la imagen publicada (`ASEREVOY_VERSION` en `.env` fija la versión); `--build` sigue compilando en local | 2026-10-16 |
+| 116 | Además de moto, carro y triciclo (moto de tres ruedas o con carro de carga, eléctrica o de gasolina; lleva chapa). Sin más tipos por ahora: los colectivos quedan fuera | 2026-11-07 |
+| 117 | El cliente elige el tipo después del destino y antes del precio, con un botón por tipo y su precio sugerido; solo salen los tipos con al menos un chofer activo con ese vehículo activo, y el paso se salta si hay uno solo. Publicar de nuevo y Republicar repiten el tipo | 2026-11-07 |
+| 118 | Tarifas (`base`, `tarifa_km`, `% mínimo`) por tipo; las de carro y triciclo empiezan copiando las de moto. Tarifas en ⚙️ Administración elige primero el tipo; `/tarifa carro km 80`, y sin tipo, la moto | 2026-11-07 |
+| 119 | Un solo canal para los tres tipos, con el tipo en la primera línea de la oferta. Aceptar y contraofertar solo valen si el vehículo activo del chofer es del tipo de la solicitud; si no, se le explica cómo cambiarlo | 2026-11-07 |
+| 120 | Un chofer puede tener hasta 5 vehículos y uno activo, que elige cuando quiera, salvo con una solicitud en confirmación, un viaje asignado o contraofertas vigentes. Chapa obligatoria en los tres tipos; foto del vehículo opcional | 2026-11-07 |
+| 121 | 🚘 Mis vehículos en el menú 🏍 Chofer (lista con ✅ activo y ⏳ pendiente, ➕ Añadir, ficha con Usar este, edición por campo, Quitar); el menú dice con qué vehículo trabaja. Al aplicar, el primer vehículo va en la misma solicitud y se aprueba con el chofer | 2026-11-07 |
+| 122 | Un vehículo nuevo no se usa hasta que un admin lo aprueba; un cambio de chapa o de foto de un vehículo espera aprobación con el antes y el después y, mientras, siguen los datos anteriores; modelo y color, sin aprobación. Sustituye, para los vehículos, lo de la chapa y la foto de la 38 y la 88 | 2026-11-07 |
+| 123 | La solicitud guarda el vehículo con que se hace al reservarse o asignarse; las fichas, Compartir viaje y el historial muestran ese vehículo con su emoji (🏍, 🚗, 🛺). Sustituye el "🏍 moto y chapa" de la 102 | 2026-11-07 |
+| 124 | La reputación, las estadísticas y los totales por mes son del chofer, no del vehículo | 2026-11-07 |
+| 125 | No se pregunta cuántos pasajeros van ni hay opción "Cualquiera" | 2026-11-07 |
+| 126 | Tabla `vehicles` y `drivers.active_vehicle_id`; `requests.vehicle_kind` y `vehicle_id`; claves de tarifa por tipo. La moto de cada chofer pasa a `vehicles`, aprobada si el chofer está activo, como vehículo activo; las columnas viejas quedan sin uso. Los textos de "moto-taxi" pasan a moto, carro o triciclo; 🏍 sigue marcando a los choferes | 2026-11-07 |
