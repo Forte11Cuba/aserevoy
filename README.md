@@ -31,7 +31,7 @@ Mientras esperas puedes **subir el precio** o cancelar. Una solicitud dura hasta
 2. Entra en el **canal de ofertas** con el enlace que te manda el bot.
 3. Cada oferta dice en su primera línea para qué vehículo es; solo la puedes tomar si tu vehículo activo es de ese tipo (si tienes otro aprobado que sirve, el bot te ofrece cambiarlo de un toque). En cada oferta: **✅ Aceptar** el precio del cliente, o **💬 Contraofertar**, donde ajustas el monto con −/+ 100, 1k, 5k o 10k y pulsas **✅ Enviar**.
 4. Cuando el cliente te confirma, recibes la recogida, el destino y su contacto. Marca **📍 Llegué** y **🏁 Completado**.
-5. En **🏍 Chofer** tienes tus **📊 estadísticas**, tu **🪪 ficha**, que puedes editar campo por campo, y **🚘 Mis vehículos**: hasta 5 y uno activo, que cambias cuando quieras salvo con un viaje en curso o una contraoferta vigente. Un cambio de nombre completo, un vehículo nuevo y una chapa o foto nueva los revisa un admin.
+5. En **🧢 Chofer** tienes tus **📊 estadísticas**, tu **🪪 ficha**, que puedes editar campo por campo, y **🚘 Mis vehículos**: hasta 5 y uno activo, que cambias cuando quieras salvo con un viaje en curso o una contraoferta vigente. Un cambio de nombre completo, un vehículo nuevo y una chapa o foto nueva los revisa un admin.
 
 ### Para los admins
 

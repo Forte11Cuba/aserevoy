@@ -68,7 +68,7 @@ async fn refuse(cx: &Ctx<'_>, status: DriverStatus) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// "🏍 Driver": the driver's own keyboard (stats, profile, back).
+/// "🧢 Driver": the driver's own keyboard (stats, profile, back).
 pub async fn menu(cx: &Ctx<'_>) -> anyhow::Result<()> {
     if cx.app.driver_status(cx.user).await?.is_none() {
         return apply(cx).await;

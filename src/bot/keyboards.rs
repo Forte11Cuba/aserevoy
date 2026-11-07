@@ -21,7 +21,7 @@ fn inline(lang: Lang, b: Button, data: impl Into<String>) -> InlineKeyboardButto
 }
 
 pub fn main_menu(lang: Lang, is_driver: bool, is_staff: bool) -> KeyboardMarkup {
-    // The roles the user has, in one row (🏢 Manager will go next to 🏍
+    // The roles the user has, in one row (🏢 Manager will go next to 🧢
     // Driver), then "Work with us", always there to apply for another one.
     let mut rows = vec![vec![reply(lang, Button::RequestRide)]];
     if is_driver {
@@ -532,7 +532,7 @@ pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {
     ]])
 }
 
-/// "🏍 Driver" below: stats and profile, and back to the main menu.
+/// "🧢 Driver" below: stats and profile, and back to the main menu.
 pub fn driver_menu(lang: Lang) -> KeyboardMarkup {
     KeyboardMarkup::new(vec![
         vec![reply(lang, Button::MyStats), reply(lang, Button::MyProfile)],

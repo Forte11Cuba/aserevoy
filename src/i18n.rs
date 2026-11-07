@@ -193,8 +193,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, WorkWithUs) => "🤝 Work with us",
         (Lang::Es, ApplyManager) => "🏢 Aplicar a gestor (próximamente)",
         (Lang::En, ApplyManager) => "🏢 Apply as a manager (coming soon)",
-        (Lang::Es, ApplyDriver) => "🏍 Aplicar a ser chofer",
-        (Lang::En, ApplyDriver) => "🏍 Apply to drive",
+        (Lang::Es, ApplyDriver) => "🧢 Aplicar a ser chofer",
+        (Lang::En, ApplyDriver) => "🧢 Apply to drive",
         (Lang::Es, MyProfile) => "🪪 Mi ficha",
         (Lang::En, MyProfile) => "🪪 My profile",
         (Lang::Es, InviteDriver) => "➕ Invitar chofer",
@@ -229,8 +229,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Approve) => "✅ Approve",
         (Lang::Es, Reject) => "❌ Rechazar",
         (Lang::En, Reject) => "❌ Reject",
-        (Lang::Es, DriverMenu) => "🏍 Chofer",
-        (Lang::En, DriverMenu) => "🏍 Driver",
+        (Lang::Es, DriverMenu) => "🧢 Chofer",
+        (Lang::En, DriverMenu) => "🧢 Driver",
         (Lang::Es, OffersChannel) => "📢 Canal de ofertas",
         (Lang::En, OffersChannel) => "📢 Offers channel",
         (Lang::Es, MyStats) => "📊 Mis estadísticas",
@@ -337,8 +337,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, StepBack) => "↩️ Back",
         (Lang::Es, AdminPanel) => "⚙️ Administración",
         (Lang::En, AdminPanel) => "⚙️ Administration",
-        (Lang::Es, PanelDrivers) => "🏍 Choferes",
-        (Lang::En, PanelDrivers) => "🏍 Drivers",
+        (Lang::Es, PanelDrivers) => "🧢 Choferes",
+        (Lang::En, PanelDrivers) => "🧢 Drivers",
         (Lang::Es, PanelAdmins) => "👮 Admins",
         (Lang::En, PanelAdmins) => "👮 Admins",
         (Lang::Es, PanelFares) => "💰 Tarifas",
@@ -379,6 +379,9 @@ fn old_label(text: &str) -> Option<Button> {
     match text {
         "🛵 Pedir viaje" | "🛵 Request a ride" => Some(Button::RequestRide),
         "🛵 Mi viaje" | "🛵 My trip" => Some(Button::MyTrip),
+        "🏍 Chofer" | "🏍 Driver" => Some(Button::DriverMenu),
+        "🏍 Aplicar a ser chofer" | "🏍 Apply to drive" => Some(Button::ApplyDriver),
+        "🏍 Choferes" | "🏍 Drivers" => Some(Button::PanelDrivers),
         _ => None,
     }
 }
@@ -654,8 +657,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         }
         (Lang::Es, InvalidFullName) => "Escribe tu nombre y tus apellidos (al menos dos palabras).",
         (Lang::En, InvalidFullName) => "Type your name and surname (at least two words).",
-        (Lang::Es, DriverMenu) => "🏍 Menú de chofer.",
-        (Lang::En, DriverMenu) => "🏍 Driver menu.",
+        (Lang::Es, DriverMenu) => "🧢 Menú de chofer.",
+        (Lang::En, DriverMenu) => "🧢 Driver menu.",
         (Lang::Es, FullNameMissing) => "⚠️ Falta tu nombre completo: pulsa «Nombre completo» para añadirlo.",
         (Lang::En, FullNameMissing) => "⚠️ Your full name is missing: tap \"Full name\" to add it.",
         (Lang::Es, EditWhich) => "✏️ Para cambiar un dato, pulsa su botón.",
@@ -667,10 +670,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::Es, NameRejected) => "❌ Tu cambio de nombre no fue aprobado. Si crees que es un error, escribe a soporte.",
         (Lang::En, NameRejected) => "❌ Your name change wasn't approved. If you think it's a mistake, write to support.",
         (Lang::Es, WorkWithUs) => {
-            "🤝 Trabaja con nosotros\n\n🏍 Chofer: recibe ofertas de viaje en el canal, acepta las que te convengan o propón tu precio.\n\n🏢 Gestor (próximamente): conecta a tus clientes con nuestros choferes. Pones tu tarifa para el chofer y la de tu cliente, y cuando un chofer acepta, ganas la diferencia.\n\nElige abajo."
+            "🤝 Trabaja con nosotros\n\n🧢 Chofer: recibe ofertas de viaje en el canal, acepta las que te convengan o propón tu precio.\n\n🏢 Gestor (próximamente): conecta a tus clientes con nuestros choferes. Pones tu tarifa para el chofer y la de tu cliente, y cuando un chofer acepta, ganas la diferencia.\n\nElige abajo."
         }
         (Lang::En, WorkWithUs) => {
-            "🤝 Work with us\n\n🏍 Driver: get trip offers in the channel, take the ones that suit you or propose your price.\n\n🏢 Manager (coming soon): connect your clients with our drivers. You set your rate for the driver and the one for your client, and when a driver accepts, you keep the difference.\n\nChoose below."
+            "🤝 Work with us\n\n🧢 Driver: get trip offers in the channel, take the ones that suit you or propose your price.\n\n🏢 Manager (coming soon): connect your clients with our drivers. You set your rate for the driver and the one for your client, and when a driver accepts, you keep the difference.\n\nChoose below."
         }
         (Lang::Es, ManagerSoon) => "🏢 Los gestores llegan pronto. Ya avisé al equipo de que te interesa; te escribiremos.",
         (Lang::En, ManagerSoon) => "🏢 Managers are coming soon. I've told the team you're interested; we'll write to you.",
@@ -1170,8 +1173,8 @@ pub fn guide_button(lang: Lang, g: Guide) -> &'static str {
         (Lang::En, Guide::About) => "🤔 What is Asere Voy?",
         (Lang::Es, Guide::Ride) => "🚕 Pedir un viaje",
         (Lang::En, Guide::Ride) => "🚕 Requesting a ride",
-        (Lang::Es, Guide::Driver) => "🏍 Ser chofer",
-        (Lang::En, Guide::Driver) => "🏍 Being a driver",
+        (Lang::Es, Guide::Driver) => "🧢 Ser chofer",
+        (Lang::En, Guide::Driver) => "🧢 Being a driver",
         (Lang::Es, Guide::Manager) => "🏢 Ser gestor",
         (Lang::En, Guide::Manager) => "🏢 Being a manager",
     }
@@ -1210,19 +1213,19 @@ Mientras esperas puedes subir el precio o cancelar. En «🔧 Ajustes» puedes p
 5. A driver accepts or sends a counteroffer. Check their profile and confirm them.\n\
 6. You get their contact. When you arrive, tap \"🏁 Completed\" and rate them.\n\n\
 While you wait you can raise the price or cancel. In \"🔧 Settings\" you can add your name, phone and photo so the driver finds you more easily.",
-        (Lang::Es, Some(Guide::Driver)) => "🏍 Ser chofer\n\n\
+        (Lang::Es, Some(Guide::Driver)) => "🧢 Ser chofer\n\n\
 1. En «🤝 Trabaja con nosotros», pulsa «Aplicar a ser chofer» y completa tu ficha: alias, nombre completo, celular, tu vehículo (tipo, chapa, modelo y color) y fotos.\n\
 2. Un admin la revisa. Al aprobarte, el bot te manda el enlace del canal de ofertas.\n\
 3. En el canal, «✅ Aceptar» toma el viaje al precio del cliente; «💬 Contraofertar» te deja proponer otro con −/+ y «✅ Enviar».\n\
 4. Cuando el cliente te confirma, recibes la recogida, el destino y su contacto. Marca «📍 Llegué» y «🏁 Completado».\n\
-5. En «🏍 Chofer» tienes tus estadísticas, tu ficha y «🚘 Mis vehículos»: hasta 5 (moto, carro o triciclo) y uno activo, con el que tomas los viajes de su tipo. Un vehículo nuevo, o una chapa o foto nueva, la aprueba un admin.\n\n\
+5. En «🧢 Chofer» tienes tus estadísticas, tu ficha y «🚘 Mis vehículos»: hasta 5 (moto, carro o triciclo) y uno activo, con el que tomas los viajes de su tipo. Un vehículo nuevo, o una chapa o foto nueva, la aprueba un admin.\n\n\
 Cobras directamente al cliente. Tu reputación (estrellas y viajes) la ven los clientes.",
-        (Lang::En, Some(Guide::Driver)) => "🏍 Being a driver\n\n\
+        (Lang::En, Some(Guide::Driver)) => "🧢 Being a driver\n\n\
 1. In \"🤝 Work with us\", tap \"Apply to drive\" and fill in your profile: alias, full name, phone, your vehicle (kind, plate, model and colour) and photos.\n\
 2. An admin reviews it. Once approved, the bot sends you the link to the offers channel.\n\
 3. In the channel, \"✅ Accept\" takes the trip at the client's price; \"💬 Counteroffer\" lets you propose another with −/+ and \"✅ Send\".\n\
 4. When the client confirms you, you get the pickup, the destination and their contact. Tap \"📍 I'm here\" and \"🏁 Completed\".\n\
-5. In \"🏍 Driver\" you have your stats, your profile and \"🚘 My vehicles\": up to 5 (motorbike, car or tricycle) and one active, which takes the trips of its kind. An admin approves a new vehicle, or a new plate or photo.\n\n\
+5. In \"🧢 Driver\" you have your stats, your profile and \"🚘 My vehicles\": up to 5 (motorbike, car or tricycle) and one active, which takes the trips of its kind. An admin approves a new vehicle, or a new plate or photo.\n\n\
 You get paid directly by the client. Clients see your reputation (stars and trips).",
         (Lang::Es, Some(Guide::Manager)) => "🏢 Ser gestor (próximamente)\n\n\
 Si tienes una agencia, podrás conectar a tus clientes con nuestros choferes:\n\n\
@@ -1650,20 +1653,20 @@ pub fn domain_error(lang: Lang, error: &DomainError) -> String {
         (Lang::Es, AlreadyDone) => "Ya lo habías marcado.".into(),
         (Lang::En, AlreadyDone) => "You already did that.".into(),
         (Lang::Es, WrongVehicle { wanted, active }) => format!(
-            "Esta solicitud es para {} y tu vehículo activo es {}. Cámbialo en 🏍 Chofer → 🚘 Mis vehículos.",
+            "Esta solicitud es para {} y tu vehículo activo es {}. Cámbialo en 🧢 Chofer → 🚘 Mis vehículos.",
             vehicle_kind(lang, *wanted),
             vehicle_kind(lang, *active)
         ),
         (Lang::En, WrongVehicle { wanted, active }) => format!(
-            "This request is for a {} and your active vehicle is a {}. Change it in 🏍 Driver → 🚘 My vehicles.",
+            "This request is for a {} and your active vehicle is a {}. Change it in 🧢 Driver → 🚘 My vehicles.",
             vehicle_kind(lang, *wanted),
             vehicle_kind(lang, *active)
         ),
         (Lang::Es, NoActiveVehicle) => {
-            "No tienes un vehículo activo aprobado. Elige uno en 🏍 Chofer → 🚘 Mis vehículos.".into()
+            "No tienes un vehículo activo aprobado. Elige uno en 🧢 Chofer → 🚘 Mis vehículos.".into()
         }
         (Lang::En, NoActiveVehicle) => {
-            "You have no approved active vehicle. Pick one in 🏍 Driver → 🚘 My vehicles.".into()
+            "You have no approved active vehicle. Pick one in 🧢 Driver → 🚘 My vehicles.".into()
         }
         (Lang::Es, VehicleNotApproved) => "Este vehículo todavía espera la aprobación de un admin.".into(),
         (Lang::En, VehicleNotApproved) => "This vehicle is still waiting for an admin's approval.".into(),
@@ -1683,7 +1686,7 @@ pub fn vehicle_line(v: &Vehicle) -> String {
     format!("{} {} {} · {}", v.kind.emoji(), v.model, v.color, v.plate)
 }
 
-/// In the 🏍 Driver menu: "Trabajando con: 🚗 Lada rojo · P123456".
+/// In the 🧢 Driver menu: "Trabajando con: 🚗 Lada rojo · P123456".
 pub fn working_with(lang: Lang, active: Option<&Vehicle>) -> String {
     match (lang, active) {
         (Lang::Es, Some(v)) => format!("Trabajando con: {}", vehicle_line(v)),
@@ -2240,8 +2243,8 @@ pub fn drivers_list(lang: Lang, filter: crate::bot::panel::Filter, total: i64) -
         (Lang::En, Filter::Blocked) => "blocked",
     };
     match lang {
-        Lang::Es => format!("🏍 Choferes ({which}): {total}\nToca uno para ver su ficha y actuar sobre él."),
-        Lang::En => format!("🏍 Drivers ({which}): {total}\nTap one to see their profile and act on it."),
+        Lang::Es => format!("🧢 Choferes ({which}): {total}\nToca uno para ver su ficha y actuar sobre él."),
+        Lang::En => format!("🧢 Drivers ({which}): {total}\nTap one to see their profile and act on it."),
     }
 }
 
@@ -2541,6 +2544,8 @@ mod tests {
         assert_eq!(parse_button("🛵 Pedir viaje"), Some(Button::RequestRide));
         assert_eq!(parse_button("🛵 My trip"), Some(Button::MyTrip));
         assert_eq!(parse_button("🧭 Mi viaje"), Some(Button::MyTrip));
+        assert_eq!(parse_button("🏍 Chofer"), Some(Button::DriverMenu));
+        assert_eq!(parse_button("🧢 Chofer"), Some(Button::DriverMenu));
     }
 
     #[test]
