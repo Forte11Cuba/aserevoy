@@ -180,7 +180,7 @@ Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 11
 - `drivers.active_vehicle_id`.
 - `requests.vehicle_kind` (obligatorio desde que se publica) y `requests.vehicle_id` (al reservar o asignar).
 - `fares`: claves por tipo (`car.base`, `car.per_km`, `car.min_percent`, `tricycle.…`); las de moto conservan sus claves actuales.
-- **Migración:** la moto de cada chofer actual (`plate`, `bike_model`, `bike_color`, `bike_photo_file_id`) pasa a `vehicles` como `moto`, aprobada si el chofer está `activo`, y queda como su vehículo activo. Las columnas viejas de `drivers` quedan sin uso, como `payment_methods`, para que la imagen anterior siga funcionando si hay que volver atrás.
+- **Migración:** la moto de cada chofer actual (`plate`, `bike_model`, `bike_color`, `bike_photo_file_id`) pasa a `vehicles` como `moto`, aprobada si el chofer ya fue aprobado (`active` o `blocked`; la de una solicitud pendiente se aprueba con ella), y queda como su vehículo activo. Las columnas viejas de `drivers` quedan sin uso, como `payment_methods`. **Volver atrás** no es solo cambiar de imagen: la `0.1.0` no arranca con una base que tiene la migración `0016` (sqlx rechaza migraciones que no conoce). Antes de desplegar se copia la base; para volver, se restaura la copia y se pone la imagen anterior (migración `0016_vehicles.sql`, probada sobre una copia de la base del piloto y sobre choferes de prueba).
 - Los textos que dicen "moto-taxi" o "moto" donde vale cualquier vehículo (descripción del bot, bienvenida, guías ❓ Cómo funciona, términos, `README.md`) pasan a hablar de "moto, carro o triciclo". El 🏍 de los choferes (decisión 105) y el botón 🏍 Chofer se mantienen.
 
 ## Ubicación y precio
