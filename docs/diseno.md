@@ -144,7 +144,7 @@ Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 11
 
 **Tarifas por tipo** (decisión 118). Cada tipo tiene su `base`, `tarifa_km` y `% mínimo`. Las de carro y triciclo empiezan copiando las de moto, y un superadmin las ajusta antes de que haya choferes de ese tipo. En ⚙️ Administración → Tarifas se elige primero el tipo; el comando acepta el tipo delante (`/tarifa carro km 80`) y sin tipo sigue cambiando la moto (`/tarifa km 60`). `/tarifas` muestra los tres.
 
-**Un solo canal** (decisión 119). Todas las ofertas van al mismo canal y **la primera línea dice el tipo** ("🚗 Carro"), antes del 🛵 ID. El servidor comprueba el tipo en cada acción:
+**Un solo canal** (decisión 119). Todas las ofertas van al mismo canal y **la primera línea dice el tipo y el ID**: "🚗 Carro · 🆔 ESWA" (decisión 131). El servidor comprueba el tipo en cada acción:
 
 - **Aceptar** y **💬 Contraofertar** (al abrir el enlace y al enviar) solo valen si el vehículo activo del chofer es del tipo de la solicitud. Si no, se le explica: "Esta solicitud es para 🚗 Carro y tu vehículo activo es 🏍 Moto. Cámbialo en 🏍 Chofer → 🚘 Mis vehículos".
 - Un chofer sin vehículo activo aprobado no puede aceptar ni contraofertar.
@@ -717,3 +717,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 128 | Atajo al aceptar con otro tipo activo: si el chofer tiene un vehículo aprobado del tipo de la solicitud, el bot le escribe por privado con un botón "🚗 Usar <vehículo> y aceptar", que cambia el vehículo activo y acepta de una vez (con las mismas reglas que cambiarlo a mano); si no tiene ninguno de ese tipo, solo se le explica | 2026-11-07 |
 | 129 | Un vehículo que un admin rechaza se borra y se avisa al chofer, que puede añadirlo de nuevo | 2026-11-07 |
 | 130 | La foto propia del chofer se cambia sin aprobación, solo con aviso a los admins, como hoy; la aprobación de la 122 es solo para la chapa y la foto de los vehículos. El primer vehículo se aprueba junto con el chofer, no por separado | 2026-11-07 |
+| 131 | La oferta del canal empieza con el tipo y el ID en una línea, "🚗 Carro · 🆔 ESWA", en vez de "🛵 Solicitud ESWA" debajo del tipo | 2026-11-07 |

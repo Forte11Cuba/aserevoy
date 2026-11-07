@@ -932,12 +932,9 @@ pub struct Post<'a> {
 pub fn channel_post(lang: Lang, p: &Post) -> String {
     let (request, km, price) = (p.request, p.km, p.price);
     let pay = payment(lang, p.payment);
-    // The kind first: drivers of other kinds skip it (decision 119).
-    let mut post = format!("{}\n", vehicle_kind(lang, p.vehicle_kind));
-    post.push_str(&match lang {
-        Lang::Es => format!("🛵 Solicitud {request}\n"),
-        Lang::En => format!("🛵 Request {request}\n"),
-    });
+    // The kind first, so drivers of other kinds skip it (decision 119), and
+    // the request's id beside it (decision 131).
+    let mut post = format!("{} · 🆔 {request}\n", vehicle_kind(lang, p.vehicle_kind));
     if p.from.is_some() || p.to.is_some() {
         let zone = |m: Option<&str>, corner: &Option<String>| match corner {
             Some(c) => format!("{} ({c})", m.unwrap_or("?")),
@@ -2431,7 +2428,7 @@ mod tests {
             cancellations: Some(1),
         };
         let text = channel_post(Lang::Es, &post);
-        assert!(text.starts_with("🚗 Carro\n🛵 Solicitud K7X2\n📍 Plaza"), "{text}");
+        assert!(text.starts_with("🚗 Carro · 🆔 K7X2\n📍 Plaza"), "{text}");
         assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
         assert!(text.contains("💰 600 CUP · 💵 Efectivo\n🔴⬇️ 200 CUP menos que el precio sugerido (800 CUP)\n"), "{text}");
         assert_eq!(against_suggested(Lang::Es, 1100, 800, true), "🟢⬆️ 300 CUP más que el precio sugerido (≈800 CUP)");
