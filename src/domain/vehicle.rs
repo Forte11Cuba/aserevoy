@@ -32,8 +32,7 @@ impl VehicleKind {
 
     /// The word a superadmin writes in `/tarifa carro km 80`, in Spanish or
     /// English.
-    #[allow(dead_code)] // Until `/tarifa` uses it, in the next commit (issue #29).
-    pub fn parse_word(word: &str) -> Option<VehicleKind> {
+        pub fn parse_word(word: &str) -> Option<VehicleKind> {
         match word.to_lowercase().as_str() {
             "moto" => Some(VehicleKind::Moto),
             "carro" | "car" => Some(VehicleKind::Car),

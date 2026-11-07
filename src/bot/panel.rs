@@ -83,7 +83,7 @@ pub async fn section(cx: &Ctx<'_>, which: Button) -> anyhow::Result<()> {
     match which {
         Button::PanelDrivers => drivers(cx, None, Filter::All, 0).await,
         Button::PanelAdmins => admin::show_admins(cx, None, 0).await,
-        Button::PanelFares => fares(cx, None).await,
+        Button::PanelFares => fare_kinds(cx, None).await,
         Button::PanelMetrics => {
             let days = db::metrics::last(&cx.app.pool, 7).await?;
             cx.bot.send_message(chat(cx.user), i18n::metrics(cx.lang, &days)).await?;
@@ -112,31 +112,54 @@ pub async fn on_callback(cx: &Ctx<'_>, arg: &str, pressed: Option<MessageId>) ->
         }
         // Superadmins only from here.
         _ if !superadmin => return Ok(Some(i18n::text(cx.lang, Text::NotAllowed).into())),
-        ["fare"] => fares(cx, pressed).await?,
+        ["fare"] => fare_kinds(cx, pressed).await?,
+        ["fare", kind] => {
+            if let Some(kind) = VehicleKind::parse(kind) {
+                fares(cx, pressed, kind).await?;
+            }
+        }
         ["adm", page] => admin::show_admins(cx, pressed, page.parse().unwrap_or(0)).await?,
         ["a", id] => {
             if let Ok(id) = id.parse() {
                 admin::admin_card(cx, pressed, UserId(id)).await?;
             }
         }
-        ["fa", key, delta] => {
-            if let (Some(key), Ok(delta)) = (FareKey::parse(key), delta.parse::<i64>()) {
-                let current = db::fares::load(&cx.app.pool).await?;
-                let value = match key {
-                    FareKey::Base => current.base + delta,
-                    FareKey::PerKm => current.per_km + delta,
-                    FareKey::MinPercent => i64::from(current.min_percent) + delta,
-                };
-                if !key.valid(value) {
-                    return Ok(Some(i18n::text(cx.lang, Text::FareOutOfRange).into()));
-                }
-                db::fares::set(&cx.app.pool, VehicleKind::Moto, key, value).await?;
-                tracing::info!(?key, value, "fare changed");
-                fares(cx, pressed).await?;
+        // `ap:fa:<kind>:<key>:<delta>`; without a kind (an older message), the moto.
+        ["fa", key, delta] => return change_fare(cx, pressed, VehicleKind::Moto, key, delta).await,
+        ["fa", kind, key, delta] => {
+            if let Some(kind) = VehicleKind::parse(kind) {
+                return change_fare(cx, pressed, kind, key, delta).await;
             }
         }
         _ => {}
     }
+    Ok(None)
+}
+
+/// A ± button of one kind's fare: never out of range.
+async fn change_fare(
+    cx: &Ctx<'_>,
+    pressed: Option<MessageId>,
+    kind: VehicleKind,
+    key: &str,
+    delta: &str,
+) -> anyhow::Result<Option<String>> {
+    let (Some(key), Ok(delta)) = (FareKey::parse(key), delta.parse::<i64>()) else {
+        return Ok(None);
+    };
+    let table = db::fares::load_table(&cx.app.pool).await?;
+    let current = table.of(kind);
+    let value = match key {
+        FareKey::Base => current.base + delta,
+        FareKey::PerKm => current.per_km + delta,
+        FareKey::MinPercent => i64::from(current.min_percent) + delta,
+    };
+    if !key.valid(value) {
+        return Ok(Some(i18n::text(cx.lang, Text::FareOutOfRange).into()));
+    }
+    db::fares::set(&cx.app.pool, kind, key, value).await?;
+    tracing::info!(kind = kind.code(), ?key, value, "fare changed");
+    fares(cx, pressed, kind).await?;
     Ok(None)
 }
 
@@ -175,7 +198,10 @@ async fn driver_card(cx: &Ctx<'_>, id: UserId) -> anyhow::Result<()> {
     };
     let shown = db::reputation::get(&cx.app.pool, id, Role::Driver).await?.map(|r| r.shown(now()));
     let username = cx.bot.get_chat(chat(id)).await.ok().and_then(|c| c.username().map(str::to_owned));
-    let caption = i18n::driver_admin_card(cx.lang, &d.profile, d.status, shown.as_ref(), username.as_deref());
+    let vehicles = db::vehicles::for_driver(&cx.app.pool, id).await?;
+    let active = db::vehicles::active(&cx.app.pool, id).await?.map(|v| v.id);
+    let mut caption = i18n::driver_admin_card(cx.lang, &d.profile, d.status, shown.as_ref(), username.as_deref());
+    caption.push_str(&i18n::driver_vehicles(cx.lang, &vehicles, active));
     let photo = InputFile::file_id(FileId(d.profile.photo_file_id.clone()));
     cx.bot
         .send_photo(chat(cx.user), photo)
@@ -185,7 +211,14 @@ async fn driver_card(cx: &Ctx<'_>, id: UserId) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn fares(cx: &Ctx<'_>, pressed: Option<MessageId>) -> anyhow::Result<()> {
-    let fares = db::fares::load(&cx.app.pool).await?;
-    edit_or_send(cx, pressed, i18n::fares_panel(cx.lang, &fares), keyboards::fares_panel(cx.lang)).await
+/// 💰 Fares: the kind first (decision 118), each with its fares.
+async fn fare_kinds(cx: &Ctx<'_>, pressed: Option<MessageId>) -> anyhow::Result<()> {
+    let table = db::fares::load_table(&cx.app.pool).await?;
+    edit_or_send(cx, pressed, i18n::fares(cx.lang, &table, true), keyboards::fare_kinds(cx.lang)).await
+}
+
+async fn fares(cx: &Ctx<'_>, pressed: Option<MessageId>, kind: VehicleKind) -> anyhow::Result<()> {
+    let table = db::fares::load_table(&cx.app.pool).await?;
+    let text = i18n::fares_panel(cx.lang, kind, table.of(kind));
+    edit_or_send(cx, pressed, text, keyboards::fares_panel(cx.lang, kind)).await
 }

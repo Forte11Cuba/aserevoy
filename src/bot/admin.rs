@@ -10,8 +10,7 @@ use crate::db;
 use crate::db::invitations::InviteRole;
 use crate::db::moderation::BlockReason;
 use crate::domain::driver::DriverStatus;
-use crate::domain::fare::FareKey;
-use crate::domain::vehicle::VehicleKind;
+use crate::domain::fare;
 use crate::domain::ids::{InviteCode, UserId};
 use crate::domain::reputation::{CANCELLATION_BLOCK_SECS, Role};
 use crate::i18n::{self, Text};
@@ -115,35 +114,31 @@ pub async fn show_metrics(cx: &Ctx<'_>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `/tarifas` (staff): the current fares.
+/// `/tarifas` (staff): the current fares of the three kinds.
 pub async fn show_fares(cx: &Ctx<'_>) -> anyhow::Result<()> {
     if !cx.app.is_staff(cx.user).await? {
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
         return Ok(());
     }
-    let fares = db::fares::load(&cx.app.pool).await?;
-    cx.bot.send_message(chat(cx.user), i18n::fares(cx.lang, &fares)).await?;
+    let table = db::fares::load_table(&cx.app.pool).await?;
+    cx.bot.send_message(chat(cx.user), i18n::fares(cx.lang, &table, false)).await?;
     Ok(())
 }
 
-/// `/tarifa <base|km|minimo> <value>` (superadmins): changes a fare for new
-/// requests; open ones keep their price.
+/// `/tarifa [carro|triciclo] <base|km|minimo> <value>` (superadmins): changes
+/// a fare for new requests, of the moto if no kind is given; open ones keep
+/// their price.
 pub async fn set_fare(cx: &Ctx<'_>, args: &str) -> anyhow::Result<()> {
     if !cx.app.config.is_superadmin(cx.user) {
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::NotAllowed)).await?;
         return Ok(());
     }
-    let mut words = args.split_whitespace();
-    let parsed = match (words.next().and_then(FareKey::parse), words.next().and_then(|v| v.parse().ok())) {
-        (Some(key), Some(value)) if key.valid(value) => Some((key, value)),
-        _ => None,
-    };
-    let Some((key, value)) = parsed else {
+    let Some((kind, key, value)) = fare::parse_change(args) else {
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::FareUsage)).await?;
         return Ok(());
     };
-    db::fares::set(&cx.app.pool, VehicleKind::Moto, key, value).await?;
-    tracing::info!(?key, value, "fare changed");
+    db::fares::set(&cx.app.pool, kind, key, value).await?;
+    tracing::info!(kind = kind.code(), ?key, value, "fare changed");
     show_fares(cx).await
 }
 

@@ -4,7 +4,7 @@
 use crate::db::metrics::Day;
 use crate::domain::driver::{DriverStatus, Profile};
 use crate::domain::effect::{Notice, Place};
-use crate::domain::fare::{Cup, Fares};
+use crate::domain::fare::{Cup, FareTable, Fares};
 use crate::domain::ids::RequestId;
 use crate::domain::reputation::{Reputation, Role, Shown, Tag};
 use crate::domain::request::{CancelReason, DomainError, PaymentMethod, UnixTime};
@@ -579,8 +579,12 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AlreadyClosed) => "This trip is already closed.",
         (Lang::Es, KeptWaiting) => "👍 Perfecto, tu solicitud sigue publicada.",
         (Lang::En, KeptWaiting) => "👍 Great, your request stays published.",
-        (Lang::Es, FareUsage) => "Uso: /tarifa base 100, /tarifa km 150 o /tarifa minimo 80 (porcentaje del precio sugerido).",
-        (Lang::En, FareUsage) => "Usage: /tarifa base 100, /tarifa km 150 or /tarifa minimo 80 (percentage of the suggested price).",
+        (Lang::Es, FareUsage) => {
+            "Uso: /tarifa base 100, /tarifa km 150 o /tarifa minimo 80 (porcentaje del precio sugerido), para la moto; para los otros, el tipo delante: /tarifa carro km 200, /tarifa triciclo base 80."
+        }
+        (Lang::En, FareUsage) => {
+            "Usage: /tarifa base 100, /tarifa km 150 or /tarifa minimo 80 (percentage of the suggested price), for the moto; for the others, the kind first: /tarifa carro km 200, /tarifa triciclo base 80."
+        }
         (Lang::Es, PanelHome) => "⚙️ Administración: elige abajo qué quieres gestionar.",
         (Lang::En, PanelHome) => "⚙️ Administration: pick below what you want to manage.",
         (Lang::Es, FareOutOfRange) => "Ese valor no es válido (el mínimo va de 0 a 100 %, los precios deben ser mayores que 0).",
@@ -2261,32 +2265,80 @@ pub fn driver_admin_card(
     card
 }
 
-/// The fares as the panel shows them, with what the buttons change.
-pub fn fares_panel(lang: Lang, f: &Fares) -> String {
+/// One kind's fares as the panel shows them, with what the buttons change.
+pub fn fares_panel(lang: Lang, kind: VehicleKind, f: &Fares) -> String {
+    let kind_name = vehicle_kind(lang, kind);
+    // What to type for this kind: the moto needs no word.
+    let word = match (lang, kind) {
+        (_, VehicleKind::Moto) => "",
+        (Lang::Es, VehicleKind::Car) => "carro ",
+        (Lang::En, VehicleKind::Car) => "car ",
+        (Lang::Es, VehicleKind::Tricycle) => "triciclo ",
+        (Lang::En, VehicleKind::Tricycle) => "tricycle ",
+    };
     match lang {
         Lang::Es => format!(
-            "💰 Tarifas (precio sugerido = base + precio por km × km)\n\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nCámbialas con los botones o escribe un valor exacto: /tarifa base 120, /tarifa km 160 o /tarifa minimo 75. Afectan a las solicitudes nuevas.",
+            "💰 Tarifas de {kind_name} (precio sugerido = base + precio por km × km)\n\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nCámbialas con los botones o escribe un valor exacto: /tarifa {word}base 120, /tarifa {word}km 160 o /tarifa {word}minimo 75. Afectan a las solicitudes nuevas.",
             f.base, f.per_km, f.min_percent
         ),
         Lang::En => format!(
-            "💰 Fares (suggested price = base + price per km × km)\n\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nChange them with the buttons or type an exact value: /tarifa base 120, /tarifa km 160 or /tarifa minimo 75. They apply to new requests.",
+            "💰 {kind_name} fares (suggested price = base + price per km × km)\n\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nChange them with the buttons or type an exact value: /tarifa {word}base 120, /tarifa {word}km 160 or /tarifa {word}minimo 75. They apply to new requests.",
             f.base, f.per_km, f.min_percent
         ),
     }
 }
 
-/// `/tarifas`: the current fares.
-pub fn fares(lang: Lang, f: &Fares) -> String {
-    match lang {
-        Lang::Es => format!(
-            "💰 Tarifas\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nPara cambiarlas (superadmins): /tarifa base|km|minimo <valor>",
-            f.base, f.per_km, f.min_percent
-        ),
-        Lang::En => format!(
-            "💰 Fares\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nTo change them (superadmins): /tarifa base|km|minimo <value>",
-            f.base, f.per_km, f.min_percent
-        ),
+/// The fares of the three kinds: `/tarifas`, or the panel's first step
+/// (`pick`), where a kind is chosen to change them.
+pub fn fares(lang: Lang, table: &FareTable, pick: bool) -> String {
+    let mut text = match lang {
+        Lang::Es => "💰 Tarifas (precio sugerido = base + precio por km × km)".to_owned(),
+        Lang::En => "💰 Fares (suggested price = base + price per km × km)".to_owned(),
+    };
+    for kind in VehicleKind::ALL {
+        let f = table.of(kind);
+        text.push_str(&match lang {
+            Lang::Es => format!(
+                "\n\n{}\nBase: {} CUP · Por km: {} CUP · Mínimo: {} %",
+                vehicle_kind(lang, kind),
+                f.base,
+                f.per_km,
+                f.min_percent
+            ),
+            Lang::En => format!(
+                "\n\n{}\nBase: {} CUP · Per km: {} CUP · Minimum: {} %",
+                vehicle_kind(lang, kind),
+                f.base,
+                f.per_km,
+                f.min_percent
+            ),
+        });
     }
+    text.push_str(match (lang, pick) {
+        (Lang::Es, true) => "\n\nElige el tipo para cambiar sus tarifas.",
+        (Lang::En, true) => "\n\nPick the kind to change its fares.",
+        (Lang::Es, false) => "\n\nPara cambiarlas (superadmins): /tarifa [carro|triciclo] base|km|minimo <valor>; sin tipo, la moto.",
+        (Lang::En, false) => "\n\nTo change them (superadmins): /tarifa [carro|triciclo] base|km|minimo <value>; without a kind, the moto.",
+    });
+    text
+}
+
+/// The driver's vehicles, at the end of their card for staff.
+pub fn driver_vehicles(lang: Lang, vehicles: &[Vehicle], active: Option<VehicleId>) -> String {
+    let mut text = match lang {
+        Lang::Es => "\n\n🚘 Vehículos:".to_owned(),
+        Lang::En => "\n\n🚘 Vehicles:".to_owned(),
+    };
+    if vehicles.is_empty() {
+        text.push_str(match lang {
+            Lang::Es => " ninguno",
+            Lang::En => " none",
+        });
+    }
+    for v in vehicles {
+        text.push_str(&format!("\n{}", vehicle_button(v, Some(v.id) == active)));
+    }
+    text
 }
 
 /// `/metricas`: one block per day, newest first.
@@ -2471,6 +2523,18 @@ mod tests {
         assert!(text.starts_with("📋 Revisa tu solicitud\n\n📍"), "{text}");
         let text = ride_summary(Lang::Es, &Summary { kind: Some(VehicleKind::Car), ..summary });
         assert!(text.starts_with("📋 Revisa tu solicitud\n\n🚗 Carro\n📍 Recogida"), "{text}");
+    }
+
+    #[test]
+    fn fares_show_the_three_kinds() {
+        let moto = Fares { base: 100, per_km: 150, min_percent: 80 };
+        let table = FareTable { car: Fares { per_km: 250, ..moto.clone() }, tricycle: moto.clone(), moto };
+        let text = fares(Lang::Es, &table, false);
+        assert!(text.contains("🏍 Moto\nBase: 100 CUP · Por km: 150 CUP"), "{text}");
+        assert!(text.contains("🚗 Carro\nBase: 100 CUP · Por km: 250 CUP"), "{text}");
+        assert!(text.contains("🛺 Triciclo\n"), "{text}");
+        assert!(fares_panel(Lang::Es, VehicleKind::Car, &table.car).contains("/tarifa carro km 160"));
+        assert!(fares_panel(Lang::Es, VehicleKind::Moto, &table.moto).contains("/tarifa km 160"));
     }
 
     #[test]

@@ -81,7 +81,6 @@ impl FareKey {
 /// `/tarifa [carro|triciclo] <base|km|minimo> <value>`: without a kind, the
 /// moto, as before there were other kinds. `None` if anything is missing,
 /// unknown or out of range.
-#[allow(dead_code)] // Until `/tarifa` uses it, in the next commit (issue #29).
 pub fn parse_change(args: &str) -> Option<(VehicleKind, FareKey, i64)> {
     let mut words = args.split_whitespace().peekable();
     let kind = match words.peek().and_then(|w| VehicleKind::parse_word(w)) {

@@ -439,12 +439,21 @@ pub fn driver_admin(lang: Lang, driver: UserId, status: DriverStatus) -> InlineK
 }
 
 /// Steps to change each fare.
-pub fn fares_panel(lang: Lang) -> InlineKeyboardMarkup {
+/// 💰 Fares: one button per kind (`ap:fare:<kind>`).
+pub fn fare_kinds(lang: Lang) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(VehicleKind::ALL.into_iter().map(|k| {
+        vec![InlineKeyboardButton::callback(i18n::vehicle_kind(lang, k), format!("ap:fare:{}", k.code()))]
+    }))
+}
+
+/// One kind's fares: ± steps (`ap:fa:<kind>:<key>:<delta>`), and back to the kinds.
+pub fn fares_panel(lang: Lang, kind: VehicleKind) -> InlineKeyboardMarkup {
+    let kind = kind.code();
     let step = |key: &str, delta: i64, unit: &str| {
         let label = if delta > 0 { format!("+{delta}{unit}") } else { format!("−{}{unit}", -delta) };
-        InlineKeyboardButton::callback(label, format!("ap:fa:{key}:{delta}"))
+        InlineKeyboardButton::callback(label, format!("ap:fa:{kind}:{key}:{delta}"))
     };
-    let title = |text: String| InlineKeyboardButton::callback(text, "ap:fare");
+    let title = |text: String| InlineKeyboardButton::callback(text, format!("ap:fare:{kind}"));
     let (base, km, min) = match lang {
         Lang::Es => ("Base", "Por km", "Mínimo"),
         Lang::En => ("Base", "Per km", "Minimum"),
@@ -456,6 +465,7 @@ pub fn fares_panel(lang: Lang) -> InlineKeyboardMarkup {
         vec![step("km", -50, ""), step("km", -10, ""), step("km", 10, ""), step("km", 50, "")],
         vec![title(min.into())],
         vec![step("minimo", -5, "%"), step("minimo", 5, "%")],
+        vec![inline(lang, Button::Back, "ap:fare")],
     ])
 }
 
@@ -674,6 +684,44 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    fn car(id: VehicleId, approved: bool) -> Vehicle {
+        Vehicle {
+            id,
+            driver: UserId(7),
+            kind: VehicleKind::Car,
+            plate: "P123456".into(),
+            model: "Lada".into(),
+            color: "rojo".into(),
+            photo_file_id: None,
+            status: if approved {
+                crate::domain::vehicle::VehicleStatus::Approved
+            } else {
+                crate::domain::vehicle::VehicleStatus::Pending
+            },
+            pending_plate: None,
+            pending_photo_file_id: None,
+        }
+    }
+
+    #[test]
+    fn vehicle_buttons_carry_their_id_and_fit_telegram() {
+        let list = vehicles(Lang::Es, &[car(1, true), car(2, false)], Some(1));
+        assert_eq!(callbacks(&list), vec!["vh:1", "vh:2", "vadd"]);
+        let full: Vec<Vehicle> = (1..=5).map(|i| car(i, true)).collect();
+        assert!(!callbacks(&vehicles(Lang::Es, &full, None)).contains(&"vadd".to_owned()));
+
+        // Use only for an approved one that is not active yet.
+        assert!(callbacks(&vehicle_card(Lang::Es, &car(9, true), false)).contains(&"vuse:9".to_owned()));
+        assert!(!callbacks(&vehicle_card(Lang::Es, &car(9, true), true)).iter().any(|c| c.starts_with("vuse")));
+        assert!(!callbacks(&vehicle_card(Lang::Es, &car(9, false), false)).iter().any(|c| c.starts_with("vuse")));
+
+        let id = RequestId::parse("K7X2").unwrap();
+        let switch = switch_vehicle(Lang::Es, &id, &car(i64::MAX, true), Then::Counteroffer);
+        let all = [callbacks(&switch), callbacks(&fares_panel(Lang::Es, VehicleKind::Tricycle))].concat();
+        assert!(all.iter().all(|c| c.len() <= 64), "{all:?}");
+        assert!(all.contains(&"ap:fa:tricycle:minimo:-5".to_owned()), "{all:?}");
     }
 
     #[test]
