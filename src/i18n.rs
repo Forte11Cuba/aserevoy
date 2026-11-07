@@ -8,7 +8,7 @@ use crate::domain::fare::{Cup, Fares};
 use crate::domain::ids::RequestId;
 use crate::domain::reputation::{Reputation, Role, Shown, Tag};
 use crate::domain::request::{CancelReason, DomainError, PaymentMethod, UnixTime};
-use crate::domain::vehicle::{MAX_PER_DRIVER, Vehicle, VehicleKind};
+use crate::domain::vehicle::{MAX_PER_DRIVER, Vehicle, VehicleId, VehicleKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Lang {
@@ -98,6 +98,12 @@ pub enum Button {
     NoneOfThese,
     Support,
     MyTrips,
+    MyVehicles,
+    AddVehicle,
+    UseVehicle,
+    RemoveVehicle,
+    YesRemoveVehicle,
+    SeePhoto,
     DeleteHistory,
     YesFinished,
     MyReputation,
@@ -142,7 +148,8 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 32] = [
+const REPLY_BUTTONS: [Button; 33] = [
+    Button::MyVehicles,
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -242,8 +249,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, FieldColor) => "Color",
         (Lang::Es, FieldPhoto) => "Mi foto",
         (Lang::En, FieldPhoto) => "My photo",
-        (Lang::Es, FieldBikePhoto) => "Foto de la moto",
-        (Lang::En, FieldBikePhoto) => "Bike photo",
+        (Lang::Es, FieldBikePhoto) => "Foto",
+        (Lang::En, FieldBikePhoto) => "Photo",
         (Lang::Es, Confirm) => "✅ Confirmar",
         (Lang::En, Confirm) => "✅ Confirm",
         (Lang::Es, RaisePrice) => "⬆️ Subir precio",
@@ -278,6 +285,18 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, YesFinished) => "✅ Yes, it's over",
         (Lang::Es, MyTrips) => "🧾 Mis viajes",
         (Lang::En, MyTrips) => "🧾 My trips",
+        (Lang::Es, MyVehicles) => "🚘 Mis vehículos",
+        (Lang::En, MyVehicles) => "🚘 My vehicles",
+        (Lang::Es, AddVehicle) => "➕ Añadir vehículo",
+        (Lang::En, AddVehicle) => "➕ Add a vehicle",
+        (Lang::Es, UseVehicle) => "✅ Usar este",
+        (Lang::En, UseVehicle) => "✅ Use this one",
+        (Lang::Es, RemoveVehicle) => "🗑 Quitar",
+        (Lang::En, RemoveVehicle) => "🗑 Remove",
+        (Lang::Es, YesRemoveVehicle) => "🗑 Sí, quitarlo",
+        (Lang::En, YesRemoveVehicle) => "🗑 Yes, remove it",
+        (Lang::Es, SeePhoto) => "📷 Ver foto",
+        (Lang::En, SeePhoto) => "📷 See photo",
         (Lang::Es, DeleteHistory) => "🗑 Borrar mi historial",
         (Lang::En, DeleteHistory) => "🗑 Delete my history",
         (Lang::Es, MyTrip) => "🛵 Mi viaje",
@@ -448,6 +467,16 @@ pub enum Text {
     AskBikeColor,
     AskPhoto,
     AskBikePhoto,
+    AskVehicleKind,
+    PickVehicleKind,
+    ApplicationPending,
+    NoVehiclePhoto,
+    RemoveVehicleSure,
+    VehicleRemoved,
+    VehicleRemovedPickAnother,
+    VehicleSent,
+    VehicleUpdated,
+    VehicleChangeSent,
     InvalidField,
     NeedPhoto,
     ApplicationSent,
@@ -675,16 +704,36 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AskAlias) => "👤 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
         (Lang::En, AskDriverPhone) => "📞 Your mobile number, so clients can call you. Share it with the button or type it.",
-        (Lang::Es, AskPlate) => "🔢 Número de chapa de la moto:",
-        (Lang::En, AskPlate) => "🔢 Motorbike plate number:",
-        (Lang::Es, AskBikeModel) => "🏍 Marca y modelo de la moto:",
-        (Lang::En, AskBikeModel) => "🏍 Motorbike make and model:",
-        (Lang::Es, AskBikeColor) => "🎨 Color de la moto:",
-        (Lang::En, AskBikeColor) => "🎨 Motorbike colour:",
+        (Lang::Es, AskVehicleKind) => "🚘 ¿Con qué vehículo trabajas? Elige el tipo con los botones de abajo.",
+        (Lang::En, AskVehicleKind) => "🚘 What vehicle do you drive? Pick the kind with the buttons below.",
+        (Lang::Es, PickVehicleKind) => "Elige el tipo con los botones: 🏍 Moto, 🚗 Carro o 🛺 Triciclo.",
+        (Lang::En, PickVehicleKind) => "Pick the kind with the buttons: 🏍 Moto, 🚗 Car or 🛺 Tricycle.",
+        (Lang::Es, AskPlate) => "🔢 Número de chapa del vehículo:",
+        (Lang::En, AskPlate) => "🔢 The vehicle's plate number:",
+        (Lang::Es, AskBikeModel) => "🚘 Marca y modelo del vehículo:",
+        (Lang::En, AskBikeModel) => "🚘 The vehicle's make and model:",
+        (Lang::Es, AskBikeColor) => "🎨 Color del vehículo:",
+        (Lang::En, AskBikeColor) => "🎨 The vehicle's colour:",
         (Lang::Es, AskPhoto) => "🤳 Envía una foto tuya. Los clientes la verán cuando aceptes su viaje.",
         (Lang::En, AskPhoto) => "🤳 Send a photo of yourself. Clients will see it when you accept their trip.",
-        (Lang::Es, AskBikePhoto) => "📷 Envía una foto de la moto, o pulsa Omitir.",
-        (Lang::En, AskBikePhoto) => "📷 Send a photo of the motorbike, or tap Skip.",
+        (Lang::Es, AskBikePhoto) => "📷 Envía una foto del vehículo, o pulsa Omitir.",
+        (Lang::En, AskBikePhoto) => "📷 Send a photo of the vehicle, or tap Skip.",
+        (Lang::Es, ApplicationPending) => "⏳ Tu solicitud de chofer espera la aprobación de un admin.",
+        (Lang::En, ApplicationPending) => "⏳ Your driver application is waiting for an admin's approval.",
+        (Lang::Es, NoVehiclePhoto) => "Este vehículo no tiene foto.",
+        (Lang::En, NoVehiclePhoto) => "This vehicle has no photo.",
+        (Lang::Es, RemoveVehicleSure) => "¿Quitar este vehículo? Para volver a usarlo tendrás que añadirlo de nuevo y esperar la aprobación.",
+        (Lang::En, RemoveVehicleSure) => "Remove this vehicle? To use it again you'll have to add it again and wait for approval.",
+        (Lang::Es, VehicleRemoved) => "🗑 Vehículo quitado.",
+        (Lang::En, VehicleRemoved) => "🗑 Vehicle removed.",
+        (Lang::Es, VehicleRemovedPickAnother) => "🗑 Vehículo quitado. Sin vehículo activo no puedes tomar viajes: elige otro con ✅ Usar este.",
+        (Lang::En, VehicleRemovedPickAnother) => "🗑 Vehicle removed. Without an active vehicle you can't take trips: pick another with ✅ Use this one.",
+        (Lang::Es, VehicleSent) => "📨 Vehículo enviado. Un admin lo revisará y te avisaré; mientras, no lo puedes usar.",
+        (Lang::En, VehicleSent) => "📨 Vehicle sent. An admin will review it and I'll let you know; until then you can't use it.",
+        (Lang::Es, VehicleUpdated) => "✅ Vehículo actualizado.",
+        (Lang::En, VehicleUpdated) => "✅ Vehicle updated.",
+        (Lang::Es, VehicleChangeSent) => "📨 Cambio enviado. Hasta que un admin lo apruebe, sigue valiendo el dato anterior.",
+        (Lang::En, VehicleChangeSent) => "📨 Change sent. Until an admin approves it, the previous one still counts.",
         (Lang::Es, InvalidField) => "Respuesta vacía o demasiado larga. Inténtalo de nuevo.",
         (Lang::En, InvalidField) => "Empty or too long. Please try again.",
         (Lang::Es, NeedPhoto) => "Necesito una foto.",
@@ -1067,14 +1116,8 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
     });
     let name = p.full_name.as_deref().map(|n| format!("\n🪪 {n}")).unwrap_or_default();
     let mut card = match lang {
-        Lang::Es => format!(
-            "👤 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Chapa: {}",
-            p.alias, p.phone, p.bike_model, p.bike_color, p.plate
-        ),
-        Lang::En => format!(
-            "👤 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Plate: {}",
-            p.alias, p.phone, p.bike_model, p.bike_color, p.plate
-        ),
+        Lang::Es => format!("👤 {}{name}\n📞 {}", p.alias, p.phone),
+        Lang::En => format!("👤 {}{name}\n📞 {}", p.alias, p.phone),
     };
     if let Some(status) = status {
         card.push('\n');
@@ -1228,13 +1271,6 @@ pub fn name_change(lang: Lang, alias: &str, old: Option<&str>, new: &str) -> Str
         (Lang::Es, None) => format!("🪪 {alias} añadió su nombre completo: {new}"),
         (Lang::En, Some(old)) => format!("🪪 {alias} wants to change their full name:\n{old} → {new}"),
         (Lang::En, None) => format!("🪪 {alias} added their full name: {new}"),
-    }
-}
-
-pub fn plate_changed(lang: Lang, alias: &str, old: &str, new: &str) -> String {
-    match lang {
-        Lang::Es => format!("🔢 {alias} cambió su chapa: {old} → {new}"),
-        Lang::En => format!("🔢 {alias} changed their plate: {old} → {new}"),
     }
 }
 
@@ -1424,8 +1460,11 @@ fn stats(
     text
 }
 
-pub fn application(lang: Lang, p: &Profile, invited: bool) -> String {
-    let card = profile_card(lang, p, None);
+pub fn application(lang: Lang, p: &Profile, vehicle: Option<&Vehicle>, invited: bool) -> String {
+    let mut card = profile_card(lang, p, None);
+    if let Some(v) = vehicle {
+        card.push_str(&format!("\n{}", vehicle_lines(lang, v.kind, Some(v))));
+    }
     match (lang, invited) {
         (Lang::Es, true) => format!("🆕 Solicitud de chofer (por invitación)\n\n{card}"),
         (Lang::Es, false) => format!("🆕 Solicitud de chofer\n\n{card}"),
@@ -1625,6 +1664,130 @@ pub fn domain_error(lang: Lang, error: &DomainError) -> String {
             .into(),
         (Lang::Es, TooManyVehicles) => format!("Puedes tener hasta {MAX_PER_DRIVER} vehículos. Quita uno para añadir otro."),
         (Lang::En, TooManyVehicles) => format!("You can have up to {MAX_PER_DRIVER} vehicles. Remove one to add another."),
+    }
+}
+
+/// A vehicle in one line: "🚗 Lada rojo · P123456".
+pub fn vehicle_line(v: &Vehicle) -> String {
+    format!("{} {} {} · {}", v.kind.emoji(), v.model, v.color, v.plate)
+}
+
+/// In the 🏍 Driver menu: "Trabajando con: 🚗 Lada rojo · P123456".
+pub fn working_with(lang: Lang, active: Option<&Vehicle>) -> String {
+    match (lang, active) {
+        (Lang::Es, Some(v)) => format!("Trabajando con: {}", vehicle_line(v)),
+        (Lang::En, Some(v)) => format!("Working with: {}", vehicle_line(v)),
+        (Lang::Es, None) => "Sin vehículo activo: elige uno en 🚘 Mis vehículos para tomar viajes.".into(),
+        (Lang::En, None) => "No active vehicle: pick one in 🚘 My vehicles to take trips.".into(),
+    }
+}
+
+/// 🚘 My vehicles, above one button per vehicle.
+pub fn vehicles_list(lang: Lang, vehicles: &[Vehicle], active: Option<VehicleId>) -> String {
+    let current = working_with(lang, vehicles.iter().find(|v| Some(v.id) == active).filter(|v| v.approved()));
+    let n = vehicles.len();
+    match (lang, n) {
+        (Lang::Es, 0) => "🚘 Mis vehículos\n\nNo tienes vehículos. Añade uno para tomar viajes.".into(),
+        (Lang::En, 0) => "🚘 My vehicles\n\nYou have no vehicles. Add one to take trips.".into(),
+        (Lang::Es, _) => format!(
+            "🚘 Mis vehículos ({n} de {MAX_PER_DRIVER})\n{current}\n\n✅ activo · ⏳ espera aprobación. Pulsa uno para verlo, usarlo o cambiarlo."
+        ),
+        (Lang::En, _) => format!(
+            "🚘 My vehicles ({n} of {MAX_PER_DRIVER})\n{current}\n\n✅ active · ⏳ waiting for approval. Tap one to see, use or change it."
+        ),
+    }
+}
+
+/// A vehicle's button in the list: "✅ 🚗 Lada rojo · P123456".
+pub fn vehicle_button(v: &Vehicle, active: bool) -> String {
+    let mark = if !v.approved() { "⏳ " } else if active { "✅ " } else { "" };
+    format!("{mark}{}", vehicle_line(v))
+}
+
+/// One vehicle's card in 🚘 My vehicles.
+pub fn vehicle_card(lang: Lang, v: &Vehicle, active: bool) -> String {
+    let status = match (lang, v.approved(), active) {
+        (Lang::Es, false, _) => "⏳ Espera la aprobación de un admin",
+        (Lang::En, false, _) => "⏳ Waiting for an admin's approval",
+        (Lang::Es, true, true) => "✅ Es tu vehículo activo",
+        (Lang::En, true, true) => "✅ Your active vehicle",
+        (Lang::Es, true, false) => "Aprobado",
+        (Lang::En, true, false) => "Approved",
+    };
+    let mut card = format!("{}\n{}\n{status}", vehicle_kind(lang, v.kind), vehicle_lines(lang, v.kind, Some(v)));
+    if let Some(plate) = &v.pending_plate {
+        card.push_str(&match lang {
+            Lang::Es => format!("\n⏳ Chapa nueva en revisión: {plate}"),
+            Lang::En => format!("\n⏳ New plate under review: {plate}"),
+        });
+    }
+    if v.pending_photo_file_id.is_some() {
+        card.push_str(match lang {
+            Lang::Es => "\n⏳ Foto nueva en revisión",
+            Lang::En => "\n⏳ New photo under review",
+        });
+    }
+    card.push_str(match lang {
+        Lang::Es => "\n\n✏️ Para cambiar un dato, pulsa su botón. La chapa y la foto las revisa un admin.",
+        Lang::En => "\n\n✏️ To change something, tap its button. An admin reviews the plate and the photo.",
+    });
+    card
+}
+
+/// To admins: a new vehicle of an approved driver (decision 122).
+pub fn new_vehicle(lang: Lang, alias: &str, v: &Vehicle) -> String {
+    let lines = vehicle_lines(lang, v.kind, Some(v));
+    match lang {
+        Lang::Es => format!("🆕 {alias} añadió un vehículo:\n\n{lines}\n\nNo lo puede usar hasta que lo apruebes."),
+        Lang::En => format!("🆕 {alias} added a vehicle:\n\n{lines}\n\nThey can't use it until you approve it."),
+    }
+}
+
+/// To admins: a new plate for an approved vehicle, the old one still counts.
+pub fn vehicle_plate_change(lang: Lang, alias: &str, v: &Vehicle, new: &str) -> String {
+    let name = vehicle_name(lang, v.kind, Some(v));
+    match lang {
+        Lang::Es => format!("🔢 {alias} quiere cambiar la chapa de {name}:\n{} → {new}", v.plate),
+        Lang::En => format!("🔢 {alias} wants to change the plate of {name}:\n{} → {new}", v.plate),
+    }
+}
+
+/// To admins, with the old photo (`new` false) and then the new one.
+pub fn vehicle_photo_change(lang: Lang, alias: &str, v: &Vehicle, new: bool) -> String {
+    let name = vehicle_name(lang, v.kind, Some(v));
+    match (lang, new) {
+        (Lang::Es, false) => format!("📷 {alias} quiere cambiar la foto de {name}. Esta es la de ahora."),
+        (Lang::Es, true) => format!("📷 {alias} quiere cambiar la foto de {name}. Esta es la nueva."),
+        (Lang::En, false) => format!("📷 {alias} wants to change the photo of {name}. This is the current one."),
+        (Lang::En, true) => format!("📷 {alias} wants to change the photo of {name}. This is the new one."),
+    }
+}
+
+/// To the driver once an admin decides on a new vehicle.
+pub fn vehicle_decided(lang: Lang, v: &Vehicle, approved: bool, active: bool) -> String {
+    let line = vehicle_line(v);
+    match (lang, approved, active) {
+        (Lang::Es, true, true) => format!("✅ Tu vehículo {line} fue aprobado y es tu vehículo activo."),
+        (Lang::Es, true, false) => format!("✅ Tu vehículo {line} fue aprobado. Úsalo cuando quieras en 🚘 Mis vehículos."),
+        (Lang::Es, false, _) => format!("❌ Tu vehículo {line} no fue aprobado. Puedes añadirlo de nuevo en 🚘 Mis vehículos."),
+        (Lang::En, true, true) => format!("✅ Your vehicle {line} was approved and is your active vehicle."),
+        (Lang::En, true, false) => format!("✅ Your vehicle {line} was approved. Use it whenever you like in 🚘 My vehicles."),
+        (Lang::En, false, _) => format!("❌ Your vehicle {line} was not approved. You can add it again in 🚘 My vehicles."),
+    }
+}
+
+/// To the driver once an admin decides on a new plate or photo.
+pub fn vehicle_change_decided(lang: Lang, v: &Vehicle, photo: bool, approved: bool) -> String {
+    let line = vehicle_line(v);
+    match (lang, photo, approved) {
+        (Lang::Es, false, true) => format!("✅ La chapa nueva fue aprobada: {line}"),
+        (Lang::Es, true, true) => format!("✅ La foto nueva de {line} fue aprobada."),
+        (Lang::Es, false, false) => format!("❌ La chapa nueva no fue aprobada; sigue la de antes: {line}"),
+        (Lang::Es, true, false) => format!("❌ La foto nueva de {line} no fue aprobada; sigue la de antes."),
+        (Lang::En, false, true) => format!("✅ The new plate was approved: {line}"),
+        (Lang::En, true, true) => format!("✅ The new photo of {line} was approved."),
+        (Lang::En, false, false) => format!("❌ The new plate was not approved; the old one stays: {line}"),
+        (Lang::En, true, false) => format!("❌ The new photo of {line} was not approved; the old one stays."),
     }
 }
 

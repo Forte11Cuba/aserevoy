@@ -7,6 +7,4 @@ pub mod ids;
 pub mod phone;
 pub mod reputation;
 pub mod request;
-// Temporary until the vehicles work wires it in (issue #29).
-#[allow(dead_code)]
 pub mod vehicle;

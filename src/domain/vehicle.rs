@@ -32,6 +32,7 @@ impl VehicleKind {
 
     /// The word a superadmin writes in `/tarifa carro km 80`, in Spanish or
     /// English.
+    #[allow(dead_code)] // Until `/tarifa` uses it, in the next commit (issue #29).
     pub fn parse_word(word: &str) -> Option<VehicleKind> {
         match word.to_lowercase().as_str() {
             "moto" => Some(VehicleKind::Moto),
@@ -59,13 +60,6 @@ pub enum VehicleStatus {
 }
 
 impl VehicleStatus {
-    pub fn code(self) -> &'static str {
-        match self {
-            VehicleStatus::Pending => "pending",
-            VehicleStatus::Approved => "approved",
-        }
-    }
-
     pub fn parse(code: &str) -> Option<VehicleStatus> {
         match code {
             "pending" => Some(VehicleStatus::Pending),
@@ -96,10 +90,6 @@ pub struct Vehicle {
 impl Vehicle {
     pub fn approved(&self) -> bool {
         self.status == VehicleStatus::Approved
-    }
-
-    pub fn has_pending_change(&self) -> bool {
-        self.pending_plate.is_some() || self.pending_photo_file_id.is_some()
     }
 }
 
@@ -194,9 +184,8 @@ mod tests {
             assert_eq!(VehicleKind::parse(kind.code()), Some(kind));
         }
         assert_eq!(VehicleKind::parse("bus"), None);
-        for status in [VehicleStatus::Pending, VehicleStatus::Approved] {
-            assert_eq!(VehicleStatus::parse(status.code()), Some(status));
-        }
+        assert_eq!(VehicleStatus::parse("approved"), Some(VehicleStatus::Approved));
+        assert_eq!(VehicleStatus::parse("rejected"), None);
     }
 
     #[test]

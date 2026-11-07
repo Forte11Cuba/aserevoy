@@ -394,7 +394,7 @@ mod tests {
         assert!(decide_change(&pool, car, Field::Photo, false).await.unwrap());
         let v = get(&pool, car).await.unwrap().unwrap();
         assert_eq!((v.plate.as_str(), v.photo_file_id.as_deref()), ("P999999", None));
-        assert!(!v.has_pending_change());
+        assert_eq!((v.pending_plate, v.pending_photo_file_id), (None, None));
     }
 
     #[tokio::test]

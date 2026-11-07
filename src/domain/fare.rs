@@ -16,8 +16,6 @@ pub struct Fares {
     pub min_percent: u8,
 }
 
-// Temporary until the vehicles work wires it in (issue #29).
-#[allow(dead_code)]
 /// The fares of each kind of vehicle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FareTable {
@@ -26,11 +24,10 @@ pub struct FareTable {
     pub tricycle: Fares,
 }
 
-// Temporary until the vehicles work wires it in (issue #29).
-#[allow(dead_code)]
 impl FareTable {
     /// Car and tricycle start as copies of the moto, until a superadmin
-    /// adjusts them.
+    /// adjusts them (the database does it at start; tests use this).
+    #[cfg(test)]
     pub fn like_moto(moto: Fares) -> FareTable {
         FareTable { car: moto.clone(), tricycle: moto.clone(), moto }
     }
@@ -84,7 +81,7 @@ impl FareKey {
 /// `/tarifa [carro|triciclo] <base|km|minimo> <value>`: without a kind, the
 /// moto, as before there were other kinds. `None` if anything is missing,
 /// unknown or out of range.
-#[allow(dead_code)] // Issue #29, until `/tarifa` uses it.
+#[allow(dead_code)] // Until `/tarifa` uses it, in the next commit (issue #29).
 pub fn parse_change(args: &str) -> Option<(VehicleKind, FareKey, i64)> {
     let mut words = args.split_whitespace().peekable();
     let kind = match words.peek().and_then(|w| VehicleKind::parse_word(w)) {

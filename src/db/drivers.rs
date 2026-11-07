@@ -19,24 +19,16 @@ pub async fn save_profile(
     now: UnixTime,
 ) -> sqlx::Result<()> {
     sqlx::query(
-        "INSERT INTO drivers (telegram_id, alias, full_name_enc, phone_enc, plate, bike_model, bike_color,
-             photo_file_id, bike_photo_file_id, status, created_at, added_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        "INSERT INTO drivers (telegram_id, alias, full_name_enc, phone_enc, photo_file_id, status, created_at, added_by)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
          ON CONFLICT (telegram_id) DO UPDATE SET
-             alias = excluded.alias, phone_enc = excluded.phone_enc, plate = excluded.plate,
-             bike_model = excluded.bike_model, bike_color = excluded.bike_color,
-             photo_file_id = excluded.photo_file_id,
-             bike_photo_file_id = excluded.bike_photo_file_id",
+             alias = excluded.alias, phone_enc = excluded.phone_enc, photo_file_id = excluded.photo_file_id",
     )
     .bind(id.0)
     .bind(&p.alias)
     .bind(p.full_name.as_deref().map(|n| cipher.encrypt(n)))
     .bind(cipher.encrypt(&p.phone))
-    .bind(&p.plate)
-    .bind(&p.bike_model)
-    .bind(&p.bike_color)
     .bind(&p.photo_file_id)
-    .bind(&p.bike_photo_file_id)
     .bind(now)
     .bind(added_by.map(|u| u.0))
     .execute(pool)
@@ -202,11 +194,7 @@ fn from_row(row: &SqliteRow, cipher: &PhoneCipher) -> anyhow::Result<Driver> {
             alias: row.try_get("alias")?,
             full_name: decrypt("full_name_enc")?,
             phone: cipher.decrypt(&phone_enc)?,
-            plate: row.try_get("plate")?,
-            bike_model: row.try_get("bike_model")?,
-            bike_color: row.try_get("bike_color")?,
             photo_file_id: row.try_get("photo_file_id")?,
-            bike_photo_file_id: row.try_get("bike_photo_file_id")?,
         },
         status: DriverStatus::parse(&status).ok_or_else(|| decode_err("status"))?,
         pending_full_name: decrypt("pending_full_name_enc")?,
@@ -227,11 +215,7 @@ mod tests {
             alias: alias.into(),
             full_name: Some("José Pérez Díaz".into()),
             phone: "+5351234567".into(),
-            plate: "P123456".into(),
-            bike_model: "Suzuki AX 100".into(),
-            bike_color: "Roja".into(),
             photo_file_id: "photo".into(),
-            bike_photo_file_id: None,
         }
     }
 

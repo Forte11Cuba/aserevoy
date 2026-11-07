@@ -8,7 +8,7 @@ use crate::domain::driver::DriverStatus;
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::reputation::{Role, Tag};
 use crate::domain::request::CancelReason;
-use crate::domain::vehicle::{Vehicle, VehicleKind};
+use crate::domain::vehicle::{Vehicle, VehicleId, VehicleKind};
 use super::vehicles::Then;
 use crate::i18n::{self, Button, Lang, button};
 
@@ -526,7 +526,7 @@ pub fn review_application(lang: Lang, driver: UserId) -> InlineKeyboardMarkup {
 pub fn driver_menu(lang: Lang) -> KeyboardMarkup {
     KeyboardMarkup::new(vec![
         vec![reply(lang, Button::MyStats), reply(lang, Button::MyProfile)],
-        vec![reply(lang, Button::MyTrips)],
+        vec![reply(lang, Button::MyVehicles), reply(lang, Button::MyTrips)],
         vec![reply(lang, Button::OffersChannel)],
         vec![reply(lang, Button::MainMenu)],
     ])
@@ -537,11 +537,70 @@ pub fn driver_menu(lang: Lang) -> KeyboardMarkup {
 /// Under the driver's profile: one button per field (`df:<field>`).
 pub fn profile_fields(lang: Lang) -> InlineKeyboardMarkup {
     let field = |b: Button, code: &str| inline(lang, b, format!("df:{code}"));
+    // The vehicle's fields are on each vehicle (🚘 My vehicles).
     InlineKeyboardMarkup::new(vec![
-        vec![field(Button::FieldAlias, "al"), field(Button::FieldFullName, "fn"), field(Button::FieldPhone, "ph")],
-        vec![field(Button::FieldPlate, "pl"), field(Button::FieldModel, "bm"), field(Button::FieldColor, "bc")],
-        vec![field(Button::FieldPhoto, "pp"), field(Button::FieldBikePhoto, "bp")],
+        vec![field(Button::FieldAlias, "al"), field(Button::FieldFullName, "fn")],
+        vec![field(Button::FieldPhone, "ph"), field(Button::FieldPhoto, "pp")],
     ])
+}
+
+/// The kinds, below the "what vehicle" question of the form.
+pub fn vehicle_kinds(lang: Lang) -> Vec<KeyboardButton> {
+    VehicleKind::ALL.into_iter().map(|k| KeyboardButton::new(i18n::vehicle_kind(lang, k))).collect()
+}
+
+/// 🚘 My vehicles: one per row (`vh:<id>`), then ➕ Add while under the maximum.
+pub fn vehicles(lang: Lang, vehicles: &[Vehicle], active: Option<VehicleId>) -> InlineKeyboardMarkup {
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = vehicles
+        .iter()
+        .map(|v| vec![InlineKeyboardButton::callback(i18n::vehicle_button(v, Some(v.id) == active), format!("vh:{}", v.id))])
+        .collect();
+    if vehicles.len() < crate::domain::vehicle::MAX_PER_DRIVER {
+        rows.push(vec![inline(lang, Button::AddVehicle, "vadd")]);
+    }
+    InlineKeyboardMarkup::new(rows)
+}
+
+/// A vehicle's card: Use (if approved and not active), the fields (`vf:`),
+/// its photo, Remove and Back.
+pub fn vehicle_card(lang: Lang, v: &Vehicle, active: bool) -> InlineKeyboardMarkup {
+    let id = v.id;
+    let field = |b: Button, code: &str| inline(lang, b, format!("vf:{id}:{code}"));
+    let mut rows = Vec::new();
+    if v.approved() && !active {
+        rows.push(vec![inline(lang, Button::UseVehicle, format!("vuse:{id}"))]);
+    }
+    rows.push(vec![field(Button::FieldPlate, "pl"), field(Button::FieldModel, "bm"), field(Button::FieldColor, "bc")]);
+    let mut last = vec![field(Button::FieldBikePhoto, "bp")];
+    if v.photo_file_id.is_some() {
+        last.push(inline(lang, Button::SeePhoto, format!("vph:{id}")));
+    }
+    rows.push(last);
+    rows.push(vec![inline(lang, Button::RemoveVehicle, format!("vdel:{id}")), inline(lang, Button::Back, "vh:list")]);
+    InlineKeyboardMarkup::new(rows)
+}
+
+pub fn remove_vehicle(lang: Lang, id: VehicleId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        inline(lang, Button::YesRemoveVehicle, format!("vdok:{id}")),
+        inline(lang, Button::Back, format!("vh:{id}")),
+    ]])
+}
+
+/// To admins: approve or reject a new vehicle.
+pub fn review_vehicle(lang: Lang, id: VehicleId) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        inline(lang, Button::Approve, format!("vok:{id}")),
+        inline(lang, Button::Reject, format!("vno:{id}")),
+    ]])
+}
+
+/// To admins: approve or reject a new plate (`pl`) or photo (`bp`).
+pub fn review_vehicle_change(lang: Lang, id: VehicleId, field: &str) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        inline(lang, Button::Approve, format!("vck:{id}:{field}")),
+        inline(lang, Button::Reject, format!("vcn:{id}:{field}")),
+    ]])
 }
 
 /// Under "❓ How it works": one button per guide, the open one marked.

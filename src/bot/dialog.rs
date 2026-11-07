@@ -20,6 +20,8 @@ pub enum Dialog {
     Raise { request: String },
     /// A driver changing one field of their profile.
     EditField { field: FormStep },
+    /// A driver changing one field of one of their vehicles.
+    EditVehicle { vehicle: i64, field: FormStep },
     /// A client changing one of their optional details (🔧 Settings).
     EditClient { field: ClientField },
     /// A driver making a counteroffer: `amount` is what the +/− buttons have
@@ -150,6 +152,8 @@ pub enum FormStep {
     Alias,
     FullName,
     Phone,
+    /// The kind of the vehicle (decision 121), right before its plate.
+    Kind,
     Plate,
     BikeModel,
     BikeColor,
@@ -166,10 +170,11 @@ pub enum ClientField {
 }
 
 impl FormStep {
-    pub const ALL: [FormStep; 8] = [
+    pub const ALL: [FormStep; 9] = [
         FormStep::Alias,
         FormStep::FullName,
         FormStep::Phone,
+        FormStep::Kind,
         FormStep::Plate,
         FormStep::BikeModel,
         FormStep::BikeColor,
@@ -183,6 +188,7 @@ impl FormStep {
             FormStep::Alias => "al",
             FormStep::FullName => "fn",
             FormStep::Phone => "ph",
+            FormStep::Kind => "vk",
             FormStep::Plate => "pl",
             FormStep::BikeModel => "bm",
             FormStep::BikeColor => "bc",
@@ -196,16 +202,21 @@ impl FormStep {
     }
 }
 
-/// A driver filling in their application, one question after another.
+/// A driver filling in their application, one question after another; or,
+/// with `vehicle_only`, adding a vehicle later (🚘 My vehicles).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DriverForm {
     pub step: Option<FormStep>,
+    #[serde(default)]
+    pub vehicle_only: bool,
     /// Invitation being used, with who created it.
     pub invite: Option<(String, i64)>,
     pub alias: Option<String>,
     #[serde(default)]
     pub full_name: Option<String>,
     pub phone: Option<String>,
+    #[serde(default)]
+    pub kind: Option<VehicleKind>,
     pub plate: Option<String>,
     pub bike_model: Option<String>,
     pub bike_color: Option<String>,
