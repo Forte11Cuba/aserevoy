@@ -8,6 +8,7 @@ use crate::domain::fare::{Cup, Fares};
 use crate::domain::ids::RequestId;
 use crate::domain::reputation::{Reputation, Role, Shown, Tag};
 use crate::domain::request::{CancelReason, DomainError, PaymentMethod, UnixTime};
+use crate::domain::vehicle::{VehicleKind, MAX_PER_DRIVER};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Lang {
@@ -1568,7 +1569,45 @@ pub fn domain_error(lang: Lang, error: &DomainError) -> String {
         (Lang::En, ReasonNeeded) => "Pick a reason to cancel.".into(),
         (Lang::Es, AlreadyDone) => "Ya lo habías marcado.".into(),
         (Lang::En, AlreadyDone) => "You already did that.".into(),
+        (Lang::Es, WrongVehicle { wanted, active }) => format!(
+            "Esta solicitud es para {} y tu vehículo activo es {}. Cámbialo en 🏍 Chofer → 🚘 Mis vehículos.",
+            vehicle_kind(lang, *wanted),
+            vehicle_kind(lang, *active)
+        ),
+        (Lang::En, WrongVehicle { wanted, active }) => format!(
+            "This request is for a {} and your active vehicle is a {}. Change it in 🏍 Driver → 🚘 My vehicles.",
+            vehicle_kind(lang, *wanted),
+            vehicle_kind(lang, *active)
+        ),
+        (Lang::Es, NoActiveVehicle) => {
+            "No tienes un vehículo activo aprobado. Elige uno en 🏍 Chofer → 🚘 Mis vehículos.".into()
+        }
+        (Lang::En, NoActiveVehicle) => {
+            "You have no approved active vehicle. Pick one in 🏍 Driver → 🚘 My vehicles.".into()
+        }
+        (Lang::Es, VehicleNotApproved) => "Este vehículo todavía espera la aprobación de un admin.".into(),
+        (Lang::En, VehicleNotApproved) => "This vehicle is still waiting for an admin's approval.".into(),
+        (Lang::Es, VehicleLocked) => "No puedes cambiar de vehículo con una solicitud en confirmación, \
+             un viaje asignado o una contraoferta vigente."
+            .into(),
+        (Lang::En, VehicleLocked) => "You can't change vehicles while a request is waiting for confirmation, \
+             a trip is assigned or a counteroffer is live."
+            .into(),
+        (Lang::Es, TooManyVehicles) => format!("Puedes tener hasta {MAX_PER_DRIVER} vehículos. Quita uno para añadir otro."),
+        (Lang::En, TooManyVehicles) => format!("You can have up to {MAX_PER_DRIVER} vehicles. Remove one to add another."),
     }
+}
+
+/// The kind with its emoji: "🚗 Carro".
+pub fn vehicle_kind(lang: Lang, kind: VehicleKind) -> String {
+    let name = match (lang, kind) {
+        (Lang::Es, VehicleKind::Moto) | (Lang::En, VehicleKind::Moto) => "Moto",
+        (Lang::Es, VehicleKind::Car) => "Carro",
+        (Lang::En, VehicleKind::Car) => "Car",
+        (Lang::Es, VehicleKind::Tricycle) => "Triciclo",
+        (Lang::En, VehicleKind::Tricycle) => "Tricycle",
+    };
+    format!("{} {name}", kind.emoji())
 }
 
 pub fn channel_confirming(lang: Lang, request: &RequestId) -> String {

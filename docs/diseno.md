@@ -176,7 +176,7 @@ Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 11
 
 **Datos** (decisión 126).
 
-- Tabla nueva `vehicles`: `id`, `driver_id`, `kind` (`moto`, `car`, `tricycle`), chapa, modelo, color, `photo_file_id`, estado (`pending`, `active`, `rejected`), chapa y foto pendientes de aprobación, `created_at`, `approved_by`.
+- Tabla nueva `vehicles`: `id`, `driver_id`, `kind` (`moto`, `car`, `tricycle`), chapa, modelo, color, `photo_file_id`, estado (`pending` o `approved`; un rechazado se borra, decisión 129), chapa y foto pendientes de aprobación, `created_at`, `approved_by`.
 - `drivers.active_vehicle_id`.
 - `requests.vehicle_kind` (obligatorio desde que se publica) y `requests.vehicle_id` (al reservar o asignar).
 - `fares`: claves por tipo (`car.base`, `car.per_km`, `car.min_percent`, `tricycle.…`); las de moto conservan sus claves actuales.

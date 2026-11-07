@@ -1,5 +1,8 @@
-//! Price suggestion: a flat base plus a fixed rate per km. The initial values
-//! come from `.env`; superadmins change them from the bot (`/tarifa`).
+//! Price suggestion: a flat base plus a fixed rate per km, for each kind of
+//! vehicle (decision 118). The initial values come from `.env`; superadmins
+//! change them from the bot (`/tarifa`).
+
+use super::vehicle::VehicleKind;
 
 /// Amount in CUP.
 pub type Cup = i64;
@@ -11,6 +14,34 @@ pub struct Fares {
     pub per_km: Cup,
     /// Minimum allowed offer, as a percentage of the suggested price.
     pub min_percent: u8,
+}
+
+// Temporary until the vehicles work wires it in (issue #29).
+#[allow(dead_code)]
+/// The fares of each kind of vehicle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FareTable {
+    pub moto: Fares,
+    pub car: Fares,
+    pub tricycle: Fares,
+}
+
+// Temporary until the vehicles work wires it in (issue #29).
+#[allow(dead_code)]
+impl FareTable {
+    /// Car and tricycle start as copies of the moto, until a superadmin
+    /// adjusts them.
+    pub fn like_moto(moto: Fares) -> FareTable {
+        FareTable { car: moto.clone(), tricycle: moto.clone(), moto }
+    }
+
+    pub fn of(&self, kind: VehicleKind) -> &Fares {
+        match kind {
+            VehicleKind::Moto => &self.moto,
+            VehicleKind::Car => &self.car,
+            VehicleKind::Tricycle => &self.tricycle,
+        }
+    }
 }
 
 /// `base + per_km × km`, rounded to the nearest 10 CUP.
@@ -50,6 +81,24 @@ impl FareKey {
     }
 }
 
+/// `/tarifa [carro|triciclo] <base|km|minimo> <value>`: without a kind, the
+/// moto, as before there were other kinds. `None` if anything is missing,
+/// unknown or out of range.
+#[allow(dead_code)] // Issue #29, until `/tarifa` uses it.
+pub fn parse_change(args: &str) -> Option<(VehicleKind, FareKey, i64)> {
+    let mut words = args.split_whitespace().peekable();
+    let kind = match words.peek().and_then(|w| VehicleKind::parse_word(w)) {
+        Some(kind) => {
+            words.next();
+            kind
+        }
+        None => VehicleKind::Moto,
+    };
+    let key = FareKey::parse(words.next()?)?;
+    let value = words.next()?.parse().ok()?;
+    (words.next().is_none() && key.valid(value)).then_some((kind, key, value))
+}
+
 fn round_to_10(amount: f64) -> Cup {
     ((amount / 10.0).round() * 10.0) as Cup
 }
@@ -82,6 +131,28 @@ mod tests {
         assert_eq!(FareKey::parse("litro"), None);
         assert!(FareKey::PerKm.valid(150) && !FareKey::PerKm.valid(0));
         assert!(FareKey::MinPercent.valid(80) && !FareKey::MinPercent.valid(101));
+    }
+
+    #[test]
+    fn each_kind_has_its_fares() {
+        let mut table = FareTable::like_moto(fares());
+        assert_eq!(table.of(VehicleKind::Car), &fares());
+        table.car.per_km = 250;
+        assert_eq!(suggested_price(2.0, table.of(VehicleKind::Car)), 600);
+        assert_eq!(suggested_price(2.0, table.of(VehicleKind::Moto)), 400);
+    }
+
+    #[test]
+    fn fare_changes_name_the_kind_or_mean_the_moto() {
+        assert_eq!(parse_change("km 60"), Some((VehicleKind::Moto, FareKey::PerKm, 60)));
+        assert_eq!(parse_change("carro km 80"), Some((VehicleKind::Car, FareKey::PerKm, 80)));
+        assert_eq!(parse_change("Triciclo minimo 70"), Some((VehicleKind::Tricycle, FareKey::MinPercent, 70)));
+        assert_eq!(parse_change("moto base 100"), Some((VehicleKind::Moto, FareKey::Base, 100)));
+        assert_eq!(parse_change("carro km"), None);
+        assert_eq!(parse_change("carro litro 5"), None);
+        assert_eq!(parse_change("km 0"), None);
+        assert_eq!(parse_change("km 60 70"), None);
+        assert_eq!(parse_change(""), None);
     }
 
     #[test]

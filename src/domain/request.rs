@@ -17,6 +17,7 @@
 use super::effect::{Alert, Effect, Notice, Place};
 use super::fare::{self, Cup, Fares};
 use super::ids::{RequestId, UserId};
+use super::vehicle::VehicleKind;
 
 /// Unix time in seconds.
 pub type UnixTime = i64;
@@ -141,6 +142,8 @@ impl PaymentMethod {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+// Temporary until the vehicles work wires it in (issue #29).
+#[allow(dead_code)]
 pub enum DomainError {
     #[error("price {offered} is below the minimum {minimum}")]
     PriceBelowMinimum { offered: Cup, minimum: Cup },
@@ -160,6 +163,16 @@ pub enum DomainError {
     ReasonNeeded,
     #[error("already done")]
     AlreadyDone,
+    #[error("the request is for a {wanted:?} and the active vehicle is a {active:?}")]
+    WrongVehicle { wanted: VehicleKind, active: VehicleKind },
+    #[error("no approved active vehicle")]
+    NoActiveVehicle,
+    #[error("the vehicle is not approved yet")]
+    VehicleNotApproved,
+    #[error("the active vehicle cannot change during a request or a counteroffer")]
+    VehicleLocked,
+    #[error("too many vehicles")]
+    TooManyVehicles,
 }
 
 /// A driver's latest counteroffer on an open request.
