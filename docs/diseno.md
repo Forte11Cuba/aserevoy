@@ -455,10 +455,10 @@ aserevoy/
   src/
     main.rs               # arranca el bot y el barrido
     config.rs             # lectura del .env
-    i18n.rs               # textos en español (por defecto) e inglés
+    i18n/                 # textos en español (por defecto) e inglés: mod.rs (Lang) y un archivo por área
     bot/                  # teloxide: dispatcher.rs, effects.rs, client.rs, trip.rs, auction.rs, driver.rs, rating.rs, admin.rs, support.rs
     domain/               # sin teloxide: request.rs, effect.rs, fare.rs, ids.rs, reputation.rs
-    location/             # parser.rs, jev.rs, geocoder.rs, routing.rs
+    location/             # streets/ (mod.rs, parse.rs, labels.rs), zones.rs, maplink.rs, jev.rs, routing.rs
     db/                   # mod.rs (conexión y migraciones), requests.rs, fares.rs, …
     tasks/sweeper.rs
 ```
@@ -467,7 +467,7 @@ aserevoy/
 
 - **El código va en inglés:** nombres, tablas, columnas y comentarios (`requests`, `drivers`, `fares`, `State::Assigned`…). Este documento sigue en español, y las tablas que describe se llaman en el código por su nombre en inglés.
 - **El bot es bilingüe: español por defecto e inglés.**
-  - Todos los textos están en `src/i18n.rs` con `enum Lang { Es, En }`; cada texto es un `match` sobre el idioma, así que el compilador rechaza un mensaje sin traducción.
+  - Todos los textos están en `src/i18n/` (un archivo por área: `ride.rs`, `trip.rs`, `staff.rs`…) con `enum Lang { Es, En }`; cada texto es un `match` sobre el idioma, así que el compilador rechaza un mensaje sin traducción.
   - El dominio no produce textos, solo `Notice`, que el bot traduce al idioma de cada usuario.
   - El idioma inicial sale de `language_code` de Telegram: inglés si empieza por `en`, español en cualquier otro caso.
   - El usuario puede cambiarlo con un botón; esa preferencia es lo único que se guarda (`user_prefs`).
