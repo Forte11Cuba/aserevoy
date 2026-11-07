@@ -4,10 +4,11 @@
 use crate::db::metrics::Day;
 use crate::domain::driver::{DriverStatus, Profile};
 use crate::domain::effect::{Notice, Place};
-use crate::domain::fare::{Cup, Fares};
+use crate::domain::fare::{Cup, FareTable, Fares};
 use crate::domain::ids::RequestId;
 use crate::domain::reputation::{Reputation, Role, Shown, Tag};
 use crate::domain::request::{CancelReason, DomainError, PaymentMethod, UnixTime};
+use crate::domain::vehicle::{MAX_PER_DRIVER, Vehicle, VehicleId, VehicleKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Lang {
@@ -97,6 +98,12 @@ pub enum Button {
     NoneOfThese,
     Support,
     MyTrips,
+    MyVehicles,
+    AddVehicle,
+    UseVehicle,
+    RemoveVehicle,
+    YesRemoveVehicle,
+    SeePhoto,
     DeleteHistory,
     YesFinished,
     MyReputation,
@@ -141,7 +148,8 @@ pub enum Button {
     FilterBlocked,
 }
 
-const REPLY_BUTTONS: [Button; 32] = [
+const REPLY_BUTTONS: [Button; 33] = [
+    Button::MyVehicles,
     Button::AdminPanel,
     Button::PanelDrivers,
     Button::PanelAdmins,
@@ -179,14 +187,14 @@ const REPLY_BUTTONS: [Button; 32] = [
 pub fn button(lang: Lang, b: Button) -> &'static str {
     use Button::*;
     match (lang, b) {
-        (Lang::Es, RequestRide) => "🛵 Pedir viaje",
-        (Lang::En, RequestRide) => "🛵 Request a ride",
+        (Lang::Es, RequestRide) => "🚕 Pedir viaje",
+        (Lang::En, RequestRide) => "🚕 Request a ride",
         (Lang::Es, WorkWithUs) => "🤝 Trabaja con nosotros",
         (Lang::En, WorkWithUs) => "🤝 Work with us",
         (Lang::Es, ApplyManager) => "🏢 Aplicar a gestor (próximamente)",
         (Lang::En, ApplyManager) => "🏢 Apply as a manager (coming soon)",
-        (Lang::Es, ApplyDriver) => "🏍 Aplicar a ser chofer",
-        (Lang::En, ApplyDriver) => "🏍 Apply to drive",
+        (Lang::Es, ApplyDriver) => "🧢 Aplicar a ser chofer",
+        (Lang::En, ApplyDriver) => "🧢 Apply to drive",
         (Lang::Es, MyProfile) => "🪪 Mi ficha",
         (Lang::En, MyProfile) => "🪪 My profile",
         (Lang::Es, InviteDriver) => "➕ Invitar chofer",
@@ -221,8 +229,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Approve) => "✅ Approve",
         (Lang::Es, Reject) => "❌ Rechazar",
         (Lang::En, Reject) => "❌ Reject",
-        (Lang::Es, DriverMenu) => "🏍 Chofer",
-        (Lang::En, DriverMenu) => "🏍 Driver",
+        (Lang::Es, DriverMenu) => "🧢 Chofer",
+        (Lang::En, DriverMenu) => "🧢 Driver",
         (Lang::Es, OffersChannel) => "📢 Canal de ofertas",
         (Lang::En, OffersChannel) => "📢 Offers channel",
         (Lang::Es, MyStats) => "📊 Mis estadísticas",
@@ -241,8 +249,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, FieldColor) => "Color",
         (Lang::Es, FieldPhoto) => "Mi foto",
         (Lang::En, FieldPhoto) => "My photo",
-        (Lang::Es, FieldBikePhoto) => "Foto de la moto",
-        (Lang::En, FieldBikePhoto) => "Bike photo",
+        (Lang::Es, FieldBikePhoto) => "Foto",
+        (Lang::En, FieldBikePhoto) => "Photo",
         (Lang::Es, Confirm) => "✅ Confirmar",
         (Lang::En, Confirm) => "✅ Confirm",
         (Lang::Es, RaisePrice) => "⬆️ Subir precio",
@@ -275,12 +283,24 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, Language) => "🌐 Español",
         (Lang::Es, YesFinished) => "✅ Sí, terminó",
         (Lang::En, YesFinished) => "✅ Yes, it's over",
-        (Lang::Es, MyTrips) => "🧾 Mis viajes",
-        (Lang::En, MyTrips) => "🧾 My trips",
+        (Lang::Es, MyTrips) => "📅 Mis viajes",
+        (Lang::En, MyTrips) => "📅 My trips",
+        (Lang::Es, MyVehicles) => "🚘 Mis vehículos",
+        (Lang::En, MyVehicles) => "🚘 My vehicles",
+        (Lang::Es, AddVehicle) => "➕ Añadir vehículo",
+        (Lang::En, AddVehicle) => "➕ Add a vehicle",
+        (Lang::Es, UseVehicle) => "✅ Usar este",
+        (Lang::En, UseVehicle) => "✅ Use this one",
+        (Lang::Es, RemoveVehicle) => "🗑 Quitar",
+        (Lang::En, RemoveVehicle) => "🗑 Remove",
+        (Lang::Es, YesRemoveVehicle) => "🗑 Sí, quitarlo",
+        (Lang::En, YesRemoveVehicle) => "🗑 Yes, remove it",
+        (Lang::Es, SeePhoto) => "📷 Ver foto",
+        (Lang::En, SeePhoto) => "📷 See photo",
         (Lang::Es, DeleteHistory) => "🗑 Borrar mi historial",
         (Lang::En, DeleteHistory) => "🗑 Delete my history",
-        (Lang::Es, MyTrip) => "🛵 Mi viaje",
-        (Lang::En, MyTrip) => "🛵 My trip",
+        (Lang::Es, MyTrip) => "🧭 Mi viaje",
+        (Lang::En, MyTrip) => "🧭 My trip",
         (Lang::Es, HowItWorks) => "❓ Cómo funciona",
         (Lang::En, HowItWorks) => "❓ How it works",
         (Lang::Es, Support) => "💬 Soporte",
@@ -317,8 +337,8 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
         (Lang::En, StepBack) => "↩️ Back",
         (Lang::Es, AdminPanel) => "⚙️ Administración",
         (Lang::En, AdminPanel) => "⚙️ Administration",
-        (Lang::Es, PanelDrivers) => "🏍 Choferes",
-        (Lang::En, PanelDrivers) => "🏍 Drivers",
+        (Lang::Es, PanelDrivers) => "🧢 Choferes",
+        (Lang::En, PanelDrivers) => "🧢 Drivers",
         (Lang::Es, PanelAdmins) => "👮 Admins",
         (Lang::En, PanelAdmins) => "👮 Admins",
         (Lang::Es, PanelFares) => "💰 Tarifas",
@@ -350,9 +370,21 @@ pub fn button(lang: Lang, b: Button) -> &'static str {
 
 /// Recognizes a reply-keyboard label typed back by Telegram, in any language.
 pub fn parse_button(text: &str) -> Option<Button> {
-    REPLY_BUTTONS
-        .into_iter()
-        .find(|&b| [Lang::Es, Lang::En].into_iter().any(|lang| button(lang, b) == text))
+    let found = REPLY_BUTTONS.into_iter().find(|&b| [Lang::Es, Lang::En].into_iter().any(|lang| button(lang, b) == text));
+    found.or_else(|| old_label(text))
+}
+
+/// Labels that changed: keyboards already sent still show them (decision 132).
+fn old_label(text: &str) -> Option<Button> {
+    match text {
+        "🛵 Pedir viaje" | "🛵 Request a ride" => Some(Button::RequestRide),
+        "🛵 Mi viaje" | "🛵 My trip" => Some(Button::MyTrip),
+        "🏍 Chofer" | "🏍 Driver" => Some(Button::DriverMenu),
+        "🏍 Aplicar a ser chofer" | "🏍 Apply to drive" => Some(Button::ApplyDriver),
+        "🏍 Choferes" | "🏍 Drivers" => Some(Button::PanelDrivers),
+        "🧾 Mis viajes" | "🧾 My trips" => Some(Button::MyTrips),
+        _ => None,
+    }
 }
 
 /// Fixed texts.
@@ -387,6 +419,8 @@ pub enum Text {
     AlreadyTaken,
     DriverBusy,
     AcceptedAlert,
+    /// The active vehicle does not fit; the bot wrote with a button to switch.
+    SwitchOffered,
     AlreadyClosed,
     KeptWaiting,
     Withdrawn,
@@ -445,6 +479,16 @@ pub enum Text {
     AskBikeColor,
     AskPhoto,
     AskBikePhoto,
+    AskVehicleKind,
+    PickVehicleKind,
+    ApplicationPending,
+    NoVehiclePhoto,
+    RemoveVehicleSure,
+    VehicleRemoved,
+    VehicleRemovedPickAnother,
+    VehicleSent,
+    VehicleUpdated,
+    VehicleChangeSent,
     InvalidField,
     NeedPhoto,
     ApplicationSent,
@@ -539,14 +583,20 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AlreadyTaken) => "Already taken.",
         (Lang::Es, DriverBusy) => "Ya tienes un viaje asignado. Complétalo o cancélalo primero.",
         (Lang::En, DriverBusy) => "You already have an assigned trip. Complete or cancel it first.",
+        (Lang::Es, SwitchOffered) => "Tu vehículo activo no es de este tipo. Te escribí por privado para cambiarlo.",
+        (Lang::En, SwitchOffered) => "Your active vehicle is not of this kind. I wrote to you privately to switch it.",
         (Lang::Es, AcceptedAlert) => "¡Reservado! El cliente tiene 5 min para confirmarte. Te escribí por privado.",
         (Lang::En, AcceptedAlert) => "Reserved! The client has 5 min to confirm you. I've messaged you privately.",
         (Lang::Es, AlreadyClosed) => "Este viaje ya se cerró.",
         (Lang::En, AlreadyClosed) => "This trip is already closed.",
         (Lang::Es, KeptWaiting) => "👍 Perfecto, tu solicitud sigue publicada.",
         (Lang::En, KeptWaiting) => "👍 Great, your request stays published.",
-        (Lang::Es, FareUsage) => "Uso: /tarifa base 100, /tarifa km 150 o /tarifa minimo 80 (porcentaje del precio sugerido).",
-        (Lang::En, FareUsage) => "Usage: /tarifa base 100, /tarifa km 150 or /tarifa minimo 80 (percentage of the suggested price).",
+        (Lang::Es, FareUsage) => {
+            "Uso: /tarifa base 100, /tarifa km 150 o /tarifa minimo 80 (porcentaje del precio sugerido), para la moto; para los otros, el tipo delante: /tarifa carro km 200, /tarifa triciclo base 80."
+        }
+        (Lang::En, FareUsage) => {
+            "Usage: /tarifa base 100, /tarifa km 150 or /tarifa minimo 80 (percentage of the suggested price), for the moto; for the others, the kind first: /tarifa carro km 200, /tarifa triciclo base 80."
+        }
         (Lang::Es, PanelHome) => "⚙️ Administración: elige abajo qué quieres gestionar.",
         (Lang::En, PanelHome) => "⚙️ Administration: pick below what you want to manage.",
         (Lang::Es, FareOutOfRange) => "Ese valor no es válido (el mínimo va de 0 a 100 %, los precios deben ser mayores que 0).",
@@ -608,8 +658,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         }
         (Lang::Es, InvalidFullName) => "Escribe tu nombre y tus apellidos (al menos dos palabras).",
         (Lang::En, InvalidFullName) => "Type your name and surname (at least two words).",
-        (Lang::Es, DriverMenu) => "🏍 Menú de chofer.",
-        (Lang::En, DriverMenu) => "🏍 Driver menu.",
+        (Lang::Es, DriverMenu) => "🧢 Menú de chofer.",
+        (Lang::En, DriverMenu) => "🧢 Driver menu.",
         (Lang::Es, FullNameMissing) => "⚠️ Falta tu nombre completo: pulsa «Nombre completo» para añadirlo.",
         (Lang::En, FullNameMissing) => "⚠️ Your full name is missing: tap \"Full name\" to add it.",
         (Lang::Es, EditWhich) => "✏️ Para cambiar un dato, pulsa su botón.",
@@ -621,10 +671,10 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::Es, NameRejected) => "❌ Tu cambio de nombre no fue aprobado. Si crees que es un error, escribe a soporte.",
         (Lang::En, NameRejected) => "❌ Your name change wasn't approved. If you think it's a mistake, write to support.",
         (Lang::Es, WorkWithUs) => {
-            "🤝 Trabaja con nosotros\n\n🏍 Chofer: recibe ofertas de viaje en el canal, acepta las que te convengan o propón tu precio.\n\n🏢 Gestor (próximamente): conecta a tus clientes con nuestros choferes. Pones tu tarifa para el chofer y la de tu cliente, y cuando un chofer acepta, ganas la diferencia.\n\nElige abajo."
+            "🤝 Trabaja con nosotros\n\n🧢 Chofer: recibe ofertas de viaje en el canal, acepta las que te convengan o propón tu precio.\n\n🏢 Gestor (próximamente): conecta a tus clientes con nuestros choferes. Pones tu tarifa para el chofer y la de tu cliente, y cuando un chofer acepta, ganas la diferencia.\n\nElige abajo."
         }
         (Lang::En, WorkWithUs) => {
-            "🤝 Work with us\n\n🏍 Driver: get trip offers in the channel, take the ones that suit you or propose your price.\n\n🏢 Manager (coming soon): connect your clients with our drivers. You set your rate for the driver and the one for your client, and when a driver accepts, you keep the difference.\n\nChoose below."
+            "🤝 Work with us\n\n🧢 Driver: get trip offers in the channel, take the ones that suit you or propose your price.\n\n🏢 Manager (coming soon): connect your clients with our drivers. You set your rate for the driver and the one for your client, and when a driver accepts, you keep the difference.\n\nChoose below."
         }
         (Lang::Es, ManagerSoon) => "🏢 Los gestores llegan pronto. Ya avisé al equipo de que te interesa; te escribiremos.",
         (Lang::En, ManagerSoon) => "🏢 Managers are coming soon. I've told the team you're interested; we'll write to you.",
@@ -650,8 +700,8 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, RidePhoneSaved) => "📞 Saved. The driver will get it once you confirm them.",
         (Lang::Es, RidePhoneSkipped) => "Sin celular: el chofer te contactará por Telegram.",
         (Lang::En, RidePhoneSkipped) => "No phone: the driver will reach you on Telegram.",
-        (Lang::Es, TripMenuBelow) => "🛵 Mientras dure el viaje, tienes sus botones en el menú de abajo.",
-        (Lang::En, TripMenuBelow) => "🛵 While the trip lasts, its buttons are in the menu below.",
+        (Lang::Es, TripMenuBelow) => "🧭 Mientras dure el viaje, tienes sus botones en el menú de abajo.",
+        (Lang::En, TripMenuBelow) => "🧭 While the trip lasts, its buttons are in the menu below.",
         (Lang::Es, NoActiveTrip) => "No tienes ningún viaje en curso. Aquí tienes el menú.",
         (Lang::En, NoActiveTrip) => "You have no trip in progress. Here's the menu.",
         (Lang::Es, Notified) => "✅ Aviso enviado.",
@@ -670,16 +720,36 @@ pub fn text(lang: Lang, t: Text) -> &'static str {
         (Lang::En, AskAlias) => "👤 How should clients see you? Type your alias.",
         (Lang::Es, AskDriverPhone) => "📞 Tu celular, para que los clientes te llamen. Compártelo con el botón o escríbelo.",
         (Lang::En, AskDriverPhone) => "📞 Your mobile number, so clients can call you. Share it with the button or type it.",
-        (Lang::Es, AskPlate) => "🔢 Número de chapa de la moto:",
-        (Lang::En, AskPlate) => "🔢 Motorbike plate number:",
-        (Lang::Es, AskBikeModel) => "🏍 Marca y modelo de la moto:",
-        (Lang::En, AskBikeModel) => "🏍 Motorbike make and model:",
-        (Lang::Es, AskBikeColor) => "🎨 Color de la moto:",
-        (Lang::En, AskBikeColor) => "🎨 Motorbike colour:",
+        (Lang::Es, AskVehicleKind) => "🚘 ¿Con qué vehículo trabajas? Elige el tipo con los botones de abajo.",
+        (Lang::En, AskVehicleKind) => "🚘 What vehicle do you drive? Pick the kind with the buttons below.",
+        (Lang::Es, PickVehicleKind) => "Elige el tipo con los botones: 🏍 Moto, 🚗 Carro o 🛺 Triciclo.",
+        (Lang::En, PickVehicleKind) => "Pick the kind with the buttons: 🏍 Moto, 🚗 Car or 🛺 Tricycle.",
+        (Lang::Es, AskPlate) => "🔢 Número de chapa del vehículo:",
+        (Lang::En, AskPlate) => "🔢 The vehicle's plate number:",
+        (Lang::Es, AskBikeModel) => "🚘 Marca y modelo del vehículo:",
+        (Lang::En, AskBikeModel) => "🚘 The vehicle's make and model:",
+        (Lang::Es, AskBikeColor) => "🎨 Color del vehículo:",
+        (Lang::En, AskBikeColor) => "🎨 The vehicle's colour:",
         (Lang::Es, AskPhoto) => "🤳 Envía una foto tuya. Los clientes la verán cuando aceptes su viaje.",
         (Lang::En, AskPhoto) => "🤳 Send a photo of yourself. Clients will see it when you accept their trip.",
-        (Lang::Es, AskBikePhoto) => "📷 Envía una foto de la moto, o pulsa Omitir.",
-        (Lang::En, AskBikePhoto) => "📷 Send a photo of the motorbike, or tap Skip.",
+        (Lang::Es, AskBikePhoto) => "📷 Envía una foto del vehículo, o pulsa Omitir.",
+        (Lang::En, AskBikePhoto) => "📷 Send a photo of the vehicle, or tap Skip.",
+        (Lang::Es, ApplicationPending) => "⏳ Tu solicitud de chofer espera la aprobación de un admin.",
+        (Lang::En, ApplicationPending) => "⏳ Your driver application is waiting for an admin's approval.",
+        (Lang::Es, NoVehiclePhoto) => "Este vehículo no tiene foto.",
+        (Lang::En, NoVehiclePhoto) => "This vehicle has no photo.",
+        (Lang::Es, RemoveVehicleSure) => "¿Quitar este vehículo? Para volver a usarlo tendrás que añadirlo de nuevo y esperar la aprobación.",
+        (Lang::En, RemoveVehicleSure) => "Remove this vehicle? To use it again you'll have to add it again and wait for approval.",
+        (Lang::Es, VehicleRemoved) => "🗑 Vehículo quitado.",
+        (Lang::En, VehicleRemoved) => "🗑 Vehicle removed.",
+        (Lang::Es, VehicleRemovedPickAnother) => "🗑 Vehículo quitado. Sin vehículo activo no puedes tomar viajes: elige otro con ✅ Usar este.",
+        (Lang::En, VehicleRemovedPickAnother) => "🗑 Vehicle removed. Without an active vehicle you can't take trips: pick another with ✅ Use this one.",
+        (Lang::Es, VehicleSent) => "📨 Vehículo enviado. Un admin lo revisará y te avisaré; mientras, no lo puedes usar.",
+        (Lang::En, VehicleSent) => "📨 Vehicle sent. An admin will review it and I'll let you know; until then you can't use it.",
+        (Lang::Es, VehicleUpdated) => "✅ Vehículo actualizado.",
+        (Lang::En, VehicleUpdated) => "✅ Vehicle updated.",
+        (Lang::Es, VehicleChangeSent) => "📨 Cambio enviado. Hasta que un admin lo apruebe, sigue valiendo el dato anterior.",
+        (Lang::En, VehicleChangeSent) => "📨 Change sent. Until an admin approves it, the previous one still counts.",
         (Lang::Es, InvalidField) => "Respuesta vacía o demasiado larga. Inténtalo de nuevo.",
         (Lang::En, InvalidField) => "Empty or too long. Please try again.",
         (Lang::Es, NeedPhoto) => "Necesito una foto.",
@@ -743,6 +813,15 @@ pub fn price_prompt(
     }
 }
 
+/// Before the price, when several kinds can do the trip (decision 117).
+pub fn ask_vehicle(lang: Lang, km: f64, minutes: f64, approx: bool) -> String {
+    let distance = distance(lang, km, minutes, approx);
+    match lang {
+        Lang::Es => format!("{distance}\n\n¿En qué quieres ir? Cada opción tiene su precio sugerido."),
+        Lang::En => format!("{distance}\n\nWhat do you want to go in? Each option has its suggested price."),
+    }
+}
+
 pub fn offer_button(lang: Lang, offer: Cup) -> String {
     match lang {
         Lang::Es => format!("✅ Ofrecer {offer} CUP"),
@@ -758,24 +837,30 @@ pub fn reparto_not_found(lang: Lang, municipality: &str) -> String {
 }
 
 /// The last look before publishing.
-pub fn ride_summary(
-    lang: Lang,
-    from: &str,
-    to: &str,
-    km: f64,
-    approx: bool,
-    price: Cup,
-    pay: PaymentMethod,
-) -> String {
+/// What the client checks before publishing.
+pub struct Summary<'a> {
+    /// Only when the client picked it, so a pilot with motos alone sees no change.
+    pub kind: Option<VehicleKind>,
+    pub from: &'a str,
+    pub to: &'a str,
+    pub km: f64,
+    pub approx: bool,
+    pub price: Cup,
+    pub payment: PaymentMethod,
+}
+
+pub fn ride_summary(lang: Lang, s: &Summary) -> String {
+    let Summary { kind, from, to, km, approx, price, payment: pay } = *s;
     let about = if approx { "≈" } else { "" };
     let per_km = if km > 0.0 { (price as f64 / km).round() as Cup } else { price };
     let pay = payment(lang, pay);
+    let kind = kind.map(|k| format!("{}\n", vehicle_kind(lang, k))).unwrap_or_default();
     match lang {
         Lang::Es => format!(
-            "📋 Revisa tu solicitud\n\n📍 Recogida: {from}\n🏁 Destino: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP por km) · {pay}\n\nSi está bien, publícala; si no, vuelve atrás."
+            "📋 Revisa tu solicitud\n\n{kind}📍 Recogida: {from}\n🏁 Destino: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP por km) · {pay}\n\nSi está bien, publícala; si no, vuelve atrás."
         ),
         Lang::En => format!(
-            "📋 Check your request\n\n📍 Pickup: {from}\n🏁 Destination: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP per km) · {pay}\n\nIf it's right, publish it; if not, go back."
+            "📋 Check your request\n\n{kind}📍 Pickup: {from}\n🏁 Destination: {to}\n📏 {about}{km:.1} km · 💰 {price} CUP (≈{per_km} CUP per km) · {pay}\n\nIf it's right, publish it; if not, go back."
         ),
     }
 }
@@ -832,6 +917,7 @@ pub fn approx_point(lang: Lang, place: Place, note: &str, municipality: Option<&
 /// What the channel shows of a request.
 pub struct Post<'a> {
     pub request: &'a RequestId,
+    pub vehicle_kind: VehicleKind,
     pub km: f64,
     /// By road; 0 when unknown.
     pub minutes: f64,
@@ -858,10 +944,9 @@ pub struct Post<'a> {
 pub fn channel_post(lang: Lang, p: &Post) -> String {
     let (request, km, price) = (p.request, p.km, p.price);
     let pay = payment(lang, p.payment);
-    let mut post = match lang {
-        Lang::Es => format!("🛵 Solicitud {request}\n"),
-        Lang::En => format!("🛵 Request {request}\n"),
-    };
+    // The kind first, so drivers of other kinds skip it (decision 119), and
+    // the request's id beside it (decision 131).
+    let mut post = format!("{} · 🆔 {request}\n", vehicle_kind(lang, p.vehicle_kind));
     if p.from.is_some() || p.to.is_some() {
         let zone = |m: Option<&str>, corner: &Option<String>| match corner {
             Some(c) => format!("{} ({c})", m.unwrap_or("?")),
@@ -917,7 +1002,7 @@ pub fn place(lang: Lang, place: Place) -> &'static str {
 }
 
 
-/// "📏 3.5 km · ⏱ unos 9 min en moto"; "≈" for an approximate point, and
+/// "📏 3.5 km · ⏱ unos 9 min"; "≈" for an approximate point, and
 /// no time when it is unknown.
 pub fn distance(lang: Lang, km: f64, minutes: f64, approx: bool) -> String {
     let about = if approx { "≈" } else { "" };
@@ -925,21 +1010,23 @@ pub fn distance(lang: Lang, km: f64, minutes: f64, approx: bool) -> String {
     if minutes > 0.0 {
         let minutes = minutes.round().max(1.0);
         line.push_str(&match lang {
-            Lang::Es => format!(" · ⏱ unos {minutes} min en moto"),
-            Lang::En => format!(" · ⏱ about {minutes} min by motorbike"),
+            Lang::Es => format!(" · ⏱ unos {minutes} min"),
+            Lang::En => format!(" · ⏱ about {minutes} min"),
         });
     }
     line
 }
 
 /// The two trip cards (the client's and the driver's) use the same lines
-/// and emojis, each detail once: 🛵 the trip, 👤 the other person with their
+/// and emojis, each detail once: the trip with its kind's emoji, 👤 the other person with their
 /// reputation, 📞 their phone, 💰 what is paid at the end, 💬 who to write to.
 pub struct TripCard<'a> {
     pub request: &'a RequestId,
+    /// Its emoji opens the card: 🏍, 🚗 or 🛺.
+    pub kind: VehicleKind,
     pub price: Cup,
     pub pay: PaymentMethod,
-    /// "📏 3.5 km · ⏱ unos 9 min en moto".
+    /// "📏 3.5 km · ⏱ unos 9 min".
     pub distance: String,
     /// The other person's names: the driver's alias and full name, or the
     /// client's name (none: "Client").
@@ -951,17 +1038,19 @@ pub struct TripCard<'a> {
 
 /// What the client sees once their driver is set: `accepted` when it came
 /// from a counteroffer (or a driver they had not confirmed yet).
-pub fn client_trip_card(lang: Lang, c: &TripCard, p: &Profile, accepted: bool) -> String {
-    let request = c.request;
+pub fn client_trip_card(lang: Lang, c: &TripCard, kind: VehicleKind, vehicle: Option<&Vehicle>, accepted: bool) -> String {
+    let (request, e) = (c.request, c.kind.emoji());
     let title = match (lang, accepted) {
-        (Lang::Es, false) => format!("🛵 Viaje {request} confirmado: tu chofer va hacia ti."),
-        (Lang::Es, true) => format!("🛵 ¡Un chofer aceptó tu viaje {request}! Va hacia ti."),
-        (Lang::En, false) => format!("🛵 Trip {request} confirmed: your driver is on the way."),
-        (Lang::En, true) => format!("🛵 A driver accepted your trip {request}! They're on the way."),
+        (Lang::Es, false) => format!("{e} Viaje {request} confirmado: tu chofer va hacia ti."),
+        (Lang::Es, true) => format!("{e} ¡Un chofer aceptó tu viaje {request}! Va hacia ti."),
+        (Lang::En, false) => format!("{e} Trip {request} confirmed: your driver is on the way."),
+        (Lang::En, true) => format!("{e} A driver accepted your trip {request}! They're on the way."),
     };
-    let bike = match lang {
-        Lang::Es => format!("🏍 {}, {} · Chapa {}", p.bike_model, p.bike_color, p.plate),
-        Lang::En => format!("🏍 {}, {} · Plate {}", p.bike_model, p.bike_color, p.plate),
+    let name = vehicle_name(lang, kind, vehicle);
+    let bike = match (lang, vehicle) {
+        (Lang::Es, Some(v)) => format!("{name} · Chapa {}", v.plate),
+        (Lang::En, Some(v)) => format!("{name} · Plate {}", v.plate),
+        (_, None) => name,
     };
     let money = match lang {
         Lang::Es => format!("💰 Al terminar le pagas {} CUP · {}", c.price, payment(lang, c.pay)),
@@ -972,10 +1061,10 @@ pub fn client_trip_card(lang: Lang, c: &TripCard, p: &Profile, accepted: bool) -
 
 /// What the driver sees once the trip is theirs.
 pub fn driver_trip_card(lang: Lang, c: &TripCard, reference: Option<&str>) -> String {
-    let request = c.request;
+    let (request, e) = (c.request, c.kind.emoji());
     let title = match lang {
-        Lang::Es => format!("🛵 Viaje {request}: es tuyo."),
-        Lang::En => format!("🛵 Trip {request}: it's yours."),
+        Lang::Es => format!("{e} Viaje {request}: es tuyo."),
+        Lang::En => format!("{e} Trip {request}: it's yours."),
     };
     let extra: Vec<String> = reference
         .map(|r| match lang {
@@ -1042,14 +1131,8 @@ pub fn profile_card(lang: Lang, p: &Profile, status: Option<DriverStatus>) -> St
     });
     let name = p.full_name.as_deref().map(|n| format!("\n🪪 {n}")).unwrap_or_default();
     let mut card = match lang {
-        Lang::Es => format!(
-            "👤 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Chapa: {}",
-            p.alias, p.phone, p.bike_model, p.bike_color, p.plate
-        ),
-        Lang::En => format!(
-            "👤 {}{name}\n📞 {}\n🏍 {}, {}\n🔢 Plate: {}",
-            p.alias, p.phone, p.bike_model, p.bike_color, p.plate
-        ),
+        Lang::Es => format!("👤 {}{name}\n📞 {}", p.alias, p.phone),
+        Lang::En => format!("👤 {}{name}\n📞 {}", p.alias, p.phone),
     };
     if let Some(status) = status {
         card.push('\n');
@@ -1089,10 +1172,10 @@ pub fn guide_button(lang: Lang, g: Guide) -> &'static str {
     match (lang, g) {
         (Lang::Es, Guide::About) => "🤔 ¿Qué es Asere Voy?",
         (Lang::En, Guide::About) => "🤔 What is Asere Voy?",
-        (Lang::Es, Guide::Ride) => "🛵 Pedir un viaje",
-        (Lang::En, Guide::Ride) => "🛵 Requesting a ride",
-        (Lang::Es, Guide::Driver) => "🏍 Ser chofer",
-        (Lang::En, Guide::Driver) => "🏍 Being a driver",
+        (Lang::Es, Guide::Ride) => "🚕 Pedir un viaje",
+        (Lang::En, Guide::Ride) => "🚕 Requesting a ride",
+        (Lang::Es, Guide::Driver) => "🧢 Ser chofer",
+        (Lang::En, Guide::Driver) => "🧢 Being a driver",
         (Lang::Es, Guide::Manager) => "🏢 Ser gestor",
         (Lang::En, Guide::Manager) => "🏢 Being a manager",
     }
@@ -1104,46 +1187,46 @@ pub fn guide(lang: Lang, g: Option<Guide>) -> &'static str {
         (Lang::Es, None) => "❓ Cómo funciona\n\nElige una guía:",
         (Lang::En, None) => "❓ How it works\n\nPick a guide:",
         (Lang::Es, Some(Guide::About)) => "🤔 ¿Qué es Asere Voy?\n\n\
-Un bot de Telegram que conecta pasajeros y choferes de moto-taxi en La Habana.\n\n\
+Un bot de Telegram que conecta pasajeros y choferes de moto, carro o triciclo en La Habana.\n\n\
 • Tú propones el precio: los choferes lo aceptan o te hacen una contraoferta.\n\
 • El pago es en CUP, directo al chofer (efectivo, transferencia o bitcoin). El bot no maneja dinero.\n\
-• Ves la foto, la moto, la chapa, el nombre y la reputación del chofer antes de confirmarlo.\n\
-• No guardamos historial de viajes: cada solicitud se borra al terminar.",
+• Ves la foto, el vehículo, la chapa, el nombre y la reputación del chofer antes de confirmarlo.\n\
+• Tus viajes completados quedan 45 días en 📅 Mis viajes, cifrados y sin ubicaciones exactas; solo los ves tú y puedes borrarlos.",
         (Lang::En, Some(Guide::About)) => "🤔 What is Asere Voy?\n\n\
-A Telegram bot that connects passengers and moto-taxi drivers in Havana.\n\n\
+A Telegram bot that connects passengers with motorbike, car and tricycle drivers in Havana.\n\n\
 • You set the price: drivers accept it or send you a counteroffer.\n\
 • You pay in CUP, directly to the driver (cash, transfer or bitcoin). The bot handles no money.\n\
-• You see the driver's photo, bike, plate, name and reputation before confirming them.\n\
-• We keep no trip history: each request is deleted when it ends.",
-        (Lang::Es, Some(Guide::Ride)) => "🛵 Pedir un viaje\n\n\
-1. Pulsa «🛵 Pedir viaje».\n\
+• You see the driver's photo, vehicle, plate, name and reputation before confirming them.\n\
+• Your completed trips stay 45 days in 📅 My trips, encrypted and without exact locations; only you see them and you can delete them.",
+        (Lang::Es, Some(Guide::Ride)) => "🚕 Pedir un viaje\n\n\
+1. Pulsa «🚕 Pedir viaje».\n\
 2. Marca la recogida y el destino: tu ubicación, un punto en el mapa, una dirección («23 e/ L y M, Vedado») o un lugar («Coppelia»). Confirma cada punto en el mapa.\n\
-3. Pon tu precio con los botones −/+ y elige cómo pagas.\n\
+3. Si hay choferes de varios tipos, elige en qué quieres ir (🏍 moto, 🚗 carro o 🛺 triciclo), cada uno con su precio sugerido. Pon tu precio con los botones −/+ y elige cómo pagas.\n\
 4. Publica. Los choferes ven solo la zona, nunca tu ubicación exacta.\n\
 5. Un chofer acepta o te hace una contraoferta. Mira su ficha y confírmalo.\n\
 6. Recibes su contacto. Al terminar, pulsa «🏁 Completado» y califícalo.\n\n\
 Mientras esperas puedes subir el precio o cancelar. En «🔧 Ajustes» puedes poner tu nombre, celular y foto para que el chofer te encuentre más fácil.",
-        (Lang::En, Some(Guide::Ride)) => "🛵 Requesting a ride\n\n\
-1. Tap \"🛵 Request a ride\".\n\
+        (Lang::En, Some(Guide::Ride)) => "🚕 Requesting a ride\n\n\
+1. Tap \"🚕 Request a ride\".\n\
 2. Mark the pickup and the destination: your location, a point on the map, an address (\"23 e/ L y M, Vedado\") or a place (\"Coppelia\"). Confirm each point on the map.\n\
-3. Set your price with the −/+ buttons and choose how you pay.\n\
+3. If there are drivers of several kinds, pick what to go in (🏍 motorbike, 🚗 car or 🛺 tricycle), each with its suggested price. Set your price with the −/+ buttons and choose how you pay.\n\
 4. Publish. Drivers only see the area, never your exact location.\n\
 5. A driver accepts or sends a counteroffer. Check their profile and confirm them.\n\
 6. You get their contact. When you arrive, tap \"🏁 Completed\" and rate them.\n\n\
 While you wait you can raise the price or cancel. In \"🔧 Settings\" you can add your name, phone and photo so the driver finds you more easily.",
-        (Lang::Es, Some(Guide::Driver)) => "🏍 Ser chofer\n\n\
-1. En «🤝 Trabaja con nosotros», pulsa «Aplicar a ser chofer» y completa tu ficha: alias, nombre completo, celular, chapa, moto y fotos.\n\
+        (Lang::Es, Some(Guide::Driver)) => "🧢 Ser chofer\n\n\
+1. En «🤝 Trabaja con nosotros», pulsa «Aplicar a ser chofer» y completa tu ficha: alias, nombre completo, celular, tu vehículo (tipo, chapa, modelo y color) y fotos.\n\
 2. Un admin la revisa. Al aprobarte, el bot te manda el enlace del canal de ofertas.\n\
 3. En el canal, «✅ Aceptar» toma el viaje al precio del cliente; «💬 Contraofertar» te deja proponer otro con −/+ y «✅ Enviar».\n\
 4. Cuando el cliente te confirma, recibes la recogida, el destino y su contacto. Marca «📍 Llegué» y «🏁 Completado».\n\
-5. En «🏍 Chofer» tienes tus estadísticas y tu ficha, que puedes editar campo por campo.\n\n\
+5. En «🧢 Chofer» tienes tus estadísticas, tu ficha y «🚘 Mis vehículos»: hasta 5 (moto, carro o triciclo) y uno activo, con el que tomas los viajes de su tipo. Un vehículo nuevo, o una chapa o foto nueva, la aprueba un admin.\n\n\
 Cobras directamente al cliente. Tu reputación (estrellas y viajes) la ven los clientes.",
-        (Lang::En, Some(Guide::Driver)) => "🏍 Being a driver\n\n\
-1. In \"🤝 Work with us\", tap \"Apply to drive\" and fill in your profile: alias, full name, phone, plate, bike and photos.\n\
+        (Lang::En, Some(Guide::Driver)) => "🧢 Being a driver\n\n\
+1. In \"🤝 Work with us\", tap \"Apply to drive\" and fill in your profile: alias, full name, phone, your vehicle (kind, plate, model and colour) and photos.\n\
 2. An admin reviews it. Once approved, the bot sends you the link to the offers channel.\n\
 3. In the channel, \"✅ Accept\" takes the trip at the client's price; \"💬 Counteroffer\" lets you propose another with −/+ and \"✅ Send\".\n\
 4. When the client confirms you, you get the pickup, the destination and their contact. Tap \"📍 I'm here\" and \"🏁 Completed\".\n\
-5. In \"🏍 Driver\" you have your stats and your profile, which you can edit field by field.\n\n\
+5. In \"🧢 Driver\" you have your stats, your profile and \"🚘 My vehicles\": up to 5 (motorbike, car or tricycle) and one active, which takes the trips of its kind. An admin approves a new vehicle, or a new plate or photo.\n\n\
 You get paid directly by the client. Clients see your reputation (stars and trips).",
         (Lang::Es, Some(Guide::Manager)) => "🏢 Ser gestor (próximamente)\n\n\
 Si tienes una agencia, podrás conectar a tus clientes con nuestros choferes:\n\n\
@@ -1203,13 +1286,6 @@ pub fn name_change(lang: Lang, alias: &str, old: Option<&str>, new: &str) -> Str
         (Lang::Es, None) => format!("🪪 {alias} añadió su nombre completo: {new}"),
         (Lang::En, Some(old)) => format!("🪪 {alias} wants to change their full name:\n{old} → {new}"),
         (Lang::En, None) => format!("🪪 {alias} added their full name: {new}"),
-    }
-}
-
-pub fn plate_changed(lang: Lang, alias: &str, old: &str, new: &str) -> String {
-    match lang {
-        Lang::Es => format!("🔢 {alias} cambió su chapa: {old} → {new}"),
-        Lang::En => format!("🔢 {alias} changed their plate: {old} → {new}"),
     }
 }
 
@@ -1273,7 +1349,7 @@ fn month_name(lang: Lang, month: &str) -> String {
     }
 }
 
-/// One trip of "🧾 My trips".
+/// One trip of "📅 My trips".
 pub struct HistoryLine<'a> {
     pub number: i64,
     pub request: &'a str,
@@ -1285,16 +1361,17 @@ pub struct HistoryLine<'a> {
     /// Empty when the client gave no name.
     pub counterpart: &'a str,
     pub stars: Option<i64>,
+    pub kind: VehicleKind,
 }
 
-/// "🧾 My trips": a page of trips, the most recent first, with the user's
+/// "📅 My trips": a page of trips, the most recent first, with the user's
 /// trip number and the request id.
 pub fn history(lang: Lang, role: Role, trips: &[HistoryLine], total: i64) -> String {
     let title = match (lang, role) {
-        (Lang::Es, Role::Client) => "🧾 Tus viajes como cliente",
-        (Lang::En, Role::Client) => "🧾 Your trips as a client",
-        (Lang::Es, Role::Driver) => "🧾 Tus viajes como chofer",
-        (Lang::En, Role::Driver) => "🧾 Your trips as a driver",
+        (Lang::Es, Role::Client) => "📅 Tus viajes como cliente",
+        (Lang::En, Role::Client) => "📅 Your trips as a client",
+        (Lang::Es, Role::Driver) => "📅 Tus viajes como chofer",
+        (Lang::En, Role::Driver) => "📅 Your trips as a driver",
     };
     if trips.is_empty() {
         return match lang {
@@ -1330,8 +1407,13 @@ pub fn history(lang: Lang, role: Role, trips: &[HistoryLine], total: i64) -> Str
             Lang::En => "Trip",
         };
         text.push_str(&format!(
-            "\n\n{trip} nº {} · {} · {}\n📍 {}\n🏁 {}\n{money}\n👤 {who}{stars}",
-            t.number, t.request, t.when, t.origin, t.destination
+            "\n\n{} {trip} nº {} · {} · {}\n📍 {}\n🏁 {}\n{money}\n👤 {who}{stars}",
+            t.kind.emoji(),
+            t.number,
+            t.request,
+            t.when,
+            t.origin,
+            t.destination
         ));
     }
     text
@@ -1370,8 +1452,8 @@ fn stats(
         (Lang::En, None) => "⭐ No ratings yet".into(),
     };
     let trips = match lang {
-        Lang::Es => format!("🛵 {} viajes completados", rep.trips),
-        Lang::En => format!("🛵 {} trips completed", rep.trips),
+        Lang::Es => format!("🏁 {} viajes completados", rep.trips),
+        Lang::En => format!("🏁 {} trips completed", rep.trips),
     };
     let mut text = format!("{title}\n\n{stars}\n{trips}\n📅 {}", days_using(lang, rep.shown(now).days));
     if let Some(n) = cancellations {
@@ -1393,8 +1475,11 @@ fn stats(
     text
 }
 
-pub fn application(lang: Lang, p: &Profile, invited: bool) -> String {
-    let card = profile_card(lang, p, None);
+pub fn application(lang: Lang, p: &Profile, vehicle: Option<&Vehicle>, invited: bool) -> String {
+    let mut card = profile_card(lang, p, None);
+    if let Some(v) = vehicle {
+        card.push_str(&format!("\n{}", vehicle_lines(lang, v.kind, Some(v))));
+    }
     match (lang, invited) {
         (Lang::Es, true) => format!("🆕 Solicitud de chofer (por invitación)\n\n{card}"),
         (Lang::Es, false) => format!("🆕 Solicitud de chofer\n\n{card}"),
@@ -1470,8 +1555,8 @@ pub fn notice(lang: Lang, notice: &Notice) -> String {
         (Lang::En, StillWaiting { request }) => format!(
             "⏳ Your request {request} has been live for 30 min. Still waiting? If you don't answer within 10 min, I'll withdraw it."
         ),
-        (Lang::Es, ConfirmDriver { request, .. }) => format!("🛵 Un chofer quiere hacer tu viaje {request}."),
-        (Lang::En, ConfirmDriver { request, .. }) => format!("🛵 A driver wants to take your trip {request}."),
+        (Lang::Es, ConfirmDriver { request, .. }) => format!("👤 Un chofer quiere hacer tu viaje {request}."),
+        (Lang::En, ConfirmDriver { request, .. }) => format!("👤 A driver wants to take your trip {request}."),
         (Lang::Es, AwaitingClient { request }) => format!(
             "⏳ Reservaste la solicitud {request}. El cliente tiene 5 min para confirmarte; te aviso enseguida."
         ),
@@ -1486,8 +1571,8 @@ pub fn notice(lang: Lang, notice: &Notice) -> String {
         (Lang::En, ClientOnTheWay { request }) => format!("🚶 The client of trip {request} is heading to the pickup."),
         (Lang::Es, DriverArrived { request }) => format!("📍 Tu chofer del viaje {request} llegó al punto de recogida."),
         (Lang::En, DriverArrived { request }) => format!("📍 Your driver for trip {request} is at the pickup."),
-        (Lang::Es, TripAssigned { request, .. }) => format!("🛵 El viaje {request} es tuyo."),
-        (Lang::En, TripAssigned { request, .. }) => format!("🛵 Trip {request} is yours."),
+        (Lang::Es, TripAssigned { request, .. }) => format!("✅ El viaje {request} es tuyo."),
+        (Lang::En, TripAssigned { request, .. }) => format!("✅ Trip {request} is yours."),
         (Lang::Es, ClientDeclined { request }) => format!("❌ El cliente prefirió no confirmar la solicitud {request}."),
         (Lang::En, ClientDeclined { request }) => format!("❌ The client chose not to confirm request {request}."),
         (Lang::Es, ClientDidNotConfirm { request }) => {
@@ -1568,7 +1653,180 @@ pub fn domain_error(lang: Lang, error: &DomainError) -> String {
         (Lang::En, ReasonNeeded) => "Pick a reason to cancel.".into(),
         (Lang::Es, AlreadyDone) => "Ya lo habías marcado.".into(),
         (Lang::En, AlreadyDone) => "You already did that.".into(),
+        (Lang::Es, WrongVehicle { wanted, active }) => format!(
+            "Esta solicitud es para {} y tu vehículo activo es {}. Cámbialo en 🧢 Chofer → 🚘 Mis vehículos.",
+            vehicle_kind(lang, *wanted),
+            vehicle_kind(lang, *active)
+        ),
+        (Lang::En, WrongVehicle { wanted, active }) => format!(
+            "This request is for a {} and your active vehicle is a {}. Change it in 🧢 Driver → 🚘 My vehicles.",
+            vehicle_kind(lang, *wanted),
+            vehicle_kind(lang, *active)
+        ),
+        (Lang::Es, NoActiveVehicle) => {
+            "No tienes un vehículo activo aprobado. Elige uno en 🧢 Chofer → 🚘 Mis vehículos.".into()
+        }
+        (Lang::En, NoActiveVehicle) => {
+            "You have no approved active vehicle. Pick one in 🧢 Driver → 🚘 My vehicles.".into()
+        }
+        (Lang::Es, VehicleNotApproved) => "Este vehículo todavía espera la aprobación de un admin.".into(),
+        (Lang::En, VehicleNotApproved) => "This vehicle is still waiting for an admin's approval.".into(),
+        (Lang::Es, VehicleLocked) => "No puedes cambiar de vehículo con una solicitud en confirmación, \
+             un viaje asignado o una contraoferta vigente."
+            .into(),
+        (Lang::En, VehicleLocked) => "You can't change vehicles while a request is waiting for confirmation, \
+             a trip is assigned or a counteroffer is live."
+            .into(),
+        (Lang::Es, TooManyVehicles) => format!("Puedes tener hasta {MAX_PER_DRIVER} vehículos. Quita uno para añadir otro."),
+        (Lang::En, TooManyVehicles) => format!("You can have up to {MAX_PER_DRIVER} vehicles. Remove one to add another."),
     }
+}
+
+/// A vehicle in one line: "🚗 Lada rojo · P123456".
+pub fn vehicle_line(v: &Vehicle) -> String {
+    format!("{} {} {} · {}", v.kind.emoji(), v.model, v.color, v.plate)
+}
+
+/// In the 🧢 Driver menu: "Trabajando con: 🚗 Lada rojo · P123456".
+pub fn working_with(lang: Lang, active: Option<&Vehicle>) -> String {
+    match (lang, active) {
+        (Lang::Es, Some(v)) => format!("Trabajando con: {}", vehicle_line(v)),
+        (Lang::En, Some(v)) => format!("Working with: {}", vehicle_line(v)),
+        (Lang::Es, None) => "Sin vehículo activo: elige uno en 🚘 Mis vehículos para tomar viajes.".into(),
+        (Lang::En, None) => "No active vehicle: pick one in 🚘 My vehicles to take trips.".into(),
+    }
+}
+
+/// 🚘 My vehicles, above one button per vehicle.
+pub fn vehicles_list(lang: Lang, vehicles: &[Vehicle], active: Option<VehicleId>) -> String {
+    let current = working_with(lang, vehicles.iter().find(|v| Some(v.id) == active).filter(|v| v.approved()));
+    let n = vehicles.len();
+    match (lang, n) {
+        (Lang::Es, 0) => "🚘 Mis vehículos\n\nNo tienes vehículos. Añade uno para tomar viajes.".into(),
+        (Lang::En, 0) => "🚘 My vehicles\n\nYou have no vehicles. Add one to take trips.".into(),
+        (Lang::Es, _) => format!(
+            "🚘 Mis vehículos ({n} de {MAX_PER_DRIVER})\n{current}\n\n✅ activo · ⏳ espera aprobación. Pulsa uno para verlo, usarlo o cambiarlo."
+        ),
+        (Lang::En, _) => format!(
+            "🚘 My vehicles ({n} of {MAX_PER_DRIVER})\n{current}\n\n✅ active · ⏳ waiting for approval. Tap one to see, use or change it."
+        ),
+    }
+}
+
+/// A vehicle's button in the list: "✅ 🚗 Lada rojo · P123456".
+pub fn vehicle_button(v: &Vehicle, active: bool) -> String {
+    let mark = if !v.approved() { "⏳ " } else if active { "✅ " } else { "" };
+    format!("{mark}{}", vehicle_line(v))
+}
+
+/// One vehicle's card in 🚘 My vehicles.
+pub fn vehicle_card(lang: Lang, v: &Vehicle, active: bool) -> String {
+    let status = match (lang, v.approved(), active) {
+        (Lang::Es, false, _) => "⏳ Espera la aprobación de un admin",
+        (Lang::En, false, _) => "⏳ Waiting for an admin's approval",
+        (Lang::Es, true, true) => "✅ Es tu vehículo activo",
+        (Lang::En, true, true) => "✅ Your active vehicle",
+        (Lang::Es, true, false) => "Aprobado",
+        (Lang::En, true, false) => "Approved",
+    };
+    let mut card = format!("{}\n{}\n{status}", vehicle_kind(lang, v.kind), vehicle_lines(lang, v.kind, Some(v)));
+    if let Some(plate) = &v.pending_plate {
+        card.push_str(&match lang {
+            Lang::Es => format!("\n⏳ Chapa nueva en revisión: {plate}"),
+            Lang::En => format!("\n⏳ New plate under review: {plate}"),
+        });
+    }
+    if v.pending_photo_file_id.is_some() {
+        card.push_str(match lang {
+            Lang::Es => "\n⏳ Foto nueva en revisión",
+            Lang::En => "\n⏳ New photo under review",
+        });
+    }
+    card.push_str(match lang {
+        Lang::Es => "\n\n✏️ Para cambiar un dato, pulsa su botón. La chapa y la foto las revisa un admin.",
+        Lang::En => "\n\n✏️ To change something, tap its button. An admin reviews the plate and the photo.",
+    });
+    card
+}
+
+/// To admins: a new vehicle of an approved driver (decision 122).
+pub fn new_vehicle(lang: Lang, alias: &str, v: &Vehicle) -> String {
+    let lines = vehicle_lines(lang, v.kind, Some(v));
+    match lang {
+        Lang::Es => format!("🆕 {alias} añadió un vehículo:\n\n{lines}\n\nNo lo puede usar hasta que lo apruebes."),
+        Lang::En => format!("🆕 {alias} added a vehicle:\n\n{lines}\n\nThey can't use it until you approve it."),
+    }
+}
+
+/// To admins: a new plate for an approved vehicle, the old one still counts.
+pub fn vehicle_plate_change(lang: Lang, alias: &str, v: &Vehicle, new: &str) -> String {
+    let name = vehicle_name(lang, v.kind, Some(v));
+    match lang {
+        Lang::Es => format!("🔢 {alias} quiere cambiar la chapa de {name}:\n{} → {new}", v.plate),
+        Lang::En => format!("🔢 {alias} wants to change the plate of {name}:\n{} → {new}", v.plate),
+    }
+}
+
+/// To admins, with the old photo (`new` false) and then the new one.
+pub fn vehicle_photo_change(lang: Lang, alias: &str, v: &Vehicle, new: bool) -> String {
+    let name = vehicle_name(lang, v.kind, Some(v));
+    match (lang, new) {
+        (Lang::Es, false) => format!("📷 {alias} quiere cambiar la foto de {name}. Esta es la de ahora."),
+        (Lang::Es, true) => format!("📷 {alias} quiere cambiar la foto de {name}. Esta es la nueva."),
+        (Lang::En, false) => format!("📷 {alias} wants to change the photo of {name}. This is the current one."),
+        (Lang::En, true) => format!("📷 {alias} wants to change the photo of {name}. This is the new one."),
+    }
+}
+
+/// To the driver once an admin decides on a new vehicle.
+pub fn vehicle_decided(lang: Lang, v: &Vehicle, approved: bool, active: bool) -> String {
+    let line = vehicle_line(v);
+    match (lang, approved, active) {
+        (Lang::Es, true, true) => format!("✅ Tu vehículo {line} fue aprobado y es tu vehículo activo."),
+        (Lang::Es, true, false) => format!("✅ Tu vehículo {line} fue aprobado. Úsalo cuando quieras en 🚘 Mis vehículos."),
+        (Lang::Es, false, _) => format!("❌ Tu vehículo {line} no fue aprobado. Puedes añadirlo de nuevo en 🚘 Mis vehículos."),
+        (Lang::En, true, true) => format!("✅ Your vehicle {line} was approved and is your active vehicle."),
+        (Lang::En, true, false) => format!("✅ Your vehicle {line} was approved. Use it whenever you like in 🚘 My vehicles."),
+        (Lang::En, false, _) => format!("❌ Your vehicle {line} was not approved. You can add it again in 🚘 My vehicles."),
+    }
+}
+
+/// To the driver once an admin decides on a new plate or photo.
+pub fn vehicle_change_decided(lang: Lang, v: &Vehicle, photo: bool, approved: bool) -> String {
+    let line = vehicle_line(v);
+    match (lang, photo, approved) {
+        (Lang::Es, false, true) => format!("✅ La chapa nueva fue aprobada: {line}"),
+        (Lang::Es, true, true) => format!("✅ La foto nueva de {line} fue aprobada."),
+        (Lang::Es, false, false) => format!("❌ La chapa nueva no fue aprobada; sigue la de antes: {line}"),
+        (Lang::Es, true, false) => format!("❌ La foto nueva de {line} no fue aprobada; sigue la de antes."),
+        (Lang::En, false, true) => format!("✅ The new plate was approved: {line}"),
+        (Lang::En, true, true) => format!("✅ The new photo of {line} was approved."),
+        (Lang::En, false, false) => format!("❌ The new plate was not approved; the old one stays: {line}"),
+        (Lang::En, true, false) => format!("❌ The new photo of {line} was not approved; the old one stays."),
+    }
+}
+
+/// "🚗 Usar Lada rojo y aceptar" (decision 128).
+pub fn use_vehicle_and(lang: Lang, v: &Vehicle, accept: bool) -> String {
+    let (emoji, name) = (v.kind.emoji(), format!("{} {}", v.model, v.color));
+    match (lang, accept) {
+        (Lang::Es, true) => format!("{emoji} Usar {name} y aceptar"),
+        (Lang::Es, false) => format!("{emoji} Usar {name} y contraofertar"),
+        (Lang::En, true) => format!("{emoji} Use {name} and accept"),
+        (Lang::En, false) => format!("{emoji} Use {name} and counteroffer"),
+    }
+}
+
+/// The kind with its emoji: "🚗 Carro".
+pub fn vehicle_kind(lang: Lang, kind: VehicleKind) -> String {
+    let name = match (lang, kind) {
+        (Lang::Es, VehicleKind::Moto) | (Lang::En, VehicleKind::Moto) => "Moto",
+        (Lang::Es, VehicleKind::Car) => "Carro",
+        (Lang::En, VehicleKind::Car) => "Car",
+        (Lang::Es, VehicleKind::Tricycle) => "Triciclo",
+        (Lang::En, VehicleKind::Tricycle) => "Tricycle",
+    };
+    format!("{} {name}", kind.emoji())
 }
 
 pub fn channel_confirming(lang: Lang, request: &RequestId) -> String {
@@ -1580,18 +1838,45 @@ pub fn channel_confirming(lang: Lang, request: &RequestId) -> String {
 
 /// To the client when a driver accepts: who wants the trip, without the
 /// phone until they confirm.
-pub fn confirm_driver(lang: Lang, request: &RequestId, p: &Profile, driver: &Shown) -> String {
+pub fn confirm_driver(
+    lang: Lang,
+    request: &RequestId,
+    p: &Profile,
+    (kind, vehicle): (VehicleKind, Option<&Vehicle>),
+    driver: &Shown,
+) -> String {
     let rep = reputation(lang, driver);
     let name = full_name_line(p);
+    let bike = vehicle_lines(lang, kind, vehicle);
     match lang {
         Lang::Es => format!(
-            "🛵 Un chofer quiere hacer tu viaje {request}:\n\n👤 {}{name}\n🏍 {}, {}\n🔢 Chapa: {}\n{rep}\n\nTienes 5 min para confirmarlo o cancelar.",
-            p.alias, p.bike_model, p.bike_color, p.plate
+            "{} Un chofer quiere hacer tu viaje {request}:\n\n👤 {}{name}\n{bike}\n{rep}\n\nTienes 5 min para confirmarlo o cancelar.",
+            kind.emoji(),
+            p.alias
         ),
         Lang::En => format!(
-            "🛵 A driver wants to take your trip {request}:\n\n👤 {}{name}\n🏍 {}, {}\n🔢 Plate: {}\n{rep}\n\nYou have 5 min to confirm or cancel.",
-            p.alias, p.bike_model, p.bike_color, p.plate
+            "{} A driver wants to take your trip {request}:\n\n👤 {}{name}\n{bike}\n{rep}\n\nYou have 5 min to confirm or cancel.",
+            kind.emoji(),
+            p.alias
         ),
+    }
+}
+
+/// "🚗 Lada, rojo"; only the kind ("🚗 Carro") if the vehicle is gone.
+pub fn vehicle_name(lang: Lang, kind: VehicleKind, vehicle: Option<&Vehicle>) -> String {
+    match vehicle {
+        Some(v) => format!("{} {}, {}", v.kind.emoji(), v.model, v.color),
+        None => vehicle_kind(lang, kind),
+    }
+}
+
+/// The vehicle and, on its own line, its plate.
+pub fn vehicle_lines(lang: Lang, kind: VehicleKind, vehicle: Option<&Vehicle>) -> String {
+    let name = vehicle_name(lang, kind, vehicle);
+    match (lang, vehicle) {
+        (Lang::Es, Some(v)) => format!("{name}\n🔢 Chapa: {}", v.plate),
+        (Lang::En, Some(v)) => format!("{name}\n🔢 Plate: {}", v.plate),
+        (_, None) => name,
     }
 }
 
@@ -1602,16 +1887,24 @@ fn full_name_line(p: &Profile) -> String {
 }
 
 /// One counteroffer, as its own message to the client.
-pub fn offer_card(lang: Lang, request: &RequestId, p: &Profile, amount: Cup, driver: &Shown) -> String {
+pub fn offer_card(
+    lang: Lang,
+    request: &RequestId,
+    p: &Profile,
+    (kind, vehicle): (VehicleKind, Option<&Vehicle>),
+    amount: Cup,
+    driver: &Shown,
+) -> String {
     let rep = reputation(lang, driver);
+    let bike = vehicle_name(lang, kind, vehicle);
     match lang {
         Lang::Es => format!(
-            "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n👤 {}\n🏍 {}, {}\n{rep}\n\nVale 5 min.",
-            p.alias, p.bike_model, p.bike_color
+            "💬 Contraoferta para tu viaje {request}\n\n💰 {amount} CUP\n👤 {}\n{bike}\n{rep}\n\nVale 5 min.",
+            p.alias
         ),
         Lang::En => format!(
-            "💬 Counteroffer for your trip {request}\n\n💰 {amount} CUP\n👤 {}\n🏍 {}, {}\n{rep}\n\nValid for 5 min.",
-            p.alias, p.bike_model, p.bike_color
+            "💬 Counteroffer for your trip {request}\n\n💰 {amount} CUP\n👤 {}\n{bike}\n{rep}\n\nValid for 5 min.",
+            p.alias
         ),
     }
 }
@@ -1715,8 +2008,8 @@ pub fn terms(lang: Lang) -> &'static str {
     match lang {
         Lang::Es => {
             "📜 Términos y privacidad de Asere Voy\n\n\
-1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de las motos y no asegura los viajes. El precio y el pago (efectivo, transferencia o bitcoin) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
-2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, moto, chapa y fotos). De los clientes que quieran, su nombre, su celular (cifrados) y su foto, hasta que los borren en 🔧 Ajustes. De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste. Tus viajes completados de los últimos 45 días (fecha, origen y destino como texto, sin ubicaciones exactas, precio, la otra persona y tu nota, cifrados), que solo ves tú en 🧾 Mis viajes y puedes borrar; y, de los choferes, sus viajes y ganancias totales por mes.\n\n\
+1. Asere Voy solo conecta a pasajeros y choferes. No es una empresa de transporte, no es dueña de los vehículos y no asegura los viajes. El precio y el pago (efectivo, transferencia o bitcoin) se acuerdan directamente entre cliente y chofer; el bot no maneja dinero.\n\n\
+2. Qué guardamos: de los choferes, su ficha (alias, nombre completo y celular cifrados, sus vehículos con chapa y fotos). De los clientes que quieran, su nombre, su celular (cifrados) y su foto, hasta que los borren en 🔧 Ajustes. De todos, la reputación como totales (estrellas, viajes y días en el bot), los bloqueos, las cancelaciones de los últimos 30 días, tu código de soporte y el idioma si lo cambiaste. Tus viajes completados de los últimos 45 días (fecha, origen y destino como texto, sin ubicaciones exactas, precio, la otra persona y tu nota, cifrados), que solo ves tú en 📅 Mis viajes y puedes borrar; y, de los choferes, sus viajes y ganancias totales por mes.\n\n\
 3. Qué no guardamos: no hay historial de viajes. Cada solicitud (ubicaciones y referencia) se borra al cerrarse, y nunca guardamos el teléfono de los clientes. Las calificaciones son ciegas y solo se suman a los totales.\n\n\
 4. Quién ve qué: en el canal de ofertas los choferes ven el municipio, la distancia, el precio y tu reputación, nunca tu ubicación exacta ni tu contacto. Esos datos solo los recibe el chofer que confirmes.\n\n\
 5. Normas: respeto mutuo y nada ilegal. Tres cancelaciones en 7 días bloquean la cuenta 24 horas. Los admins pueden bloquear cuentas o quitar choferes.\n\n\
@@ -1726,8 +2019,8 @@ Datos del mapa © colaboradores de OpenStreetMap (licencia ODbL)."
         }
         Lang::En => {
             "📜 Asere Voy terms and privacy\n\n\
-1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the motorbikes and does not insure the trips. Price and payment (cash, transfer or bitcoin) are agreed directly between client and driver; the bot handles no money.\n\n\
-2. What we keep: for drivers, their profile (alias, encrypted full name and phone, motorbike, plate and photos). For clients who choose to, their name, phone (encrypted) and photo, until they delete them in 🔧 Settings. For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it. Your completed trips of the last 45 days (date, origin and destination as text, no exact locations, price, the other person and your rating, encrypted), which only you see in 🧾 My trips and can delete; and, for drivers, their trips and earnings per month.\n\n\
+1. Asere Voy only connects riders and drivers. It is not a transport company, does not own the vehicles and does not insure the trips. Price and payment (cash, transfer or bitcoin) are agreed directly between client and driver; the bot handles no money.\n\n\
+2. What we keep: for drivers, their profile (alias, encrypted full name and phone, their vehicles with plates and photos). For clients who choose to, their name, phone (encrypted) and photo, until they delete them in 🔧 Settings. For everyone, reputation as totals (stars, trips and days in the bot), blocks, cancellations from the last 30 days, your support code, and your language if you changed it. Your completed trips of the last 45 days (date, origin and destination as text, no exact locations, price, the other person and your rating, encrypted), which only you see in 📅 My trips and can delete; and, for drivers, their trips and earnings per month.\n\n\
 3. What we don't keep: there is no trip history. Each request (locations and landmark) is deleted when it closes, and we never keep clients' phone numbers. Ratings are blind and only added to the totals.\n\n\
 4. Who sees what: in the offers channel drivers see the municipality, distance, price and your reputation, never your exact location or contact. Only the driver you confirm gets those.\n\n\
 5. Rules: mutual respect and nothing illegal. Three cancellations in 7 days block the account for 24 hours. Admins can block accounts or remove drivers.\n\n\
@@ -1821,17 +2114,37 @@ pub fn blocked(lang: Lang, until: Option<&str>) -> String {
 }
 
 /// To the client after "Share trip", to forward to someone they trust.
-pub fn share_trip(lang: Lang, request: &RequestId, p: &Profile, time: &str) -> String {
-    match lang {
-        Lang::Es => format!(
-            "🛵 Voy en moto con Asere Voy.\nChofer: {}\nMoto: {}, {}\nChapa: {}\nSalida: {time}\nViaje: {request}",
-            p.alias, p.bike_model, p.bike_color, p.plate
-        ),
-        Lang::En => format!(
-            "🛵 I'm riding with Asere Voy.\nDriver: {}\nMotorbike: {}, {}\nPlate: {}\nDeparture: {time}\nTrip: {request}",
-            p.alias, p.bike_model, p.bike_color, p.plate
-        ),
+pub fn share_trip(
+    lang: Lang,
+    request: &RequestId,
+    p: &Profile,
+    (kind, vehicle): (VehicleKind, Option<&Vehicle>),
+    time: &str,
+) -> String {
+    let (noun, label) = match (lang, kind) {
+        (Lang::Es, VehicleKind::Moto) => ("moto", "Moto"),
+        (Lang::Es, VehicleKind::Car) => ("carro", "Carro"),
+        (Lang::Es, VehicleKind::Tricycle) => ("triciclo", "Triciclo"),
+        (Lang::En, VehicleKind::Moto) => ("a motorbike", "Motorbike"),
+        (Lang::En, VehicleKind::Car) => ("a car", "Car"),
+        (Lang::En, VehicleKind::Tricycle) => ("a tricycle", "Tricycle"),
+    };
+    let alias = &p.alias;
+    let mut text = match lang {
+        Lang::Es => format!("{} Voy en {noun} con Asere Voy.\nChofer: {alias}", kind.emoji()),
+        Lang::En => format!("{} I'm riding {noun} with Asere Voy.\nDriver: {alias}", kind.emoji()),
+    };
+    if let Some(v) = vehicle {
+        text.push_str(&match lang {
+            Lang::Es => format!("\n{label}: {}, {}\nChapa: {}", v.model, v.color, v.plate),
+            Lang::En => format!("\n{label}: {}, {}\nPlate: {}", v.model, v.color, v.plate),
+        });
     }
+    text.push_str(&match lang {
+        Lang::Es => format!("\nSalida: {time}\nViaje: {request}"),
+        Lang::En => format!("\nDeparture: {time}\nTrip: {request}"),
+    });
+    text
 }
 
 /// 💬 Support: the support account to write to, and the code to include.
@@ -1931,8 +2244,8 @@ pub fn drivers_list(lang: Lang, filter: crate::bot::panel::Filter, total: i64) -
         (Lang::En, Filter::Blocked) => "blocked",
     };
     match lang {
-        Lang::Es => format!("🏍 Choferes ({which}): {total}\nToca uno para ver su ficha y actuar sobre él."),
-        Lang::En => format!("🏍 Drivers ({which}): {total}\nTap one to see their profile and act on it."),
+        Lang::Es => format!("🧢 Choferes ({which}): {total}\nToca uno para ver su ficha y actuar sobre él."),
+        Lang::En => format!("🧢 Drivers ({which}): {total}\nTap one to see their profile and act on it."),
     }
 }
 
@@ -1965,32 +2278,80 @@ pub fn driver_admin_card(
     card
 }
 
-/// The fares as the panel shows them, with what the buttons change.
-pub fn fares_panel(lang: Lang, f: &Fares) -> String {
+/// One kind's fares as the panel shows them, with what the buttons change.
+pub fn fares_panel(lang: Lang, kind: VehicleKind, f: &Fares) -> String {
+    let kind_name = vehicle_kind(lang, kind);
+    // What to type for this kind: the moto needs no word.
+    let word = match (lang, kind) {
+        (_, VehicleKind::Moto) => "",
+        (Lang::Es, VehicleKind::Car) => "carro ",
+        (Lang::En, VehicleKind::Car) => "car ",
+        (Lang::Es, VehicleKind::Tricycle) => "triciclo ",
+        (Lang::En, VehicleKind::Tricycle) => "tricycle ",
+    };
     match lang {
         Lang::Es => format!(
-            "💰 Tarifas (precio sugerido = base + precio por km × km)\n\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nCámbialas con los botones o escribe un valor exacto: /tarifa base 120, /tarifa km 160 o /tarifa minimo 75. Afectan a las solicitudes nuevas.",
+            "💰 Tarifas de {kind_name} (precio sugerido = base + precio por km × km)\n\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nCámbialas con los botones o escribe un valor exacto: /tarifa {word}base 120, /tarifa {word}km 160 o /tarifa {word}minimo 75. Afectan a las solicitudes nuevas.",
             f.base, f.per_km, f.min_percent
         ),
         Lang::En => format!(
-            "💰 Fares (suggested price = base + price per km × km)\n\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nChange them with the buttons or type an exact value: /tarifa base 120, /tarifa km 160 or /tarifa minimo 75. They apply to new requests.",
+            "💰 {kind_name} fares (suggested price = base + price per km × km)\n\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nChange them with the buttons or type an exact value: /tarifa {word}base 120, /tarifa {word}km 160 or /tarifa {word}minimo 75. They apply to new requests.",
             f.base, f.per_km, f.min_percent
         ),
     }
 }
 
-/// `/tarifas`: the current fares.
-pub fn fares(lang: Lang, f: &Fares) -> String {
-    match lang {
-        Lang::Es => format!(
-            "💰 Tarifas\nBase: {} CUP\nPor km: {} CUP\nMínimo: {} % del precio sugerido\n\nPara cambiarlas (superadmins): /tarifa base|km|minimo <valor>",
-            f.base, f.per_km, f.min_percent
-        ),
-        Lang::En => format!(
-            "💰 Fares\nBase: {} CUP\nPer km: {} CUP\nMinimum: {} % of the suggested price\n\nTo change them (superadmins): /tarifa base|km|minimo <value>",
-            f.base, f.per_km, f.min_percent
-        ),
+/// The fares of the three kinds: `/tarifas`, or the panel's first step
+/// (`pick`), where a kind is chosen to change them.
+pub fn fares(lang: Lang, table: &FareTable, pick: bool) -> String {
+    let mut text = match lang {
+        Lang::Es => "💰 Tarifas (precio sugerido = base + precio por km × km)".to_owned(),
+        Lang::En => "💰 Fares (suggested price = base + price per km × km)".to_owned(),
+    };
+    for kind in VehicleKind::ALL {
+        let f = table.of(kind);
+        text.push_str(&match lang {
+            Lang::Es => format!(
+                "\n\n{}\nBase: {} CUP · Por km: {} CUP · Mínimo: {} %",
+                vehicle_kind(lang, kind),
+                f.base,
+                f.per_km,
+                f.min_percent
+            ),
+            Lang::En => format!(
+                "\n\n{}\nBase: {} CUP · Per km: {} CUP · Minimum: {} %",
+                vehicle_kind(lang, kind),
+                f.base,
+                f.per_km,
+                f.min_percent
+            ),
+        });
     }
+    text.push_str(match (lang, pick) {
+        (Lang::Es, true) => "\n\nElige el tipo para cambiar sus tarifas.",
+        (Lang::En, true) => "\n\nPick the kind to change its fares.",
+        (Lang::Es, false) => "\n\nPara cambiarlas (superadmins): /tarifa [carro|triciclo] base|km|minimo <valor>; sin tipo, la moto.",
+        (Lang::En, false) => "\n\nTo change them (superadmins): /tarifa [carro|triciclo] base|km|minimo <value>; without a kind, the moto.",
+    });
+    text
+}
+
+/// The driver's vehicles, at the end of their card for staff.
+pub fn driver_vehicles(lang: Lang, vehicles: &[Vehicle], active: Option<VehicleId>) -> String {
+    let mut text = match lang {
+        Lang::Es => "\n\n🚘 Vehículos:".to_owned(),
+        Lang::En => "\n\n🚘 Vehicles:".to_owned(),
+    };
+    if vehicles.is_empty() {
+        text.push_str(match lang {
+            Lang::Es => " ninguno",
+            Lang::En => " none",
+        });
+    }
+    for v in vehicles {
+        text.push_str(&format!("\n{}", vehicle_button(v, Some(v.id) == active)));
+    }
+    text
 }
 
 /// `/metricas`: one block per day, newest first.
@@ -2068,6 +2429,7 @@ mod tests {
         let id = RequestId::parse("K7X2").unwrap();
         let post = Post {
             request: &id,
+            vehicle_kind: VehicleKind::Car,
             km: 3.5,
             minutes: 9.4,
             price: 600,
@@ -2082,6 +2444,7 @@ mod tests {
             cancellations: Some(1),
         };
         let text = channel_post(Lang::Es, &post);
+        assert!(text.starts_with("🚗 Carro · 🆔 K7X2\n📍 Plaza"), "{text}");
         assert!(text.contains("📍 Plaza de la Revolución (23 y L)\n⬇️\n🏁 Habana del Este\n"), "{text}");
         assert!(text.contains("💰 600 CUP · 💵 Efectivo\n🔴⬇️ 200 CUP menos que el precio sugerido (800 CUP)\n"), "{text}");
         assert_eq!(against_suggested(Lang::Es, 1100, 800, true), "🟢⬆️ 300 CUP más que el precio sugerido (≈800 CUP)");
@@ -2092,19 +2455,22 @@ mod tests {
     #[test]
     fn both_trip_cards_say_each_thing_once_with_the_same_emojis() {
         let id = RequestId::parse("K7X2").unwrap();
-        let p = Profile {
-            alias: "Pepe".into(),
-            full_name: Some("José Pérez Díaz".into()),
-            phone: "+5351234567".into(),
+        let bike = Vehicle {
+            id: 1,
+            driver: crate::domain::ids::UserId(7),
+            kind: VehicleKind::Moto,
             plate: "P123".into(),
-            bike_model: "Suzuki".into(),
-            bike_color: "roja".into(),
-            photo_file_id: "f".into(),
-            bike_photo_file_id: None,
+            model: "Suzuki".into(),
+            color: "roja".into(),
+            photo_file_id: None,
+            status: crate::domain::vehicle::VehicleStatus::Approved,
+            pending_plate: None,
+            pending_photo_file_id: None,
         };
         let rep = Shown { stars: Some(4.8), trips: 23, days: 100 };
         let card = TripCard {
             request: &id,
+            kind: VehicleKind::Moto,
             price: 3300,
             pay: PaymentMethod::Cash,
             distance: distance(Lang::Es, 3.5, 9.4, false),
@@ -2113,17 +2479,20 @@ mod tests {
             phone: Some("+5351234567"),
             username: Some("pepe"),
         };
-        let client = client_trip_card(Lang::Es, &card, &p, false);
+        let client = client_trip_card(Lang::Es, &card, VehicleKind::Moto, Some(&bike), false);
         assert_eq!(
             client,
-            "🛵 Viaje K7X2 confirmado: tu chofer va hacia ti.\n📏 3.5 km · ⏱ unos 9 min en moto\n👤 Pepe · José Pérez Díaz\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje.\n⭐4.8 · 23 viajes\n📅 100 días usando Asere Voy"
+            "🏍 Viaje K7X2 confirmado: tu chofer va hacia ti.\n📏 3.5 km · ⏱ unos 9 min\n👤 Pepe · José Pérez Díaz\n🏍 Suzuki, roja · Chapa P123\n📞 +5351234567\n💰 Al terminar le pagas 3300 CUP · 💵 Efectivo\n💬 Escríbele a @pepe para terminar de coordinar el viaje.\n⭐4.8 · 23 viajes\n📅 100 días usando Asere Voy"
         );
         assert_eq!(client.matches("@pepe").count(), 1);
+        // The vehicle was removed after the trip was assigned: only the kind.
+        let gone = client_trip_card(Lang::Es, &card, VehicleKind::Car, None, false);
+        assert!(gone.contains("\n🚗 Carro\n📞"), "{gone}");
 
         let rep = Shown { stars: None, trips: 2, days: 3 };
         let card = TripCard { names: vec![], reputation: &rep, phone: None, username: Some("ana"), ..card };
         let driver = driver_trip_card(Lang::Es, &card, Some("frente a la bodega"));
-        assert!(driver.starts_with("🛵 Viaje K7X2: es tuyo.\n📏 3.5 km · ⏱ unos 9 min en moto\n👤 Cliente\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
+        assert!(driver.starts_with("🏍 Viaje K7X2: es tuyo.\n📏 3.5 km · ⏱ unos 9 min\n👤 Cliente\n📝 Referencia: frente a la bodega\n💰 Al terminar cobras 3300 CUP"), "{driver}");
         assert!(!driver.contains("📞"), "{driver}");
     }
 
@@ -2153,16 +2522,52 @@ mod tests {
 
     #[test]
     fn the_summary_shows_everything_before_publishing() {
-        let text = ride_summary(Lang::Es, "Plaza (23 y L)", "Centro Habana", 3.5, false, 600, PaymentMethod::Cash);
+        let summary = Summary {
+            kind: None,
+            from: "Plaza (23 y L)",
+            to: "Centro Habana",
+            km: 3.5,
+            approx: false,
+            price: 600,
+            payment: PaymentMethod::Cash,
+        };
+        let text = ride_summary(Lang::Es, &summary);
         assert!(text.contains("Recogida: Plaza (23 y L)") && text.contains("Destino: Centro Habana"), "{text}");
         assert!(text.contains("3.5 km · 💰 600 CUP (≈171 CUP por km)"), "{text}");
+        assert!(text.starts_with("📋 Revisa tu solicitud\n\n📍"), "{text}");
+        let text = ride_summary(Lang::Es, &Summary { kind: Some(VehicleKind::Car), ..summary });
+        assert!(text.starts_with("📋 Revisa tu solicitud\n\n🚗 Carro\n📍 Recogida"), "{text}");
+    }
+
+    #[test]
+    fn old_ride_buttons_still_work() {
+        assert_eq!(parse_button("🚕 Pedir viaje"), Some(Button::RequestRide));
+        assert_eq!(parse_button("🛵 Pedir viaje"), Some(Button::RequestRide));
+        assert_eq!(parse_button("🛵 My trip"), Some(Button::MyTrip));
+        assert_eq!(parse_button("🧭 Mi viaje"), Some(Button::MyTrip));
+        assert_eq!(parse_button("🏍 Chofer"), Some(Button::DriverMenu));
+        assert_eq!(parse_button("🧢 Chofer"), Some(Button::DriverMenu));
+        assert_eq!(parse_button("🧾 Mis viajes"), Some(Button::MyTrips));
+        assert_eq!(parse_button("📅 Mis viajes"), Some(Button::MyTrips));
+    }
+
+    #[test]
+    fn fares_show_the_three_kinds() {
+        let moto = Fares { base: 100, per_km: 150, min_percent: 80 };
+        let table = FareTable { car: Fares { per_km: 250, ..moto.clone() }, tricycle: moto.clone(), moto };
+        let text = fares(Lang::Es, &table, false);
+        assert!(text.contains("🏍 Moto\nBase: 100 CUP · Por km: 150 CUP"), "{text}");
+        assert!(text.contains("🚗 Carro\nBase: 100 CUP · Por km: 250 CUP"), "{text}");
+        assert!(text.contains("🛺 Triciclo\n"), "{text}");
+        assert!(fares_panel(Lang::Es, VehicleKind::Car, &table.car).contains("/tarifa carro km 160"));
+        assert!(fares_panel(Lang::Es, VehicleKind::Moto, &table.moto).contains("/tarifa km 160"));
     }
 
     #[test]
     fn the_offer_shows_its_price_per_km() {
         let text = price_prompt(Lang::Es, 52.8, 68.0, 8010, 6410, 8010, true);
         assert!(text.contains("8010 CUP (≈152 CUP por km)"), "{text}");
-        assert!(text.contains("📏 ≈52.8 km · ⏱ unos 68 min en moto"), "{text}");
+        assert!(text.contains("📏 ≈52.8 km · ⏱ unos 68 min"), "{text}");
     }
 
     #[test]

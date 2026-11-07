@@ -6,6 +6,7 @@
 use teloxide::prelude::*;
 use teloxide::types::MessageId;
 
+use super::vehicles::{self, Then};
 use super::{App, chat, effects, keyboards, local_time, now};
 use crate::db;
 use crate::domain::driver::DriverStatus;
@@ -24,16 +25,22 @@ pub async fn accept(bot: &Bot, app: &App, driver: UserId, lang: Lang, id: &Reque
         return Ok(i18n::text(lang, Text::AlreadyTaken).into());
     };
     let now = now();
-    let effects = match request.accept(driver, now) {
+    let active = db::vehicles::active(&app.pool, driver).await?;
+    let effects = match request.accept(driver, active.as_ref(), now) {
         Ok(effects) => effects,
         Err(DomainError::NotOpen) => return Ok(i18n::text(lang, Text::AlreadyTaken).into()),
+        Err(e @ (DomainError::WrongVehicle { .. } | DomainError::NoActiveVehicle)) => {
+            let why = vehicles::offer_switch(bot, app, driver, lang, &request, &e, Then::Accept).await?;
+            return Ok(why.unwrap_or_else(|| i18n::text(lang, Text::SwitchOffered).into()));
+        }
         Err(e) => return Ok(i18n::domain_error(lang, &e)),
     };
     if db::requests::driver_busy(&app.pool, driver).await? {
         return Ok(i18n::text(lang, Text::DriverBusy).into());
     }
     let confirm_by = request.confirm_by.expect("accepting sets the deadline");
-    if !db::requests::try_reserve(&app.pool, id, driver, confirm_by, now).await? {
+    let vehicle = request.vehicle.expect("accepting sets the vehicle");
+    if !db::requests::try_reserve(&app.pool, id, driver, vehicle, confirm_by, now).await? {
         return Ok(i18n::text(lang, Text::AlreadyTaken).into());
     }
     tracing::info!(request = %id, "reserved");
@@ -293,6 +300,8 @@ pub async fn share(bot: &Bot, app: &App, by: UserId, lang: Lang, id: &RequestId)
         return Ok(Some(i18n::text(lang, Text::SomethingFailed).into()));
     };
     let departure = local_time(request.assigned_at.unwrap_or_else(now));
-    bot.send_message(chat(by), i18n::share_trip(lang, id, &driver.profile, &departure)).await?;
+    let vehicle = effects::trip_vehicle(app, &request).await?;
+    let text = i18n::share_trip(lang, id, &driver.profile, (request.vehicle_kind, vehicle.as_ref()), &departure);
+    bot.send_message(chat(by), text).await?;
     Ok(None)
 }

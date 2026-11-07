@@ -12,6 +12,7 @@ use teloxide::types::{ChatJoinRequest, MessageId, User};
 use super::admin::{self, Action};
 use super::client::{self, Ctx};
 use super::dialog::Dialog;
+use super::vehicles::{self, Then};
 use super::{AppRef, HandlerResult, auction, chat, driver, history, keyboards, now, panel, rating, settings, support, trip, user_id};
 use crate::db;
 use crate::domain::driver::DriverStatus;
@@ -94,6 +95,9 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
             }
         }
         Some(Dialog::EditField { field }) => return driver::on_edit_message(&cx, field, &msg).await,
+        Some(Dialog::EditVehicle { vehicle, field }) => {
+            return vehicles::on_edit_message(&cx, vehicle, field, &msg).await;
+        }
         Some(Dialog::EditClient { field }) => return settings::on_message(&cx, field, &msg).await,
         Some(Dialog::Counteroffer { request, amount }) if pressed == Some(Button::SendOffer) => {
             return auction::send_counteroffer(&cx, &request, amount).await;
@@ -110,6 +114,7 @@ async fn on_message(bot: Bot, app: AppRef, msg: Message) -> HandlerResult {
         Some(Button::MyProfile) => driver::show_profile(&cx).await,
         Some(Button::DriverMenu) => driver::menu(&cx).await,
         Some(Button::MyStats) => driver::stats(&cx).await,
+        Some(Button::MyVehicles) => vehicles::list(&cx, None).await,
         Some(Button::MyTrips) => history::show(&cx, Role::Driver, 0, None).await,
         Some(Button::OffersChannel) => driver::offers_channel(&cx).await,
         Some(Button::InviteDriver) => driver::invite(&cx).await,
@@ -233,6 +238,16 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
     let id = arg.split(':').next().and_then(RequestId::parse);
     let alert = match (kind, id) {
         ("acc", Some(id)) => Some(trip::accept(bot, app, cx.user, cx.lang, &id).await?),
+        // "🚗 Use … and accept" / "… and counteroffer" (decision 128).
+        ("vsa" | "vsc", Some(id)) => match number(arg) {
+            Some(vehicle) => {
+                let then = if kind == "vsa" { Then::Accept } else { Then::Counteroffer };
+                let alert = vehicles::switch_and(&cx, &id, vehicle, then).await?;
+                spend(pressed).await;
+                alert
+            }
+            None => None,
+        },
         ("cad", Some(id)) => match number(arg) {
             Some(delta) => auction::adjust_counteroffer(&cx, &id, delta, pressed).await?,
             None => None,
@@ -301,6 +316,30 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             result
         }
         ("up", Some(id)) => auction::ask_raise(&cx, &id).await?,
+        // 🚘 My vehicles, and the admins' decisions on vehicles.
+        ("vh", _) => match arg.parse() {
+            Ok(vehicle) => vehicles::card(&cx, vehicle, pressed).await?,
+            Err(_) => {
+                vehicles::list(&cx, pressed).await?;
+                None
+            }
+        },
+        ("vadd", _) => vehicles::start_add(&cx).await?,
+        ("vuse" | "vdel" | "vdok" | "vph" | "vok" | "vno", _) => match arg.parse() {
+            Ok(vehicle) => match kind {
+                "vuse" => vehicles::use_it(&cx, vehicle, pressed).await?,
+                "vdel" => vehicles::ask_remove(&cx, vehicle, pressed).await?,
+                "vdok" => vehicles::remove(&cx, vehicle, pressed).await?,
+                "vph" => vehicles::photo(&cx, vehicle).await?,
+                _ => vehicles::review(&cx, kind == "vok", vehicle, pressed).await?,
+            },
+            Err(_) => None,
+        },
+        ("vf" | "vck" | "vcn", _) => match arg.split_once(':').and_then(|(v, f)| Some((v.parse().ok()?, f))) {
+            Some((vehicle, field)) if kind == "vf" => vehicles::edit_field(&cx, vehicle, field).await?,
+            Some((vehicle, field)) => vehicles::review_change(&cx, kind == "vck", vehicle, field, pressed).await?,
+            None => None,
+        },
         ("coa" | "cor", Some(id)) => match number(arg) {
             Some(driver) if kind == "coa" => auction::accept_offer(&cx, &id, UserId(driver)).await?,
             Some(driver) => auction::reject_offer(&cx, &id, UserId(driver)).await?,
@@ -386,7 +425,8 @@ async fn handle_callback(bot: &Bot, app: &AppRef, q: &CallbackQuery) -> anyhow::
             driver::show_profile(&cx).await?;
             None
         }
-        ("pick" | "drop" | "apx" | "cand" | "mun" | "zone" | "zpg" | "dback" | "padj" | "pok" | "pay" | "pub" | "sback", _) => {
+        ("pick" | "drop" | "apx" | "cand" | "mun" | "zone" | "zpg" | "dback" | "rkind" | "padj" | "pok" | "pay" | "pub"
+         | "sback", _) => {
             if let Some(Dialog::Ride(ride)) = db::dialogs::get(&app.pool, cx.user).await? {
                 client::on_callback(&cx, ride, kind, arg, pressed).await?;
             }

@@ -6,13 +6,14 @@ use teloxide::types::{FileId, InlineKeyboardMarkup, InputFile, KeyboardButton, M
 
 use super::client::Ctx;
 use super::dialog::{Dialog, DriverForm, FormStep};
-use super::{App, chat, keyboards, now, support};
+use super::{App, chat, keyboards, now, support, vehicles};
 use crate::db;
 use crate::db::invitations::InviteRole;
 use crate::domain::reputation::Role;
 use crate::domain::driver::{self, ALIAS_MAX, DriverStatus, FIELD_MAX, Profile};
 use crate::domain::ids::{InviteCode, UserId};
 use crate::domain::phone;
+use crate::domain::vehicle::{Vehicle, VehicleKind};
 use crate::i18n::{self, Button, Text, parse_button};
 
 /// "🧑‍✈️ Apply to drive".
@@ -67,15 +68,15 @@ async fn refuse(cx: &Ctx<'_>, status: DriverStatus) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// "🏍 Driver": the driver's own keyboard (stats, profile, back).
+/// "🧢 Driver": the driver's own keyboard (stats, profile, back).
 pub async fn menu(cx: &Ctx<'_>) -> anyhow::Result<()> {
     if cx.app.driver_status(cx.user).await?.is_none() {
         return apply(cx).await;
     }
-    cx.bot
-        .send_message(chat(cx.user), i18n::text(cx.lang, Text::DriverMenu))
-        .reply_markup(keyboards::driver_menu(cx.lang))
-        .await?;
+    // With what they work now (decision 121).
+    let active = db::vehicles::active(&cx.app.pool, cx.user).await?.filter(|v| v.approved());
+    let text = format!("{}\n{}", i18n::text(cx.lang, Text::DriverMenu), i18n::working_with(cx.lang, active.as_ref()));
+    cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::driver_menu(cx.lang)).await?;
     Ok(())
 }
 
@@ -140,6 +141,11 @@ pub async fn edit_field(cx: &Ctx<'_>, code: &str) -> anyhow::Result<Option<Strin
         Some(DriverStatus::Blocked) => return Ok(Some(i18n::text(cx.lang, Text::DriverBlocked).into())),
         Some(_) => {}
     }
+    // A button from before the vehicles: those fields are in 🚘 My vehicles.
+    if is_vehicle_field(field) {
+        vehicles::list(cx, None).await?;
+        return Ok(None);
+    }
     db::dialogs::set(&cx.app.pool, cx.user, &Dialog::EditField { field }, now()).await?;
     let extra: Vec<KeyboardButton> = if field == FormStep::Phone { vec![keyboards::share_phone(cx.lang)] } else { Vec::new() };
     cx.bot
@@ -149,10 +155,20 @@ pub async fn edit_field(cx: &Ctx<'_>, code: &str) -> anyhow::Result<Option<Strin
     Ok(None)
 }
 
+/// The fields of a vehicle rather than of the person.
+pub(super) fn is_vehicle_field(field: FormStep) -> bool {
+    matches!(field, FormStep::Kind | FormStep::Plate | FormStep::BikeModel | FormStep::BikeColor | FormStep::BikePhoto)
+}
+
 /// The new value of the field being edited. A full name waits for an
-/// admin; a new plate or photo is saved and the admins are told.
+/// admin; a new photo is saved and the admins are told (decision 130).
 pub async fn on_edit_message(cx: &Ctx<'_>, field: FormStep, msg: &Message) -> anyhow::Result<()> {
     let app = cx.app;
+    if is_vehicle_field(field) {
+        // Saved before the vehicles: those fields are edited per vehicle now.
+        db::dialogs::clear(&app.pool, cx.user).await?;
+        return vehicles::back_to_list(cx, Text::Cancelled).await;
+    }
     if msg.text().map(str::trim).and_then(parse_button) == Some(Button::StepBack) {
         db::dialogs::clear(&app.pool, cx.user).await?;
         return back_to_profile(cx, Text::Cancelled).await;
@@ -174,31 +190,19 @@ pub async fn on_edit_message(cx: &Ctx<'_>, field: FormStep, msg: &Message) -> an
         support::alert(cx.bot, app, text, None, |lang| keyboards::review_name(lang, cx.user)).await?;
         return back_to_profile(cx, Text::NameSentForReview).await;
     }
-    let before = d.profile.clone();
     let mut profile = d.profile;
     match field {
         FormStep::Alias => profile.alias = value,
         FormStep::Phone => profile.phone = value,
-        FormStep::Plate => profile.plate = value,
-        FormStep::BikeModel => profile.bike_model = value,
-        FormStep::BikeColor => profile.bike_color = value,
         FormStep::Photo => profile.photo_file_id = value,
-        FormStep::BikePhoto => profile.bike_photo_file_id = Some(value),
-        FormStep::FullName => {}
+        _ => {}
     }
     db::drivers::save_profile(&app.pool, &app.cipher, cx.user, &profile, None, now()).await?;
-    // What staff verified in person: they hear about a new plate or photo.
-    match field {
-        FormStep::Plate => {
-            let text = |lang| i18n::plate_changed(lang, &profile.alias, &before.plate, &profile.plate);
-            support::alert(cx.bot, app, text, None, |lang| keyboards::driver_admin(lang, cx.user, d.status)).await?;
-        }
-        FormStep::Photo => {
-            let text = |lang| i18n::photo_changed(lang, &profile.alias);
-            let photo = Some(profile.photo_file_id.clone());
-            support::alert(cx.bot, app, text, photo, |lang| keyboards::driver_admin(lang, cx.user, d.status)).await?;
-        }
-        _ => {}
+    // What staff verified in person: they hear about a new photo.
+    if field == FormStep::Photo {
+        let text = |lang| i18n::photo_changed(lang, &profile.alias);
+        let photo = Some(profile.photo_file_id.clone());
+        support::alert(cx.bot, app, text, photo, |lang| keyboards::driver_admin(lang, cx.user, d.status)).await?;
     }
     back_to_profile(cx, Text::ProfileUpdated).await
 }
@@ -247,13 +251,14 @@ async fn start_form(cx: &Ctx<'_>, form: DriverForm) -> anyhow::Result<()> {
 }
 
 /// Saves the form at `step` and asks its question.
-async fn ask(cx: &Ctx<'_>, mut form: DriverForm, step: FormStep) -> anyhow::Result<()> {
+pub(super) async fn ask(cx: &Ctx<'_>, mut form: DriverForm, step: FormStep) -> anyhow::Result<()> {
     let lang = cx.lang;
-    // Skip keeps the current value when editing; the bike photo is optional.
+    // Skip keeps the current value when editing; the vehicle photo is optional.
     let can_skip = match step {
         FormStep::Alias => form.alias.is_some(),
         FormStep::FullName => form.full_name.is_some(),
         FormStep::Phone => form.phone.is_some(),
+        FormStep::Kind => form.kind.is_some(),
         FormStep::Plate => form.plate.is_some(),
         FormStep::BikeModel => form.bike_model.is_some(),
         FormStep::BikeColor => form.bike_color.is_some(),
@@ -263,6 +268,9 @@ async fn ask(cx: &Ctx<'_>, mut form: DriverForm, step: FormStep) -> anyhow::Resu
     let mut extra: Vec<KeyboardButton> = Vec::new();
     if step == FormStep::Phone {
         extra.push(keyboards::share_phone(lang));
+    }
+    if step == FormStep::Kind {
+        extra.extend(keyboards::vehicle_kinds(lang));
     }
     if can_skip {
         extra.push(keyboards::skip(lang));
@@ -276,11 +284,12 @@ async fn ask(cx: &Ctx<'_>, mut form: DriverForm, step: FormStep) -> anyhow::Resu
     Ok(())
 }
 
-fn question(step: FormStep) -> Text {
+pub(super) fn question(step: FormStep) -> Text {
     match step {
         FormStep::Alias => Text::AskAlias,
         FormStep::FullName => Text::AskFullName,
         FormStep::Phone => Text::AskDriverPhone,
+        FormStep::Kind => Text::AskVehicleKind,
         FormStep::Plate => Text::AskPlate,
         FormStep::BikeModel => Text::AskBikeModel,
         FormStep::BikeColor => Text::AskBikeColor,
@@ -289,10 +298,11 @@ fn question(step: FormStep) -> Text {
     }
 }
 
-fn complaint(step: FormStep) -> Text {
+pub(super) fn complaint(step: FormStep) -> Text {
     match step {
         FormStep::Phone => Text::InvalidPhone,
         FormStep::FullName => Text::InvalidFullName,
+        FormStep::Kind => Text::PickVehicleKind,
         FormStep::Photo | FormStep::BikePhoto => Text::NeedPhoto,
         _ => Text::InvalidField,
     }
@@ -300,13 +310,15 @@ fn complaint(step: FormStep) -> Text {
 
 /// The answer to `step` in the message, checked: a phone, a photo (medium
 /// size) or a short text.
-fn read_value(step: FormStep, msg: &Message) -> Option<String> {
+pub(super) fn read_value(step: FormStep, msg: &Message) -> Option<String> {
     let text = msg.text().map(str::trim);
     let field = |max| text.and_then(|t| driver::clean_field(t, max));
     match step {
         FormStep::Alias => field(ALIAS_MAX),
         FormStep::FullName => text.and_then(driver::clean_full_name),
         FormStep::Phone => msg.contact().map(|c| c.phone_number.as_str()).or(text).and_then(phone::normalize),
+        // One of the kind buttons, in either language: its code.
+        FormStep::Kind => text.and_then(vehicles::kind_named).map(|k| k.code().to_owned()),
         FormStep::Plate | FormStep::BikeModel | FormStep::BikeColor => field(FIELD_MAX),
         FormStep::Photo | FormStep::BikePhoto => msg.photo().and_then(|sizes| {
             let dims: Vec<(u32, u32)> = sizes.iter().map(|p| (p.width, p.height)).collect();
@@ -315,16 +327,19 @@ fn read_value(step: FormStep, msg: &Message) -> Option<String> {
     }
 }
 
-/// The next question; `None` after the last one (the bike photo). Payment
-/// methods are not asked: the channel shows how each client pays and the
-/// driver takes the offers that suit them.
-fn next(step: FormStep) -> Option<FormStep> {
+/// The next question; `None` after the last one (the vehicle photo).
+/// Payment methods are not asked: the channel shows how each client pays and
+/// the driver takes the offers that suit them. Adding a vehicle later asks
+/// only about the vehicle.
+fn next(step: FormStep, vehicle_only: bool) -> Option<FormStep> {
     match step {
         FormStep::Alias => Some(FormStep::FullName),
         FormStep::FullName => Some(FormStep::Phone),
-        FormStep::Phone => Some(FormStep::Plate),
+        FormStep::Phone => Some(FormStep::Kind),
+        FormStep::Kind => Some(FormStep::Plate),
         FormStep::Plate => Some(FormStep::BikeModel),
         FormStep::BikeModel => Some(FormStep::BikeColor),
+        FormStep::BikeColor if vehicle_only => Some(FormStep::BikePhoto),
         FormStep::BikeColor => Some(FormStep::Photo),
         FormStep::Photo => Some(FormStep::BikePhoto),
         FormStep::BikePhoto => None,
@@ -344,15 +359,18 @@ pub(super) fn medium_size(dims: &[(u32, u32)]) -> Option<usize> {
     fitting.or_else(|| (0..dims.len()).min_by_key(|&i| side(i)))
 }
 
-fn previous(step: FormStep) -> Option<FormStep> {
+fn previous(step: FormStep, vehicle_only: bool) -> Option<FormStep> {
     match step {
         FormStep::Alias => None,
         FormStep::FullName => Some(FormStep::Alias),
         FormStep::Phone => Some(FormStep::FullName),
-        FormStep::Plate => Some(FormStep::Phone),
+        FormStep::Kind if vehicle_only => None,
+        FormStep::Kind => Some(FormStep::Phone),
+        FormStep::Plate => Some(FormStep::Kind),
         FormStep::BikeModel => Some(FormStep::Plate),
         FormStep::BikeColor => Some(FormStep::BikeModel),
         FormStep::Photo => Some(FormStep::BikeColor),
+        FormStep::BikePhoto if vehicle_only => Some(FormStep::BikeColor),
         FormStep::BikePhoto => Some(FormStep::Photo),
     }
 }
@@ -366,8 +384,12 @@ pub async fn on_message(cx: &Ctx<'_>, mut form: DriverForm, msg: &Message) -> an
     if text.and_then(parse_button) == Some(Button::StepBack) {
         // Back to the previous question, keeping the answers; from the
         // first one, out of the form.
-        return match previous(step) {
+        return match previous(step, form.vehicle_only) {
             Some(prev) => ask(cx, form, prev).await,
+            None if form.vehicle_only => {
+                db::dialogs::clear(&cx.app.pool, cx.user).await?;
+                vehicles::back_to_list(cx, Text::Cancelled).await
+            }
             None => {
                 db::dialogs::clear(&cx.app.pool, cx.user).await?;
                 let menu = cx.app.menu(cx.user, cx.lang).await?;
@@ -385,6 +407,14 @@ pub async fn on_message(cx: &Ctx<'_>, mut form: DriverForm, msg: &Message) -> an
         FormStep::FullName => set(&mut form.full_name, value),
         FormStep::Phone if skipped => form.phone.is_some(),
         FormStep::Phone => set(&mut form.phone, value),
+        FormStep::Kind if skipped => form.kind.is_some(),
+        FormStep::Kind => match value.as_deref().and_then(VehicleKind::parse) {
+            Some(kind) => {
+                form.kind = Some(kind);
+                true
+            }
+            None => false,
+        },
         FormStep::Plate if skipped => form.plate.is_some(),
         FormStep::Plate => set(&mut form.plate, value),
         FormStep::BikeModel if skipped => form.bike_model.is_some(),
@@ -397,8 +427,9 @@ pub async fn on_message(cx: &Ctx<'_>, mut form: DriverForm, msg: &Message) -> an
         FormStep::BikePhoto => set(&mut form.bike_photo_file_id, value),
     };
     if accepted {
-        return match next(step) {
+        return match next(step, form.vehicle_only) {
             Some(next) => ask(cx, form, next).await,
+            None if form.vehicle_only => vehicles::finish_add(cx, form).await,
             None => finish(cx, form).await,
         };
     }
@@ -420,28 +451,15 @@ async fn finish(cx: &Ctx<'_>, form: DriverForm) -> anyhow::Result<()> {
     let app = cx.app;
     let inviter = form.inviter();
     let invite = form.invite.as_ref().and_then(|(code, _)| InviteCode::parse(code));
-    let (Some(alias), Some(full_name), Some(phone), Some(plate), Some(bike_model), Some(bike_color), Some(photo)) = (
-        form.alias,
-        form.full_name,
-        form.phone,
-        form.plate,
-        form.bike_model,
-        form.bike_color,
-        form.photo_file_id,
-    ) else {
+    let Some(vehicle) = vehicles::new_vehicle(&form) else {
         // Cannot happen through the steps; start over rather than save a hole.
         return start_form(cx, DriverForm::default()).await;
     };
-    let profile = Profile {
-        alias,
-        full_name: Some(full_name),
-        phone,
-        plate,
-        bike_model,
-        bike_color,
-        photo_file_id: photo,
-        bike_photo_file_id: form.bike_photo_file_id,
+    let (Some(alias), Some(full_name), Some(phone), Some(photo)) = (form.alias, form.full_name, form.phone, form.photo_file_id)
+    else {
+        return start_form(cx, DriverForm::default()).await;
     };
+    let profile = Profile { alias, full_name: Some(full_name), phone, photo_file_id: photo };
 
     let is_new = app.driver_status(cx.user).await?.is_none();
     // The invitation is consumed only now, so an abandoned form can be resumed
@@ -457,17 +475,30 @@ async fn finish(cx: &Ctx<'_>, form: DriverForm) -> anyhow::Result<()> {
 
     let menu = app.menu(cx.user, cx.lang).await?;
     if is_new {
+        // The first vehicle goes in the same application (decision 121).
+        let id = db::vehicles::add(&app.pool, cx.user, &vehicle, now()).await?;
+        let vehicle = match id {
+            Some(id) => db::vehicles::get(&app.pool, id).await?,
+            None => None,
+        };
         tracing::info!("driver application received");
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::ApplicationSent)).reply_markup(menu).await?;
-        notify_staff(cx.bot, app, cx.user, &profile, invited).await?;
+        notify_staff(cx.bot, app, cx.user, &profile, vehicle.as_ref(), invited).await?;
     } else {
         cx.bot.send_message(chat(cx.user), i18n::text(cx.lang, Text::ProfileUpdated)).reply_markup(menu).await?;
     }
     Ok(())
 }
 
-async fn notify_staff(bot: &Bot, app: &App, driver: UserId, profile: &Profile, invited: bool) -> anyhow::Result<()> {
-    let text = |lang| i18n::application(lang, profile, invited);
+async fn notify_staff(
+    bot: &Bot,
+    app: &App,
+    driver: UserId,
+    profile: &Profile,
+    vehicle: Option<&Vehicle>,
+    invited: bool,
+) -> anyhow::Result<()> {
+    let text = |lang| i18n::application(lang, profile, vehicle, invited);
     let markup = |lang| keyboards::review_application(lang, driver);
     support::alert(bot, app, text, Some(profile.photo_file_id.clone()), markup).await
 }

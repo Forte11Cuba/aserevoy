@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::domain::fare::Cup;
 use crate::domain::ids::UserId;
 use crate::domain::request::{PaymentMethod, Point};
+use crate::domain::vehicle::VehicleKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Dialog {
@@ -19,6 +20,8 @@ pub enum Dialog {
     Raise { request: String },
     /// A driver changing one field of their profile.
     EditField { field: FormStep },
+    /// A driver changing one field of one of their vehicles.
+    EditVehicle { vehicle: i64, field: FormStep },
     /// A client changing one of their optional details (🔧 Settings).
     EditClient { field: ClientField },
     /// A driver making a counteroffer: `amount` is what the +/− buttons have
@@ -44,6 +47,8 @@ pub struct Republish {
     pub minutes: f64,
     pub price: Cup,
     pub payment: PaymentMethod,
+    #[serde(default)]
+    pub kind: VehicleKind,
 }
 
 /// A client requesting a ride, step by step. Pickup and destination are each
@@ -91,6 +96,9 @@ pub enum Ride {
     /// A description placed at a reparto: "is it around here?" before going
     /// on. `pickup` is `None` while the pickup itself is being confirmed.
     ConfirmApprox { pickup: Option<Spot>, spot: Spot },
+    /// Several kinds of vehicle can do the trip: the client picks one, each
+    /// with its suggested price (decision 117).
+    Vehicle { pickup: Spot, dropoff: Spot, km: f64, minutes: f64 },
     /// The client adjusts their offer, starting at the suggested price.
     Price { trip: Trip, offer: Cup },
     Payment { trip: Trip, price: Cup },
@@ -132,6 +140,11 @@ pub struct Trip {
     pub minutes: f64,
     pub suggested: Cup,
     pub minimum: Cup,
+    #[serde(default)]
+    pub kind: VehicleKind,
+    /// The client picked the kind: Back from the price goes to that step.
+    #[serde(default)]
+    pub chose_kind: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +152,8 @@ pub enum FormStep {
     Alias,
     FullName,
     Phone,
+    /// The kind of the vehicle (decision 121), right before its plate.
+    Kind,
     Plate,
     BikeModel,
     BikeColor,
@@ -155,10 +170,11 @@ pub enum ClientField {
 }
 
 impl FormStep {
-    pub const ALL: [FormStep; 8] = [
+    pub const ALL: [FormStep; 9] = [
         FormStep::Alias,
         FormStep::FullName,
         FormStep::Phone,
+        FormStep::Kind,
         FormStep::Plate,
         FormStep::BikeModel,
         FormStep::BikeColor,
@@ -172,6 +188,7 @@ impl FormStep {
             FormStep::Alias => "al",
             FormStep::FullName => "fn",
             FormStep::Phone => "ph",
+            FormStep::Kind => "vk",
             FormStep::Plate => "pl",
             FormStep::BikeModel => "bm",
             FormStep::BikeColor => "bc",
@@ -185,16 +202,21 @@ impl FormStep {
     }
 }
 
-/// A driver filling in their application, one question after another.
+/// A driver filling in their application, one question after another; or,
+/// with `vehicle_only`, adding a vehicle later (🚘 My vehicles).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DriverForm {
     pub step: Option<FormStep>,
+    #[serde(default)]
+    pub vehicle_only: bool,
     /// Invitation being used, with who created it.
     pub invite: Option<(String, i64)>,
     pub alias: Option<String>,
     #[serde(default)]
     pub full_name: Option<String>,
     pub phone: Option<String>,
+    #[serde(default)]
+    pub kind: Option<VehicleKind>,
     pub plate: Option<String>,
     pub bike_model: Option<String>,
     pub bike_color: Option<String>,

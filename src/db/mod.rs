@@ -15,6 +15,7 @@ pub mod requests;
 pub mod settings;
 pub mod support;
 pub mod users;
+pub mod vehicles;
 
 use std::str::FromStr;
 use std::time::Duration;

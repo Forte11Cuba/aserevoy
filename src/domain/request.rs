@@ -17,6 +17,7 @@
 use super::effect::{Alert, Effect, Notice, Place};
 use super::fare::{self, Cup, Fares};
 use super::ids::{RequestId, UserId};
+use super::vehicle::{self, Vehicle, VehicleId, VehicleKind};
 
 /// Unix time in seconds.
 pub type UnixTime = i64;
@@ -160,6 +161,16 @@ pub enum DomainError {
     ReasonNeeded,
     #[error("already done")]
     AlreadyDone,
+    #[error("the request is for a {wanted:?} and the active vehicle is a {active:?}")]
+    WrongVehicle { wanted: VehicleKind, active: VehicleKind },
+    #[error("no approved active vehicle")]
+    NoActiveVehicle,
+    #[error("the vehicle is not approved yet")]
+    VehicleNotApproved,
+    #[error("the active vehicle cannot change during a request or a counteroffer")]
+    VehicleLocked,
+    #[error("too many vehicles")]
+    TooManyVehicles,
 }
 
 /// A driver's latest counteroffer on an open request.
@@ -190,6 +201,8 @@ pub struct NewRequest {
     pub minutes: f64,
     pub price: Cup,
     pub payment: PaymentMethod,
+    /// What the client asked for (decision 117).
+    pub vehicle_kind: VehicleKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -213,6 +226,9 @@ pub struct Request {
     pub state: State,
     /// Holding the request (`Confirming`) or doing the trip (`Assigned`).
     pub driver: Option<UserId>,
+    pub vehicle_kind: VehicleKind,
+    /// The vehicle the driver holds or does the trip with (decision 123).
+    pub vehicle: Option<VehicleId>,
     pub channel_msg_id: Option<i32>,
     /// The client's card to confirm the driver (`Confirming`), to delete it
     /// when it no longer applies.
@@ -292,6 +308,8 @@ impl Request {
             payment: new.payment,
             state: State::Open,
             driver: None,
+            vehicle_kind: new.vehicle_kind,
+            vehicle: None,
             channel_msg_id: None,
             confirm_msg_id: None,
             created_at: now,
@@ -319,6 +337,13 @@ impl Request {
         Ok(())
     }
 
+    /// Whether `active`, the driver's active vehicle, can do this request
+    /// (decision 119); its id if so.
+    pub fn check_vehicle(&self, active: Option<&Vehicle>) -> Result<VehicleId, DomainError> {
+        vehicle::check_fits(self.vehicle_kind, active)?;
+        Ok(active.expect("a fitting vehicle exists").id)
+    }
+
     fn check_client(&self, by: UserId) -> Result<(), DomainError> {
         if by != self.client {
             return Err(DomainError::NotParticipant);
@@ -329,13 +354,15 @@ impl Request {
     /// ✅ Accept in the channel: the driver holds the request while the client
     /// decides. The caller must reserve it atomically in the database and only
     /// apply the effects if it won.
-    pub fn accept(&mut self, driver: UserId, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
+    pub fn accept(&mut self, driver: UserId, active: Option<&Vehicle>, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
         self.check_open(now)?;
         if driver == self.client {
             return Err(DomainError::OwnRequest);
         }
+        let vehicle = self.check_vehicle(active)?;
         self.state = State::Confirming;
         self.driver = Some(driver);
+        self.vehicle = Some(vehicle);
         self.confirm_by = Some(now + CONFIRM_SECS);
         self.answer_by = None;
         let id = self.id.clone();
@@ -372,6 +399,7 @@ impl Request {
         }
         self.state = State::Open;
         self.driver = None;
+        self.vehicle = None;
         self.confirm_by = None;
         let id = self.id.clone();
         Ok(vec![
@@ -386,10 +414,14 @@ impl Request {
         &mut self,
         by: UserId,
         driver: UserId,
+        active: Option<&Vehicle>,
         now: UnixTime,
     ) -> Result<Vec<Effect>, DomainError> {
         self.check_open(now)?;
         self.check_client(by)?;
+        // The driver cannot switch while the offer is live, so this only
+        // fails if their vehicle was removed or is no longer approved.
+        let vehicle = self.check_vehicle(active).map_err(|_| DomainError::OfferGone)?;
         let offer = self
             .counteroffers
             .iter()
@@ -398,6 +430,7 @@ impl Request {
         self.price = offer.amount;
         self.state = State::Assigned;
         self.driver = Some(driver);
+        self.vehicle = Some(vehicle);
         self.assigned_at = Some(now);
         self.answer_by = None;
         let mut effects = vec![Effect::WithdrawDriverOffers { driver }];
@@ -443,11 +476,18 @@ impl Request {
 
     /// A driver offers to do the trip for `amount`, above the current price.
     /// It replaces their previous counteroffer on this request.
-    pub fn counteroffer(&mut self, driver: UserId, amount: Cup, now: UnixTime) -> Result<Vec<Effect>, DomainError> {
+    pub fn counteroffer(
+        &mut self,
+        driver: UserId,
+        active: Option<&Vehicle>,
+        amount: Cup,
+        now: UnixTime,
+    ) -> Result<Vec<Effect>, DomainError> {
         self.check_open(now)?;
         if driver == self.client {
             return Err(DomainError::OwnRequest);
         }
+        self.check_vehicle(active)?;
         if amount <= self.price {
             return Err(DomainError::PriceNotHigher { current: self.price });
         }
@@ -676,6 +716,7 @@ impl Request {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::vehicle::VehicleStatus;
 
     const CLIENT: UserId = UserId(1);
     const DRIVER: UserId = UserId(2);
@@ -701,7 +742,27 @@ mod tests {
             minutes: 9.0,
             price,
             payment: PaymentMethod::Cash,
+            vehicle_kind: VehicleKind::Moto,
         }
+    }
+
+    fn vehicle(id: VehicleId, kind: VehicleKind) -> Vehicle {
+        Vehicle {
+            id,
+            driver: DRIVER,
+            kind,
+            plate: "P123456".into(),
+            model: "Suzuki".into(),
+            color: "rojo".into(),
+            photo_file_id: None,
+            status: VehicleStatus::Approved,
+            pending_plate: None,
+            pending_photo_file_id: None,
+        }
+    }
+
+    fn moto() -> Vehicle {
+        vehicle(1, VehicleKind::Moto)
     }
 
     fn open() -> Request {
@@ -711,7 +772,7 @@ mod tests {
 
     fn confirming() -> Request {
         let mut r = open();
-        r.accept(DRIVER, T0 + 10).unwrap();
+        r.accept(DRIVER, Some(&moto()), T0 + 10).unwrap();
         r
     }
 
@@ -755,13 +816,39 @@ mod tests {
     #[test]
     fn accepting_holds_the_request_without_revealing_the_points() {
         let mut r = open();
-        let effects = r.accept(DRIVER, T0 + 10).unwrap();
+        let effects = r.accept(DRIVER, Some(&moto()), T0 + 10).unwrap();
         assert_eq!(r.state, State::Confirming);
         assert_eq!(r.driver, Some(DRIVER));
         assert_eq!(r.confirm_by, Some(T0 + 10 + CONFIRM_SECS));
         assert!(matches!(effects[0], Effect::MarkChannelConfirming { .. }));
         assert!(matches!(notified(&effects, CLIENT)[..], [Notice::ConfirmDriver { .. }]));
         assert!(!has_location(&effects));
+    }
+
+    #[test]
+    fn only_a_vehicle_of_the_requested_kind_takes_it() {
+        let car = vehicle(2, VehicleKind::Car);
+        let wrong = DomainError::WrongVehicle { wanted: VehicleKind::Moto, active: VehicleKind::Car };
+        assert_eq!(open().accept(DRIVER, Some(&car), T0).unwrap_err(), wrong);
+        assert_eq!(open().accept(DRIVER, None, T0).unwrap_err(), DomainError::NoActiveVehicle);
+        assert_eq!(open().counteroffer(DRIVER, Some(&car), 700, T0).unwrap_err(), wrong);
+
+        let mut r = open();
+        r.accept(DRIVER, Some(&moto()), T0).unwrap();
+        assert_eq!(r.vehicle, Some(1));
+        // Withdrawing frees the vehicle with the request.
+        r.withdraw(DRIVER).unwrap();
+        assert_eq!((r.driver, r.vehicle), (None, None));
+    }
+
+    #[test]
+    fn a_counteroffer_is_assigned_with_the_drivers_vehicle() {
+        let mut r = open();
+        r.counteroffer(DRIVER, Some(&moto()), 630, T0).unwrap();
+        let car = vehicle(2, VehicleKind::Car);
+        assert_eq!(r.accept_counteroffer(CLIENT, DRIVER, Some(&car), T0 + 1).unwrap_err(), DomainError::OfferGone);
+        r.accept_counteroffer(CLIENT, DRIVER, Some(&moto()), T0 + 1).unwrap();
+        assert_eq!(r.vehicle, Some(1));
     }
 
     #[test]
@@ -777,9 +864,9 @@ mod tests {
 
     #[test]
     fn cannot_accept_own_request_expired_or_held() {
-        assert_eq!(open().accept(CLIENT, T0).unwrap_err(), DomainError::OwnRequest);
-        assert_eq!(open().accept(DRIVER, T0 + REQUEST_TTL_SECS).unwrap_err(), DomainError::NotOpen);
-        assert_eq!(confirming().accept(STRANGER, T0 + 20).unwrap_err(), DomainError::NotOpen);
+        assert_eq!(open().accept(CLIENT, Some(&moto()), T0).unwrap_err(), DomainError::OwnRequest);
+        assert_eq!(open().accept(DRIVER, Some(&moto()), T0 + REQUEST_TTL_SECS).unwrap_err(), DomainError::NotOpen);
+        assert_eq!(confirming().accept(STRANGER, Some(&moto()), T0 + 20).unwrap_err(), DomainError::NotOpen);
     }
 
     #[test]
@@ -803,7 +890,7 @@ mod tests {
         assert!(matches!(effects[0], Effect::UpdateChannelPost { .. }));
         assert!(matches!(notified(&effects, CLIENT)[..], [Notice::DriverWithdrew { .. }]));
         // Back in the channel: another driver can take it.
-        assert!(r.accept(OTHER_DRIVER, T0 + 30).is_ok());
+        assert!(r.accept(OTHER_DRIVER, Some(&moto()), T0 + 30).is_ok());
         assert_eq!(assigned().withdraw(DRIVER).unwrap_err(), DomainError::NotOpen);
     }
 
@@ -826,7 +913,7 @@ mod tests {
     #[test]
     fn a_confirmation_in_progress_outlives_the_60_minutes() {
         let mut r = open();
-        r.accept(DRIVER, T0 + REQUEST_TTL_SECS - 60).unwrap();
+        r.accept(DRIVER, Some(&moto()), T0 + REQUEST_TTL_SECS - 60).unwrap();
         assert!(r.tick(T0 + REQUEST_TTL_SECS + 1).is_none());
         assert!(r.confirm(CLIENT, T0 + REQUEST_TTL_SECS + 2).is_ok());
     }
@@ -863,8 +950,8 @@ mod tests {
     #[test]
     fn raising_the_price_updates_the_post_and_drops_cheaper_offers() {
         let mut r = open();
-        r.counteroffer(DRIVER, 630, T0 + 1).unwrap();
-        r.counteroffer(OTHER_DRIVER, 700, T0 + 1).unwrap();
+        r.counteroffer(DRIVER, Some(&moto()), 630, T0 + 1).unwrap();
+        r.counteroffer(OTHER_DRIVER, Some(&moto()), 700, T0 + 1).unwrap();
         assert_eq!(r.raise_price(CLIENT, 580, T0 + 2).unwrap_err(), DomainError::PriceNotHigher { current: 580 });
         assert_eq!(r.raise_price(DRIVER, 650, T0 + 2).unwrap_err(), DomainError::NotParticipant);
 
@@ -879,14 +966,14 @@ mod tests {
     #[test]
     fn counteroffers_replace_previous_ones_and_must_beat_the_price() {
         let mut r = open();
-        assert_eq!(r.counteroffer(DRIVER, 580, T0).unwrap_err(), DomainError::PriceNotHigher { current: 580 });
-        assert_eq!(r.counteroffer(CLIENT, 700, T0).unwrap_err(), DomainError::OwnRequest);
-        let effects = r.counteroffer(DRIVER, 630, T0).unwrap();
+        assert_eq!(r.counteroffer(DRIVER, Some(&moto()), 580, T0).unwrap_err(), DomainError::PriceNotHigher { current: 580 });
+        assert_eq!(r.counteroffer(CLIENT, Some(&moto()), 700, T0).unwrap_err(), DomainError::OwnRequest);
+        let effects = r.counteroffer(DRIVER, Some(&moto()), 630, T0).unwrap();
         assert_eq!(effects, vec![Effect::ShowOffer { request: r.id.clone(), driver: DRIVER }]);
         r.counteroffers[0].client_msg_id = Some(77); // the bot sent it
 
         // The new one replaces it, and its message goes.
-        let effects = r.counteroffer(DRIVER, 680, T0 + 5).unwrap();
+        let effects = r.counteroffer(DRIVER, Some(&moto()), 680, T0 + 5).unwrap();
         assert_eq!(effects[0], Effect::HideOffer { client: CLIENT, msg: 77 });
         let expected = Counteroffer { driver: DRIVER, amount: 680, expires_at: T0 + 5 + COUNTEROFFER_SECS, client_msg_id: None };
         assert_eq!(r.counteroffers, vec![expected]);
@@ -895,9 +982,9 @@ mod tests {
     #[test]
     fn accepting_a_counteroffer_assigns_at_its_price_and_dismisses_the_rest() {
         let mut r = open();
-        r.counteroffer(DRIVER, 630, T0).unwrap();
-        r.counteroffer(OTHER_DRIVER, 700, T0).unwrap();
-        let effects = r.accept_counteroffer(CLIENT, DRIVER, T0 + 10).unwrap();
+        r.counteroffer(DRIVER, Some(&moto()), 630, T0).unwrap();
+        r.counteroffer(OTHER_DRIVER, Some(&moto()), 700, T0).unwrap();
+        let effects = r.accept_counteroffer(CLIENT, DRIVER, Some(&moto()), T0 + 10).unwrap();
         assert_eq!((r.state, r.price, r.driver), (State::Assigned, 630, Some(DRIVER)));
         assert!(matches!(notified(&effects, OTHER_DRIVER)[..], [Notice::RequestGone { .. }]));
         assert!(matches!(notified(&effects, CLIENT)[..], [Notice::DriverAssigned { .. }]));
@@ -909,17 +996,17 @@ mod tests {
     fn once_a_driver_is_assigned_the_other_offers_leave_the_clients_chat() {
         // Accepting one counteroffer: the others' messages are deleted.
         let mut r = open();
-        r.counteroffer(DRIVER, 630, T0).unwrap();
-        r.counteroffer(OTHER_DRIVER, 700, T0).unwrap();
+        r.counteroffer(DRIVER, Some(&moto()), 630, T0).unwrap();
+        r.counteroffer(OTHER_DRIVER, Some(&moto()), 700, T0).unwrap();
         r.counteroffers[1].client_msg_id = Some(78);
-        let effects = r.accept_counteroffer(CLIENT, DRIVER, T0 + 10).unwrap();
+        let effects = r.accept_counteroffer(CLIENT, DRIVER, Some(&moto()), T0 + 10).unwrap();
         assert!(effects.contains(&Effect::HideOffer { client: CLIENT, msg: 78 }));
 
         // A driver accepts the price and the client confirms: the same.
         let mut r = open();
-        r.counteroffer(OTHER_DRIVER, 700, T0).unwrap();
+        r.counteroffer(OTHER_DRIVER, Some(&moto()), 700, T0).unwrap();
         r.counteroffers[0].client_msg_id = Some(78);
-        r.accept(DRIVER, T0 + 5).unwrap();
+        r.accept(DRIVER, Some(&moto()), T0 + 5).unwrap();
         let effects = r.confirm(CLIENT, T0 + 10).unwrap();
         assert!(effects.contains(&Effect::HideOffer { client: CLIENT, msg: 78 }));
         assert!(matches!(notified(&effects, OTHER_DRIVER)[..], [Notice::RequestGone { .. }]));
@@ -928,17 +1015,17 @@ mod tests {
     #[test]
     fn expired_or_unknown_counteroffers_cannot_be_accepted() {
         let mut r = open();
-        r.counteroffer(DRIVER, 630, T0).unwrap();
+        r.counteroffer(DRIVER, Some(&moto()), 630, T0).unwrap();
         let late = T0 + COUNTEROFFER_SECS;
-        assert_eq!(r.accept_counteroffer(CLIENT, DRIVER, late).unwrap_err(), DomainError::OfferGone);
-        assert_eq!(r.accept_counteroffer(CLIENT, STRANGER, T0 + 1).unwrap_err(), DomainError::OfferGone);
-        assert_eq!(r.accept_counteroffer(DRIVER, DRIVER, T0 + 1).unwrap_err(), DomainError::NotParticipant);
+        assert_eq!(r.accept_counteroffer(CLIENT, DRIVER, Some(&moto()), late).unwrap_err(), DomainError::OfferGone);
+        assert_eq!(r.accept_counteroffer(CLIENT, STRANGER, Some(&moto()), T0 + 1).unwrap_err(), DomainError::OfferGone);
+        assert_eq!(r.accept_counteroffer(DRIVER, DRIVER, Some(&moto()), T0 + 1).unwrap_err(), DomainError::NotParticipant);
     }
 
     #[test]
     fn rejecting_a_counteroffer_tells_the_driver() {
         let mut r = open();
-        r.counteroffer(DRIVER, 630, T0).unwrap();
+        r.counteroffer(DRIVER, Some(&moto()), 630, T0).unwrap();
         let effects = r.reject_counteroffer(CLIENT, DRIVER).unwrap();
         assert!(matches!(notified(&effects, DRIVER)[..], [Notice::CounterofferRejected { .. }]));
         assert!(r.counteroffers.is_empty());
@@ -948,7 +1035,7 @@ mod tests {
     #[test]
     fn closing_tells_drivers_with_pending_offers_and_hides_them() {
         let mut r = open();
-        r.counteroffer(DRIVER, 630, T0).unwrap();
+        r.counteroffer(DRIVER, Some(&moto()), 630, T0).unwrap();
         r.counteroffers[0].client_msg_id = Some(77);
         let effects = r.cancel(CLIENT, None, T0 + 30).unwrap();
         assert!(matches!(notified(&effects, DRIVER)[..], [Notice::RequestGone { .. }]));

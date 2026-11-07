@@ -15,6 +15,7 @@ pub mod rating;
 pub mod settings;
 pub mod support;
 pub mod trip;
+pub mod vehicles;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

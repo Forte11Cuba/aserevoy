@@ -7,6 +7,7 @@ use crate::domain::ids::UserId;
 use crate::domain::reputation::Role;
 use crate::domain::fare::Cup;
 use crate::domain::request::{PaymentMethod, UnixTime};
+use crate::domain::vehicle::VehicleKind;
 
 /// How long a trip stays in the history.
 pub const HISTORY_SECS: i64 = 45 * 24 * 60 * 60;
@@ -25,6 +26,7 @@ pub struct Entry {
     pub counterpart: String,
     /// The stars this user gave, once they rated.
     pub stars: Option<i64>,
+    pub vehicle_kind: VehicleKind,
 }
 
 pub async fn record(
@@ -37,8 +39,8 @@ pub async fn record(
 ) -> sqlx::Result<()> {
     sqlx::query(
         "INSERT INTO trip_history (telegram_id, role, number, request_id, completed_at, origin_enc,
-             destination_enc, price, payment, counterpart_enc, rating_code)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             destination_enc, price, payment, counterpart_enc, rating_code, vehicle_kind)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(user.0)
     .bind(role.as_str())
@@ -51,6 +53,7 @@ pub async fn record(
     .bind(e.payment.as_str())
     .bind(cipher.encrypt(&e.counterpart))
     .bind(rating_code)
+    .bind(e.vehicle_kind.code())
     .execute(pool)
     .await?;
     Ok(())
@@ -67,8 +70,9 @@ pub async fn set_stars(pool: &SqlitePool, user: UserId, rating_code: &str, stars
     Ok(())
 }
 
-/// `number, request_id, completed_at, origin_enc, destination_enc, price, payment, counterpart_enc, stars`
-type Row = (i64, String, i64, Vec<u8>, Vec<u8>, i64, String, Vec<u8>, Option<i64>);
+/// `number, request_id, completed_at, origin_enc, destination_enc, price, payment, counterpart_enc, stars,
+/// vehicle_kind`
+type Row = (i64, String, i64, Vec<u8>, Vec<u8>, i64, String, Vec<u8>, Option<i64>, String);
 
 /// A page of the user's trips in a role, the most recent first, and how many
 /// there are.
@@ -81,7 +85,8 @@ pub async fn page(
     limit: i64,
 ) -> anyhow::Result<(Vec<Entry>, i64)> {
     let rows: Vec<Row> = sqlx::query_as(
-        "SELECT number, request_id, completed_at, origin_enc, destination_enc, price, payment, counterpart_enc, stars
+        "SELECT number, request_id, completed_at, origin_enc, destination_enc, price, payment, counterpart_enc, stars,
+             vehicle_kind
          FROM trip_history WHERE telegram_id = ? AND role = ?
          ORDER BY completed_at DESC, id DESC LIMIT ? OFFSET ?",
     )
@@ -97,7 +102,7 @@ pub async fn page(
         .fetch_one(pool)
         .await?;
     let mut entries = Vec::with_capacity(rows.len());
-    for (number, request_id, completed_at, origin, destination, price, payment, counterpart, stars) in rows {
+    for (number, request_id, completed_at, origin, destination, price, payment, counterpart, stars, kind) in rows {
         entries.push(Entry {
             number,
             request_id,
@@ -108,6 +113,7 @@ pub async fn page(
             payment: PaymentMethod::parse(&payment).unwrap_or(PaymentMethod::Cash),
             counterpart: cipher.decrypt(&counterpart)?,
             stars,
+            vehicle_kind: VehicleKind::parse(&kind).unwrap_or_default(),
         });
     }
     Ok((entries, total))
@@ -167,6 +173,7 @@ mod tests {
             payment: PaymentMethod::Cash,
             counterpart: "Pepe".into(),
             stars: None,
+            vehicle_kind: VehicleKind::Car,
         }
     }
 
@@ -184,7 +191,7 @@ mod tests {
         assert_eq!(total, 2);
         assert_eq!(entries.iter().map(|e| e.number).collect::<Vec<_>>(), vec![2, 1]);
         assert_eq!((entries[0].stars, entries[1].stars), (Some(5), None));
-        assert_eq!(entries[0].origin, "Plaza (23 y L)");
+        assert_eq!((entries[0].origin.as_str(), entries[0].vehicle_kind), ("Plaza (23 y L)", VehicleKind::Car));
         let stored: Vec<u8> = sqlx::query_scalar("SELECT origin_enc FROM trip_history LIMIT 1").fetch_one(&pool).await.unwrap();
         assert!(!String::from_utf8_lossy(&stored).contains("Plaza"));
 

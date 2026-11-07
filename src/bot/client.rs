@@ -16,6 +16,8 @@ use crate::domain::fare::{self, Cup};
 use crate::domain::ids::{RequestId, UserId};
 use crate::domain::reputation::Role;
 use crate::domain::request::{DomainError, NewRequest, PaymentMethod, Point, Request, State};
+use crate::domain::fare::Fares;
+use crate::domain::vehicle::{self, VehicleKind};
 use crate::domain::driver;
 use crate::i18n::{self, Button, Lang, Text, parse_button};
 use crate::location::jev::{self, Decision};
@@ -156,6 +158,7 @@ pub async fn on_message(cx: &Ctx<'_>, ride: Ride, msg: &Message) -> anyhow::Resu
             cx.say(Text::ConfirmDropoff, keyboards::confirm_point(cx.lang, "drop")).await
         }
         Ride::ConfirmApprox { pickup, spot } => ask_approx(cx, pickup, spot).await,
+        Ride::Vehicle { pickup, dropoff, km, minutes } => ask_vehicle(cx, pickup, dropoff, km, minutes).await,
         Ride::Payment { .. } => cx.say(Text::AskPayment, keyboards::payment(cx.lang)).await,
         // The phone is saved in the client's details, for the next trips too.
         Ride::Phone { trip, price, payment } => {
@@ -219,6 +222,10 @@ async fn back(cx: &Ctx<'_>, ride: Ride) -> anyhow::Result<()> {
         Ride::ChooseDropoff { pickup, .. } | Ride::DescribeDropoff { pickup, .. } | Ride::ConfirmDropoff { pickup, .. } => {
             ask_dropoff(cx, pickup).await
         }
+        Ride::Vehicle { pickup, .. } => ask_dropoff(cx, pickup).await,
+        Ride::Price { trip, .. } if trip.chose_kind => {
+            ask_vehicle(cx, trip.pickup, trip.dropoff, trip.km, trip.minutes).await
+        }
         Ride::Price { trip, .. } => ask_dropoff(cx, trip.pickup).await,
         Ride::Payment { trip, price } => show_price(cx, trip, price).await,
         Ride::Phone { trip, price, .. } => ask_payment(cx, trip, price).await,
@@ -239,7 +246,17 @@ async fn show_summary(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMeth
         }
     };
     let approx = trip.pickup.approx || trip.dropoff.approx;
-    let text = i18n::ride_summary(cx.lang, &place(&trip.pickup), &place(&trip.dropoff), trip.km, approx, price, payment);
+    let (from, to) = (place(&trip.pickup), place(&trip.dropoff));
+    let summary = i18n::Summary {
+        kind: trip.chose_kind.then_some(trip.kind),
+        from: &from,
+        to: &to,
+        km: trip.km,
+        approx,
+        price,
+        payment,
+    };
+    let text = i18n::ride_summary(cx.lang, &summary);
     cx.save(Ride::Summary { trip, price, payment }).await?;
     cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::summary(cx.lang)).await?;
     Ok(())
@@ -446,6 +463,16 @@ pub async fn on_callback(
             Some(reparto) => described_at(cx, Some(pickup), text, reparto.clone()).await.map(|_| true)?,
             None => false,
         },
+        (Ride::Vehicle { pickup, dropoff, km, minutes }, "rkind", code) => match VehicleKind::parse(code) {
+            Some(kind) => {
+                let fares = db::fares::load_table(&cx.app.pool).await?;
+                let trip = trip_for(pickup, dropoff, km, minutes, kind, fares.of(kind), true);
+                let offer = trip.suggested;
+                show_price(cx, trip, offer).await?;
+                true
+            }
+            None => false,
+        },
         (Ride::Price { trip, offer }, "padj", delta) => {
             // Never below the minimum; the message shows it.
             if let Ok(delta) = delta.parse::<Cup>() {
@@ -585,13 +612,33 @@ async fn confirm_route(cx: &Ctx<'_>, pickup: Spot, dropoff: Spot) -> anyhow::Res
     };
     // From a reparto's point the route is an estimate, used as is: the
     // auction (the client's buttons, counteroffers) corrects the price.
-    let (km, minutes) = (route.km, route.minutes);
-    let fares = db::fares::load(&cx.app.pool).await?;
-    let suggested = fare::suggested_price(km, &fares);
-    let minimum = fare::minimum_price(suggested, &fares);
-    let trip = Trip { pickup, dropoff, km, minutes, suggested, minimum };
-    show_price(cx, trip, suggested).await?;
+    ask_vehicle(cx, pickup, dropoff, route.km, route.minutes).await?;
     Ok(true)
+}
+
+/// "What do you want to go in?": one button per kind some driver has, with
+/// its suggested price. With only one kind, straight to the price.
+async fn ask_vehicle(cx: &Ctx<'_>, pickup: Spot, dropoff: Spot, km: f64, minutes: f64) -> anyhow::Result<()> {
+    let kinds = vehicle::offered_kinds(&db::vehicles::registered_kinds(&cx.app.pool).await?);
+    let fares = db::fares::load_table(&cx.app.pool).await?;
+    if let [kind] = kinds[..] {
+        let trip = trip_for(pickup, dropoff, km, minutes, kind, fares.of(kind), false);
+        let offer = trip.suggested;
+        return show_price(cx, trip, offer).await;
+    }
+    let options: Vec<(VehicleKind, Cup)> =
+        kinds.iter().map(|&kind| (kind, fare::suggested_price(km, fares.of(kind)))).collect();
+    let approx = pickup.approx || dropoff.approx;
+    let text = i18n::ask_vehicle(cx.lang, km, minutes, approx);
+    cx.save(Ride::Vehicle { pickup, dropoff, km, minutes }).await?;
+    cx.bot.send_message(chat(cx.user), text).reply_markup(keyboards::ride_kinds(cx.lang, &options)).await?;
+    Ok(())
+}
+
+fn trip_for(pickup: Spot, dropoff: Spot, km: f64, minutes: f64, kind: VehicleKind, fares: &Fares, chose_kind: bool) -> Trip {
+    let suggested = fare::suggested_price(km, fares);
+    let minimum = fare::minimum_price(suggested, fares);
+    Trip { pickup, dropoff, km, minutes, suggested, minimum, kind, chose_kind }
 }
 
 /// The offer step, with `offer` as the current amount.
@@ -604,7 +651,12 @@ async fn show_price(cx: &Ctx<'_>, trip: Trip, offer: Cup) -> anyhow::Result<()> 
 
 fn price_text(cx: &Ctx<'_>, trip: &Trip, offer: Cup) -> String {
     let approx = trip.pickup.approx || trip.dropoff.approx;
-    i18n::price_prompt(cx.lang, trip.km, trip.minutes, trip.suggested, trip.minimum, offer, approx)
+    let prompt = i18n::price_prompt(cx.lang, trip.km, trip.minutes, trip.suggested, trip.minimum, offer, approx);
+    // The kind only when the client picked it: with motos alone, as before.
+    match trip.chose_kind {
+        true => format!("{}\n{prompt}", i18n::vehicle_kind(cx.lang, trip.kind)),
+        false => prompt,
+    }
 }
 
 /// 🔁 Publish again: the same trip and price as the request that closed.
@@ -612,16 +664,10 @@ pub async fn republish(cx: &Ctx<'_>, again: Republish) -> anyhow::Result<()> {
     if db::requests::active_for(&cx.app.pool, cx.user).await?.is_some() {
         return start(cx).await;
     }
-    let fares = db::fares::load(&cx.app.pool).await?;
-    let suggested = fare::suggested_price(again.km, &fares);
-    let trip = Trip {
-        pickup: again.pickup,
-        dropoff: again.dropoff,
-        km: again.km,
-        minutes: again.minutes,
-        suggested,
-        minimum: fare::minimum_price(suggested, &fares),
-    };
+    // The same kind as before (decision 117).
+    let fares = db::fares::load_table(&cx.app.pool).await?;
+    let fares = fares.of(again.kind);
+    let trip = trip_for(again.pickup, again.dropoff, again.km, again.minutes, again.kind, fares, false);
     publish(cx, trip, again.price, again.payment).await
 }
 
@@ -640,7 +686,8 @@ async fn publish(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -
         return Ok(());
     }
     db::reputation::touch(&app.pool, cx.user, Role::Client, now()).await?;
-    let fares = db::fares::load(&app.pool).await?;
+    let fares = db::fares::load_table(&app.pool).await?;
+    let fares = fares.of(trip.kind);
     let new = NewRequest {
         client: cx.user,
         client_phone: None,
@@ -654,13 +701,14 @@ async fn publish(cx: &Ctx<'_>, trip: Trip, price: Cup, payment: PaymentMethod) -
         minutes: trip.minutes,
         price,
         payment,
+        vehicle_kind: trip.kind,
     };
 
     // Ids are short, so a collision is possible: retry with a new one.
     let mut opened = None;
     for _ in 0..5 {
         let id = RequestId::generate(&mut rand::rng());
-        let (request, effects) = match Request::open(id, new.clone(), &fares, now()) {
+        let (request, effects) = match Request::open(id, new.clone(), fares, now()) {
             Ok(opened) => opened,
             Err(e) => {
                 cx.bot.send_message(chat(cx.user), i18n::domain_error(cx.lang, &e)).await?;

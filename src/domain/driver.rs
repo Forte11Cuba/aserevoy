@@ -1,5 +1,6 @@
-//! Drivers' profiles. A driver fills in the profile from the bot, an admin
-//! approves it once, and later edits do not need approval again.
+//! Drivers' profiles. A driver fills in the profile from the bot, with their
+//! first vehicle, and an admin approves it once; later edits do not need
+//! approval again, except the full name and a vehicle's plate and photo.
 
 use super::ids::UserId;
 
@@ -31,11 +32,8 @@ pub struct Profile {
     #[serde(default)]
     pub full_name: Option<String>,
     pub phone: String,
-    pub plate: String,
-    pub bike_model: String,
-    pub bike_color: String,
+    /// Their own photo. The vehicles have theirs (decision 120).
     pub photo_file_id: String,
-    pub bike_photo_file_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,7 +54,7 @@ pub fn clean_full_name(input: &str) -> Option<String> {
 }
 pub const FIELD_MAX: usize = 40;
 
-/// Trims a short free-text answer (alias, plate, bike model or color) and
+/// Trims a short free-text answer (alias, plate, vehicle model or color) and
 /// rejects empty or overly long ones.
 pub fn clean_field(input: &str, max_chars: usize) -> Option<String> {
     let text = input.split_whitespace().collect::<Vec<_>>().join(" ");

@@ -7,3 +7,4 @@ pub mod ids;
 pub mod phone;
 pub mod reputation;
 pub mod request;
+pub mod vehicle;

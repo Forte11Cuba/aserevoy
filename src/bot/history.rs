@@ -1,4 +1,4 @@
-//! 🧾 My trips: each side's completed trips of the last 45 days, the most
+//! 📅 My trips: each side's completed trips of the last 45 days, the most
 //! recent first, by pages; and deleting them.
 
 use teloxide::prelude::*;
@@ -46,6 +46,7 @@ pub async fn show(cx: &Ctx<'_>, role: Role, page: i64, pressed: Option<MessageId
             pay: e.payment,
             counterpart: &e.counterpart,
             stars: e.stars,
+            kind: e.vehicle_kind,
         })
         .collect();
     let text = i18n::history(cx.lang, role, &lines, total);

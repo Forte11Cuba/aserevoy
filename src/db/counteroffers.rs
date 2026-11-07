@@ -165,6 +165,7 @@ mod tests {
             minutes: 6.0,
             price: 400,
             payment: PaymentMethod::Cash,
+            vehicle_kind: Default::default(),
         };
         let fares = Fares { base: 100, per_km: 150, min_percent: 80 };
         let (r, _) = Request::open(RequestId::parse(id).unwrap(), new, &fares, 0).unwrap();

@@ -122,7 +122,9 @@ Un gestor suele ser una **agencia**: tiene sus propios clientes y los conecta co
 
 ## Vehículos
 
-> **Planificado, sin programar** (decisiones 116 a 130). Hasta que se programe, todos los viajes son en moto.
+> **Programado en la rama `vehiculos`** (issue #29, decisiones 116 a 130), pendiente de la prueba en vivo con un chofer de moto y uno de carro.
+>
+> Detalles de la implementación que no estaban decididos (por confirmar con el usuario): el atajo de la decisión 128 vale también para 💬 Contraofertar ("🚗 Usar Lada rojo y contraofertar"); el tiempo del viaje ya no dice "en moto" ("⏱ unos 9 min"); en el resumen y el paso de precio el tipo solo sale si el cliente lo eligió; un chofer pendiente de aprobación no puede añadir vehículos (el primero va en su solicitud); quitar un vehículo pide confirmación; los términos cambian "motos" por "vehículos" sin subir `TERMS_VERSION`.
 
 Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 116). Un triciclo es una moto de tres ruedas, o una moto con un carro de carga detrás, eléctrica o de gasolina; lleva chapa como una moto. Por ahora no hay más tipos: los colectivos (almendrón, microbús) cambiarían el modelo, porque varias personas comparten un viaje.
 
@@ -142,7 +144,7 @@ Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 11
 
 **Tarifas por tipo** (decisión 118). Cada tipo tiene su `base`, `tarifa_km` y `% mínimo`. Las de carro y triciclo empiezan copiando las de moto, y un superadmin las ajusta antes de que haya choferes de ese tipo. En ⚙️ Administración → Tarifas se elige primero el tipo; el comando acepta el tipo delante (`/tarifa carro km 80`) y sin tipo sigue cambiando la moto (`/tarifa km 60`). `/tarifas` muestra los tres.
 
-**Un solo canal** (decisión 119). Todas las ofertas van al mismo canal y **la primera línea dice el tipo** ("🚗 Carro"), antes del 🛵 ID. El servidor comprueba el tipo en cada acción:
+**Un solo canal** (decisión 119). Todas las ofertas van al mismo canal y **la primera línea dice el tipo y el ID**: "🚗 Carro · 🆔 ESWA" (decisión 131). El servidor comprueba el tipo en cada acción:
 
 - **Aceptar** y **💬 Contraofertar** (al abrir el enlace y al enviar) solo valen si el vehículo activo del chofer es del tipo de la solicitud. Si no, se le explica: "Esta solicitud es para 🚗 Carro y tu vehículo activo es 🏍 Moto. Cámbialo en 🏍 Chofer → 🚘 Mis vehículos".
 - Un chofer sin vehículo activo aprobado no puede aceptar ni contraofertar.
@@ -176,11 +178,11 @@ Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 11
 
 **Datos** (decisión 126).
 
-- Tabla nueva `vehicles`: `id`, `driver_id`, `kind` (`moto`, `car`, `tricycle`), chapa, modelo, color, `photo_file_id`, estado (`pending`, `active`, `rejected`), chapa y foto pendientes de aprobación, `created_at`, `approved_by`.
+- Tabla nueva `vehicles`: `id`, `driver_id`, `kind` (`moto`, `car`, `tricycle`), chapa, modelo, color, `photo_file_id`, estado (`pending` o `approved`; un rechazado se borra, decisión 129), chapa y foto pendientes de aprobación, `created_at`, `approved_by`.
 - `drivers.active_vehicle_id`.
 - `requests.vehicle_kind` (obligatorio desde que se publica) y `requests.vehicle_id` (al reservar o asignar).
 - `fares`: claves por tipo (`car.base`, `car.per_km`, `car.min_percent`, `tricycle.…`); las de moto conservan sus claves actuales.
-- **Migración:** la moto de cada chofer actual (`plate`, `bike_model`, `bike_color`, `bike_photo_file_id`) pasa a `vehicles` como `moto`, aprobada si el chofer está `activo`, y queda como su vehículo activo. Las columnas viejas de `drivers` quedan sin uso, como `payment_methods`, para que la imagen anterior siga funcionando si hay que volver atrás.
+- **Migración:** la moto de cada chofer actual (`plate`, `bike_model`, `bike_color`, `bike_photo_file_id`) pasa a `vehicles` como `moto`, aprobada si el chofer ya fue aprobado (`active` o `blocked`; la de una solicitud pendiente se aprueba con ella), y queda como su vehículo activo. Las columnas viejas de `drivers` quedan sin uso, como `payment_methods`. **Volver atrás** no es solo cambiar de imagen: la `0.1.0` no arranca con una base que tiene la migración `0016` (sqlx rechaza migraciones que no conoce). Antes de desplegar se copia la base; para volver, se restaura la copia y se pone la imagen anterior (migración `0016_vehicles.sql`, probada sobre una copia de la base del piloto y sobre choferes de prueba).
 - Los textos que dicen "moto-taxi" o "moto" donde vale cualquier vehículo (descripción del bot, bienvenida, guías ❓ Cómo funciona, términos, `README.md`) pasan a hablar de "moto, carro o triciclo". El 🏍 de los choferes (decisión 105) y el botón 🏍 Chofer se mantienen.
 
 ## Ubicación y precio
@@ -715,3 +717,7 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 128 | Atajo al aceptar con otro tipo activo: si el chofer tiene un vehículo aprobado del tipo de la solicitud, el bot le escribe por privado con un botón "🚗 Usar <vehículo> y aceptar", que cambia el vehículo activo y acepta de una vez (con las mismas reglas que cambiarlo a mano); si no tiene ninguno de ese tipo, solo se le explica | 2026-11-07 |
 | 129 | Un vehículo que un admin rechaza se borra y se avisa al chofer, que puede añadirlo de nuevo | 2026-11-07 |
 | 130 | La foto propia del chofer se cambia sin aprobación, solo con aviso a los admins, como hoy; la aprobación de la 122 es solo para la chapa y la foto de los vehículos. El primer vehículo se aprueba junto con el chofer, no por separado | 2026-11-07 |
+| 131 | La oferta del canal empieza con el tipo y el ID en una línea, "🚗 Carro · 🆔 ESWA", en vez de "🛵 Solicitud ESWA" debajo del tipo | 2026-11-07 |
+| 132 | El 🛵 deja de marcar el viaje: los mensajes de un viaje (fichas, "un chofer quiere hacer tu viaje", Compartir viaje) llevan el emoji de su tipo (🏍, 🚗, 🛺); los botones generales pasan a 🚕 Pedir viaje y 🧭 Mi viaje, y los teclados viejos con 🛵 siguen funcionando. Sustituye el 🛵 de la 95, la 101 y la 102 | 2026-11-07 |
+| 133 | Los choferes se marcan con 🧢 (la gorra: sin sexo ni color de pelo, y vale para moto, carro o triciclo): 🧢 Chofer, 🧢 Aplicar a ser chofer, 🧢 Choferes en el panel y las guías. El 🏍 queda solo para el tipo Moto. Los teclados viejos con 🏍 siguen funcionando. Sustituye el 🏍 de choferes de la 105 | 2026-11-07 |
+| 134 | 🧾 Mis viajes pasa a 📅 Mis viajes (en Telegram se confundía con 🪪 Mi ficha), también en el título del historial y en los textos que lo nombran. Los teclados viejos con 🧾 siguen funcionando | 2026-11-07 |
