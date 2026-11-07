@@ -122,7 +122,7 @@ Un gestor suele ser una **agencia**: tiene sus propios clientes y los conecta co
 
 ## Vehículos
 
-> **Planificado, sin programar** (decisiones 116 a 129). Hasta que se programe, todos los viajes son en moto.
+> **Planificado, sin programar** (decisiones 116 a 130). Hasta que se programe, todos los viajes son en moto.
 
 Además de la moto, se pueden inscribir **carros** y **triciclos** (decisión 116). Un triciclo es una moto de tres ruedas, o una moto con un carro de carga detrás, eléctrica o de gasolina; lleva chapa como una moto. Por ahora no hay más tipos: los colectivos (almendrón, microbús) cambiarían el modelo, porque varias personas comparten un viaje.
 
@@ -714,3 +714,4 @@ Estas decisiones cambian el diseño y conviene cerrarlas antes de programar.
 | 127 | Al cliente le salen los tipos con al menos un chofer `activo` que tiene un vehículo aprobado de ese tipo, sea o no su vehículo activo; se calcula en cada pedido. El chofer que ve una oferta de otro de sus tipos cambia de vehículo activo y la toma. Sustituye en la 117 "con ese vehículo activo" | 2026-11-07 |
 | 128 | Atajo al aceptar con otro tipo activo: si el chofer tiene un vehículo aprobado del tipo de la solicitud, el bot le escribe por privado con un botón "🚗 Usar <vehículo> y aceptar", que cambia el vehículo activo y acepta de una vez (con las mismas reglas que cambiarlo a mano); si no tiene ninguno de ese tipo, solo se le explica | 2026-11-07 |
 | 129 | Un vehículo que un admin rechaza se borra y se avisa al chofer, que puede añadirlo de nuevo | 2026-11-07 |
+| 130 | La foto propia del chofer se cambia sin aprobación, solo con aviso a los admins, como hoy; la aprobación de la 122 es solo para la chapa y la foto de los vehículos. El primer vehículo se aprueba junto con el chofer, no por separado | 2026-11-07 |
